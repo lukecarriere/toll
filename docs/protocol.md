@@ -133,7 +133,7 @@ A verifier rejects a pass that is past `exp`, for another site, for a lower clas
 | `GET /v1/status` | Cookie or `Authorization` pass → `{ ok: true, exp, cls, n }` (n = remaining uses), else `{ ok: false }`. |
 | `GET /v1/health` | `{ ok: true, v: "1.0.0", settlement: "off" }`, or with settlement on `{ ok, v, settlement: "stub", settlement_degraded, usd_rate: "ok" \| "unavailable" }`; a small HTML status table when the client asks for `text/html`. No balances. |
 
-Owner API (Node issuer, off unless `settlement.owner_key` is set): `GET /v1/owner/balance` and `POST /v1/owner/withdraw` with `Authorization: Bearer <owner_key>`, server to server, for a WordPress site set to Payment server (settlement.md §9).
+Owner API (Node issuer, off unless `settlement.owner_key` is set): `GET /v1/owner/balance`, `POST /v1/owner/withdraw`, and for agents on that site `POST /v1/owner/offers {action}` (offers plus the `www_authenticate` value to relay) and `POST /v1/owner/redeem {offer_id, kind, preimage, macaroon}` (checks and books the payment; the site mints its own pass), with `Authorization: Bearer <owner_key>`, server to server, for a WordPress site set to Payment server (settlement.md §9).
 
 **WordPress issuer** (packages/wp-toll-gate): the same endpoints under `/wp-json/toll/v1/` (`challenge`, `redeem`, `status`, `health`, `siteverify`), same bodies and errors, with three differences: it is work-only (`offers` is always `[]` and a paid redeem is 400 `unsupported`), the standard engine only, and challenges are bound to `/wp-comments-post.php`, `/wp-login.php` or `/`. Counters use the names above, stored in the site's options and exported as CSV from Settings → Toll.
 

@@ -69,6 +69,7 @@ function toll_gate_handle_save(): void
         toll_gate_update_settings($s);
         $key = trim((string) ($in['server_key'] ?? ''));
         if ($key !== '') update_option('toll_gate_server_key', sanitize_text_field($key), false);
+        toll_gate_server_down_reset(); // a new address or key gets a fresh try from agents
         toll_gate_set_notice('success', toll_gate_s('n_saved'));
     }
     wp_safe_redirect(toll_gate_page_url());

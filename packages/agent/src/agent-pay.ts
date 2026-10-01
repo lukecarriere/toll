@@ -4,6 +4,11 @@
 //   npm run agent-pay -- --writes 5            (demo running on http://localhost:8787)
 //   node demo/agent-pay.mjs --writes 20 --base http://localhost:8787
 //
+// Against the WordPress plugin (comment form; the demo is the payment server and test payer):
+//   npm run agent-pay -- --writes 20 --base http://127.0.0.1:8888 --issuer http://127.0.0.1:8888/wp-json/toll \
+//     --path /wp-comments-post.php --form "comment_post_ID=1&author=Agent&email=agent@example.test" \
+//     --field comment --pay-url http://127.0.0.1:8787/demo/stub-pay --stats http://127.0.0.1:8787
+//
 // For each write: POST /contact as an agent -> 402 with an offer -> pay it through the test backend
 // -> redeem the preimage for a one-use pass -> retry -> 200. With no offer (paid requests switched
 // off or paused) it gets a 403 and does the work instead (--no-work turns that off). Then two
@@ -27,8 +32,28 @@ export interface AgentPayWrite {
   timings?: { pay_ms?: number; solve_ms?: number; redeem_ms?: number; total_ms: number };
 }
 
+export interface AgentPayOptions {
+  /** Site origin for the protected path. */
+  base: string;
+  writes: number;
+  /** Protected path. Default /contact. */
+  path?: string;
+  /** Issuer root (/v1/redeem, /v1/challenge). Default: base. WordPress: <site>/wp-json/toll. */
+  issuer?: string;
+  /** Test payer: demo origin or full URL of /demo/stub-pay. Default: base. */
+  payUrl?: string;
+  /** Origin serving /demo/stats (ledger and counters). Default: base; absent on WordPress. */
+  statsBase?: string;
+  /** Send a form body (urlencoded) with these fields instead of JSON; `field` gets a unique text per write. */
+  form?: Record<string, string>;
+  field?: string;
+  work?: boolean;
+  log?: (s: string) => void;
+}
+
 export interface AgentPayReport {
   base: string;
+  issuer: string;
   writes: AgentPayWrite[];
   /** Writes that ended 200 (paid or work). */
   accepted: number;
@@ -51,9 +76,13 @@ function b64urlJson(s: string): any {
   return JSON.parse(Buffer.from(s.replace(/-/g, "+").replace(/_/g, "/"), "base64").toString("utf8"));
 }
 
-async function stats(base: string): Promise<any> {
-  const r = await fetch(base + "/demo/stats", { cache: "no-store" } as RequestInit);
-  return r.status === 200 ? r.json() : null;
+async function fetchStats(base: string): Promise<any> {
+  try {
+    const r = await fetch(base + "/demo/stats", { cache: "no-store" } as RequestInit);
+    return r.status === 200 ? await r.json() : null;
+  } catch {
+    return null;
+  }
 }
 
 function counters(st: any) {
@@ -65,19 +94,26 @@ function counters(st: any) {
  * Pay N writes. When no offer is available (paid requests switched off or paused) the agent does the
  * work instead, unless `work: false`. Replay and spent-pass checks run against the last PAID write.
  */
-export async function agentPay(o: { base: string; writes: number; path?: string; work?: boolean; log?: (s: string) => void }): Promise<AgentPayReport> {
+export async function agentPay(o: AgentPayOptions): Promise<AgentPayReport> {
   const base = o.base.replace(/\/$/, "");
+  const issuer = (o.issuer ?? base).replace(/\/$/, "");
+  const statsBase = (o.statsBase ?? base).replace(/\/$/, "");
   const log = o.log ?? (() => {});
   const path = o.path ?? "/contact";
-  const agent = createAgent({ base, pay: testBackendPayer(base), work: o.work !== false });
-  const before = await stats(base);
+  const agent = createAgent({ base, issuer, pay: testBackendPayer(o.payUrl ?? base), work: o.work !== false });
+  const run = Math.random().toString(36).slice(2, 8);
+  const request = (text: string, extra: Record<string, string> = {}): RequestInit =>
+    o.form
+      ? { method: "POST", headers: { "content-type": "application/x-www-form-urlencoded", ...extra }, body: new URLSearchParams({ ...o.form, [o.field ?? "message"]: text }).toString() }
+      : { method: "POST", headers: { "content-type": "application/json", ...extra }, body: JSON.stringify({ message: text }) };
+  const stats = (b: string) => fetchStats(b);
+  const before = await stats(statsBase);
   const writes: AgentPayWrite[] = [];
   let lastPaid: { offer: AgentOffer; preimage: string; pass: string } | null = null;
   let paidTotal = 0;
   for (let i = 1; i <= o.writes; i++) {
-    const body = JSON.stringify({ message: `agent write ${i}` });
     try {
-      const r = await agent.fetch(path, { method: "POST", headers: { "content-type": "application/json" }, body });
+      const r = await agent.fetch(path, request(`agent write ${i} (${run})`));
       const row: AgentPayWrite = { i, status: r.response.status, via: r.via, rail: r.redeemed?.rail, cls: r.redeemed?.cls, timings: r.timings };
       if (r.pass) {
         const claims = b64urlJson(r.pass.split(".")[1]);
@@ -106,18 +142,18 @@ export async function agentPay(o: { base: string; writes: number; path?: string;
   let reuse: AgentPayReport["pass_reuse"] = null;
   if (lastPaid) {
     // Same offer + preimage again: one payment buys one pass.
-    const r = await fetch(base + "/v1/redeem", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ offer_id: lastPaid.offer.id, kind: lastPaid.offer.kind, preimage: lastPaid.preimage, macaroon: lastPaid.offer.macaroon }) });
+    const r = await fetch(issuer + "/v1/redeem", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ offer_id: lastPaid.offer.id, kind: lastPaid.offer.kind, preimage: lastPaid.preimage, macaroon: lastPaid.offer.macaroon }) });
     const j: any = await r.json().catch(() => ({}));
     replay = { status: r.status, error: j.error, rejected: r.status === 401 && j.error === "replay" };
     log(`replayed payment (offer ${lastPaid.offer.id}): ${r.status} ${j.error ?? ""} -> ${replay.rejected ? "rejected" : "NOT rejected"}`);
     // The spent one-use pass again: refused (402 with a fresh offer for an agent).
-    const p = await fetch(base + path, { method: "POST", headers: { "content-type": "application/json", accept: "application/json", "toll-client": "agent", authorization: "Toll " + lastPaid.pass }, body: JSON.stringify({ message: "reuse" }) });
+    const p = await fetch(base + path, { ...request(`agent reuse (${run})`, { accept: "application/json", "toll-client": "agent", authorization: "Toll " + lastPaid.pass }), redirect: "manual" });
     reuse = { status: p.status, rejected: p.status === 402 || p.status === 403 };
     log(`spent pass reused: ${p.status} -> ${reuse.rejected ? "refused" : "NOT refused"}`);
   } else {
     log("no paid write in this run: replay and spent-pass checks skipped");
   }
-  const after = await stats(base);
+  const after = await stats(statsBase);
   const lb: Ledger | null = before?.paid?.ledger ?? null;
   const la: Ledger | null = after?.paid?.ledger ?? null;
   const delta = lb && la ? (Object.fromEntries(Object.keys(la).map((k) => [k, (la as any)[k] - (lb as any)[k]])) as Ledger) : null;
@@ -129,6 +165,7 @@ export async function agentPay(o: { base: string; writes: number; path?: string;
   const work = writes.filter((w) => w.status === 200 && w.via === "work").length;
   return {
     base,
+    issuer,
     writes,
     accepted,
     paid,
@@ -153,7 +190,19 @@ function arg(name: string, dflt: string): string {
 export async function main() {
   const base = arg("base", process.env.TOLL_BASE ?? "http://localhost:8787");
   const writes = Math.max(1, Math.min(100, Number(arg("writes", "5")) || 5));
-  const r = await agentPay({ base, writes, work: !process.argv.includes("--no-work"), log: (s) => console.log(s) });
+  const form = arg("form", "");
+  const r = await agentPay({
+    base,
+    writes,
+    path: arg("path", "/contact"),
+    issuer: arg("issuer", base),
+    payUrl: arg("pay-url", base),
+    statsBase: arg("stats", base),
+    form: form ? Object.fromEntries(new URLSearchParams(form)) : undefined,
+    field: arg("field", "message"),
+    work: !process.argv.includes("--no-work"),
+    log: (s) => console.log(s),
+  });
   if (r.ledger_delta) {
     const d = r.ledger_delta;
     console.log(`ledger (this run): gross ${d.gross_msat} msat · fee held ${d.fee_held_msat} msat · net ${d.net_credited_msat} msat`);
@@ -164,7 +213,7 @@ export async function main() {
   }
   if (r.server_delta) {
     const d = r.server_delta;
-    console.log(`server (this run): offer_shown ${d.offer_shown} · paid ${d.paid} · work_after_402 ${d.work_after_402} · challenges minted ${d.challenges_minted} · settled_msat ${d.settled_msat} · passes accepted: work ${d.passes_work}, settle ${d.passes_settle}`);
+    console.log(`${r.issuer === r.base ? "server" : "payment server stats"} (this run): offer_shown ${d.offer_shown} · paid ${d.paid} · work_after_402 ${d.work_after_402} · challenges minted ${d.challenges_minted} · settled_msat ${d.settled_msat} · passes accepted: work ${d.passes_work}, settle ${d.passes_settle}`);
   }
   const checks = r.paid > 0 ? `replay ${r.replay?.rejected ? "rejected" : "NOT rejected"} · spent pass ${r.pass_reuse?.rejected ? "refused" : "NOT refused"}` : "no paid writes (paid requests off): replay checks skipped";
   console.log(`${r.accepted}/${writes} writes accepted (${r.paid} paid, ${r.work} work) · ${checks} -> ${r.ok ? "OK" : "FAIL"}`);

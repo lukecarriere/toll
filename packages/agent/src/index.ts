@@ -24,8 +24,13 @@ export interface AgentOffer {
 }
 
 export interface AgentOptions {
-  /** Issuer and site origin, e.g. http://localhost:8787 */
+  /** Site origin for protected paths, e.g. http://localhost:8787 */
   base: string;
+  /**
+   * Issuer root that serves /v1/redeem and /v1/challenge. Default: `base` (the Node issuer). For the
+   * WordPress plugin: `<site>/wp-json/toll`. A 402's `challenge_url` is resolved against it.
+   */
+  issuer?: string;
   /** Pay an offer's invoice and return the 64-hex preimage. Throw to decline. */
   pay?: (offer: AgentOffer) => Promise<string>;
   /** Fall back to doing the work when it cannot pay (or no offer is available). Default true. */
@@ -63,7 +68,9 @@ export class AgentError extends Error {
 export function createAgent(o: AgentOptions) {
   const f = o.fetch ?? fetch;
   const base = o.base.replace(/\/$/, "");
+  const issuer = (o.issuer ?? o.base).replace(/\/$/, "");
   const url = (p: string) => (/^https?:/.test(p) ? p : base + p);
+  const iurl = (p: string) => (/^https?:/.test(p) ? p : p.startsWith("/v1/") ? issuer + p : new URL(p, issuer + "/").toString());
 
   function withHeaders(init: RequestInit | undefined, extra: Record<string, string>): RequestInit {
     const h = new Headers(init?.headers);
@@ -74,7 +81,7 @@ export function createAgent(o: AgentOptions) {
   }
 
   async function redeemPaid(offer: AgentOffer, preimage: string): Promise<{ pass: string; exp: number; cls: string; rail: string }> {
-    const r = await f(url("/v1/redeem"), { method: "POST", headers: { "content-type": "application/json", "toll-client": "agent" }, body: JSON.stringify({ offer_id: offer.id, kind: offer.kind, preimage, macaroon: offer.macaroon }) });
+    const r = await f(iurl("/v1/redeem"), { method: "POST", headers: { "content-type": "application/json", "toll-client": "agent" }, body: JSON.stringify({ offer_id: offer.id, kind: offer.kind, preimage, macaroon: offer.macaroon }) });
     const j: any = await r.json().catch(() => ({}));
     if (r.status !== 200 || typeof j.pass !== "string") throw new AgentError("redeem", j.error ?? "rejected", r.status);
     return j;
@@ -86,7 +93,7 @@ export function createAgent(o: AgentOptions) {
     const solve_ms = performance.now() - t0;
     if (!s) throw new AgentError("work", "no solution in time");
     const t1 = performance.now();
-    const r = await f(url("/v1/redeem"), { method: "POST", headers: { "content-type": "application/json", "toll-client": "agent" }, body: JSON.stringify({ challenge_id: challenge.id, challenge, client: "agent", solution: { work: { counter: s.counter, derivedKey: s.derivedKey }, took_ms: Math.round(s.time) } }) });
+    const r = await f(iurl("/v1/redeem"), { method: "POST", headers: { "content-type": "application/json", "toll-client": "agent" }, body: JSON.stringify({ challenge_id: challenge.id, challenge, client: "agent", solution: { work: { counter: s.counter, derivedKey: s.derivedKey }, took_ms: Math.round(s.time) } }) });
     const j: any = await r.json().catch(() => ({}));
     if (r.status !== 200 || typeof j.pass !== "string") throw new AgentError("redeem", j.error ?? "rejected", r.status);
     return { pass: j.pass, rail: j.rail, cls: j.cls, exp: j.exp, solve_ms, redeem_ms: performance.now() - t1 };
@@ -127,7 +134,7 @@ export function createAgent(o: AgentOptions) {
     let challenge_ms: number | undefined;
     if (!challenge && first.status === 402 && typeof gate?.challenge_url === "string") {
       const tc = performance.now();
-      const cr = await f(url(gate.challenge_url), { headers: { "toll-client": "agent", accept: "application/json" } });
+      const cr = await f(iurl(gate.challenge_url), { headers: { "toll-client": "agent", accept: "application/json" } });
       const cj: any = await cr.json().catch(() => ({}));
       if (cr.status !== 200 || !cj.challenge) throw new AgentError("challenge", cj.error ?? "status " + cr.status, cr.status);
       challenge = cj.challenge;
@@ -143,7 +150,7 @@ export function createAgent(o: AgentOptions) {
 
   /** Offers for an action without touching a protected route (GET /v1/challenge?client=agent). */
   async function offers(action = "write"): Promise<{ challenge: unknown; offers: AgentOffer[] }> {
-    const r = await f(url(`/v1/challenge?action=${encodeURIComponent(action)}&client=agent`), { headers: { "toll-client": "agent" } });
+    const r = await f(iurl(`/v1/challenge?action=${encodeURIComponent(action)}&client=agent`), { headers: { "toll-client": "agent" } });
     if (r.status !== 200) throw new AgentError("challenge", "status " + r.status, r.status);
     return (await r.json()) as any;
   }
@@ -151,10 +158,15 @@ export function createAgent(o: AgentOptions) {
   return { fetch: agentFetch, offers, redeemPaid };
 }
 
-/** Payer for the demo's local test backend (POST /demo/stub-pay). Test only: no real money moves. */
+/**
+ * Payer for the demo's local test backend (POST /demo/stub-pay). `base` is the demo origin, or the
+ * full test-payer URL. Test only: no real money moves.
+ */
 export function testBackendPayer(base: string, f: typeof fetch = fetch) {
+  const b = base.replace(/\/$/, "");
+  const payUrl = /\/demo\/stub-pay$/.test(b) ? b : b + "/demo/stub-pay";
   return async (offer: AgentOffer): Promise<string> => {
-    const r = await f(base.replace(/\/$/, "") + "/demo/stub-pay", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ invoice: offer.invoice }) });
+    const r = await f(payUrl, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ invoice: offer.invoice }) });
     const j: any = await r.json().catch(() => ({}));
     if (r.status !== 200 || typeof j.preimage !== "string") throw new AgentError("pay", j.error ?? "test payment failed", r.status);
     return j.preimage;

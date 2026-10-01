@@ -1,7 +1,9 @@
 <?php
 // The default issuer is this site (spec §13): /wp-json/toll/v1/{challenge,redeem,status,health,
-// siteverify}. Same wire format as docs/protocol.md. WordPress takes no payments, so offers are
-// always [] and a paid redeem is refused; agents get the work check.
+// siteverify}. Same wire format as docs/protocol.md. WordPress takes no payments itself: with
+// "Collect usage payouts" on and a Payment server set, offers for agents are minted by that server
+// and relayed here, and a paid redeem is forwarded to it for checking (payouts.php). Otherwise
+// offers are [] and agents get the work check.
 declare(strict_types=1);
 
 if (!defined('ABSPATH')) exit;
@@ -14,6 +16,9 @@ const TOLL_GATE_PASS_TTL = 900;
 const TOLL_GATE_PASS_USES = 20;
 const TOLL_GATE_CHALLENGE_TTL = 120;
 const TOLL_GATE_CHALLENGES_PER_MIN = 60;
+// Paid pass (docs/settlement.md Q6): one use, 60 seconds, for the agent's Authorization header.
+const TOLL_GATE_PAID_PASS_USES = 1;
+const TOLL_GATE_PAID_PASS_TTL = 60;
 
 function toll_gate_register_routes(): void
 {
@@ -71,7 +76,14 @@ function toll_gate_rest_challenge(WP_REST_Request $req): WP_REST_Response
     if ($site !== null && $site !== '' && $site !== toll_gate_site_key()) return toll_gate_json(['error' => 'wrong_site'], 400);
     if (!toll_gate_allow_challenge()) return toll_gate_json(['error' => 'rate_limited'], 429, ['Retry-After' => '60']);
     $c = toll_gate_mint($action, (string) ($req->get_param('path') ?? '/'), $req->get_header('user-agent'));
-    return toll_gate_json(['challenge' => $c, 'offers' => []]);
+    $offers = [];
+    if ((string) $req->get_param('offers') === '0') {
+        // The agent fetched a 402's challenge_url: it chose the work instead of paying.
+        toll_gate_count('work_after_402');
+    } elseif (toll_gate_is_agent((string) $req->get_param('client'), (string) $req->get_header('toll_client'))) {
+        $offers = toll_gate_relay_offers($action)['offers'] ?? [];
+    }
+    return toll_gate_json(['challenge' => $c, 'offers' => $offers]);
 }
 
 function toll_gate_cookie(string $pass, int $exp): void
@@ -95,7 +107,7 @@ function toll_gate_rest_redeem(WP_REST_Request $req): WP_REST_Response
 {
     if (!toll_gate_lib_ok()) return toll_gate_json(['error' => 'unavailable'], 503);
     $b = $req->get_json_params() ?: $req->get_body_params();
-    if (isset($b['offer_id'])) return toll_gate_json(['error' => 'unsupported', 'detail' => 'paid redeem is not enabled on this issuer'], 400);
+    if (isset($b['offer_id'])) return toll_gate_redeem_paid(is_array($b) ? $b : []);
     if (!is_string($b['challenge_id'] ?? null) || !is_array($b['solution'] ?? null) || !is_array($b['challenge'] ?? null)) return toll_gate_json(['error' => 'malformed'], 400);
     if (($b['challenge']['id'] ?? null) !== $b['challenge_id']) return toll_gate_json(['error' => 'malformed'], 400);
     try {
@@ -107,6 +119,19 @@ function toll_gate_rest_redeem(WP_REST_Request $req): WP_REST_Response
     }
     toll_gate_cookie($r['pass'], $r['exp']);
     return toll_gate_json($r);
+}
+
+/**
+ * Paid redeem: the payment server checks and books the payment (single use there), then this site
+ * mints its own short pass. No cookie: agents send it in the Authorization header.
+ */
+function toll_gate_redeem_paid(array $b): WP_REST_Response
+{
+    [$status, $body] = toll_gate_relay_redeem($b);
+    if ($status !== 200) return toll_gate_json($body, $status);
+    $claims = Protocol::newPassClaims(toll_gate_site_key(), $body['cls'], TOLL_GATE_PAID_PASS_USES, TOLL_GATE_PAID_PASS_TTL, time());
+    toll_gate_count('paid');
+    return toll_gate_json(['pass' => Protocol::signPass(toll_gate_secret(), $claims), 'exp' => $claims['exp'], 'cls' => $claims['cls'], 'rail' => 'settle']);
 }
 
 function toll_gate_token_from_request(?WP_REST_Request $req = null): ?string
