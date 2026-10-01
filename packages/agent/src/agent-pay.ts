@@ -17,6 +17,10 @@
 // Prints amounts in msat and USD (from the offer's display value) and the site ledger totals.
 // No real money: the payer is the demo's test-only endpoint.
 import { createAgent, testBackendPayer, type AgentOffer, AgentError } from "./index.ts";
+import { usdDisplay } from "../../settlement-ln/src/ledger.ts";
+
+/** The demo's fixed test rate (demo/toll.yaml, settlement.fx.usd_per_btc): not a market price. */
+export const TEST_USD_RATE = 100000;
 
 export interface AgentPayWrite {
   i: number;
@@ -47,6 +51,8 @@ export interface AgentPayOptions {
   /** Send a form body (urlencoded) with these fields instead of JSON; `field` gets a unique text per write. */
   form?: Record<string, string>;
   field?: string;
+  /** USD per unit for the balance lines (the demo's fixed test rate). */
+  usdRate?: number;
   work?: boolean;
   log?: (s: string) => void;
 }
@@ -66,6 +72,8 @@ export interface AgentPayReport {
   ledger_after: Ledger | null;
   ledger_delta: Ledger | null;
   usd_after: { collected: string | null; available: string | null } | null;
+  /** Available balance on the payment server before and after this run, msat and USD at the test rate. */
+  balance: { before_msat: number; after_msat: number; delta_msat: number; before_usd: string | null; after_usd: string | null; delta_usd: string | null; usd_rate: number } | null;
   /** Server counters over this run (from /demo/stats): 402s with offers vs paid redeems, pass split by rail. */
   server_delta: { offer_shown: number; paid: number; work_after_402: number; challenges_minted: number; settled_msat: number; passes_work: number; passes_settle: number } | null;
   ok: boolean;
@@ -160,6 +168,9 @@ export async function agentPay(o: AgentPayOptions): Promise<AgentPayReport> {
   const cb = counters(before);
   const ca = counters(after);
   const server_delta = cb && ca ? (Object.fromEntries(Object.keys(ca).map((k) => [k, (ca as any)[k] - (cb as any)[k]])) as AgentPayReport["server_delta"]) : null;
+  const rate = o.usdRate ?? TEST_USD_RATE;
+  const usd = (msat: number) => usdDisplay(msat, { usd_per_btc: rate, fetched_at: 0 }, 0);
+  const balance = lb && la ? { before_msat: lb.available_msat, after_msat: la.available_msat, delta_msat: la.available_msat - lb.available_msat, before_usd: usd(lb.available_msat), after_usd: usd(la.available_msat), delta_usd: usd(la.available_msat - lb.available_msat), usd_rate: rate } : null;
   const accepted = writes.filter((w) => w.status === 200).length;
   const paid = writes.filter((w) => w.status === 200 && w.via === "paid").length;
   const work = writes.filter((w) => w.status === 200 && w.via === "work").length;
@@ -177,6 +188,7 @@ export async function agentPay(o: AgentPayOptions): Promise<AgentPayReport> {
     ledger_after: la,
     ledger_delta: delta,
     usd_after: after?.paid ? { collected: after.paid.collected, available: after.paid.available } : null,
+    balance,
     server_delta,
     ok: accepted === o.writes && (paid === 0 || (!!replay?.rejected && !!reuse?.rejected)) && (!delta || delta.gross_msat === paidTotal),
   };
@@ -200,6 +212,7 @@ export async function main() {
     statsBase: arg("stats", base),
     form: form ? Object.fromEntries(new URLSearchParams(form)) : undefined,
     field: arg("field", "message"),
+    usdRate: Number(arg("usd-rate", String(TEST_USD_RATE))) || TEST_USD_RATE,
     work: !process.argv.includes("--no-work"),
     log: (s) => console.log(s),
   });
@@ -210,6 +223,10 @@ export async function main() {
   if (r.ledger_after) {
     const a = r.ledger_after;
     console.log(`ledger (site total): gross ${a.gross_msat} msat · fee held ${a.fee_held_msat} msat · available ${a.available_msat} msat · USD collected ${r.usd_after?.collected ?? "hidden"} · available ${r.usd_after?.available ?? "hidden"}`);
+  }
+  if (r.balance) {
+    const b = r.balance;
+    console.log(`balance before: ${b.before_msat} msat (${b.before_usd}) · after: ${b.after_msat} msat (${b.after_usd}) · delta: +${b.delta_msat} msat (${b.delta_usd}) · USD at the test rate ${b.usd_rate}, rounded down`);
   }
   if (r.server_delta) {
     const d = r.server_delta;

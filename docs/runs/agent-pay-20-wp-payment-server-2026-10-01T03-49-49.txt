@@ -1,0 +1,57 @@
+# agent-pay: 20 paid writes on the WordPress comment form, Payment server mode (local Node demo, test backend, no real money)
+# started: 2026-10-01 03:49:50 CDT (America/Chicago)
+# repo: ff22689 + agent-pay balance lines (uncommitted at run time, committed with this log) · WordPress http://127.0.0.1:8888 (payouts ticked, Payment server http://127.0.0.1:8787) · demo started 03:35 CDT
+# command: npm run agent-pay -- --writes 20 --base http://127.0.0.1:8888 --issuer http://127.0.0.1:8888/wp-json/toll --path /wp-comments-post.php --form "comment_post_ID=1&author=Agent&email=agent@example.test" --field comment --pay-url http://127.0.0.1:8787/demo/stub-pay --stats http://127.0.0.1:8787
+# Includes one replay attempt and one spent-pass reuse. USD is at the demo's fixed test rate (100000), rounded down.
+
+## 1. agent-pay output
+write 1: 200 via paid · 10000 msat · $0.0100 · rail=settle cls=write · pass 1 use / 60s · pay 2.9 ms · redeem 26.4 ms · total 265.9 ms
+write 2: 200 via paid · 10000 msat · $0.0100 · rail=settle cls=write · pass 1 use / 60s · pay 1.8 ms · redeem 27 ms · total 196.9 ms
+write 3: 200 via paid · 10000 msat · $0.0100 · rail=settle cls=write · pass 1 use / 60s · pay 2.2 ms · redeem 23.2 ms · total 199.8 ms
+write 4: 200 via paid · 10000 msat · $0.0100 · rail=settle cls=write · pass 1 use / 60s · pay 2.4 ms · redeem 22.5 ms · total 187.1 ms
+write 5: 200 via paid · 10000 msat · $0.0100 · rail=settle cls=write · pass 1 use / 60s · pay 1.6 ms · redeem 21.8 ms · total 184.7 ms
+write 6: 200 via paid · 10000 msat · $0.0100 · rail=settle cls=write · pass 1 use / 60s · pay 1.6 ms · redeem 21.5 ms · total 191.1 ms
+write 7: 200 via paid · 10000 msat · $0.0100 · rail=settle cls=write · pass 1 use / 60s · pay 1.6 ms · redeem 20.7 ms · total 186.2 ms
+write 8: 200 via paid · 10000 msat · $0.0100 · rail=settle cls=write · pass 1 use / 60s · pay 1.9 ms · redeem 22 ms · total 193.8 ms
+write 9: 200 via paid · 10000 msat · $0.0100 · rail=settle cls=write · pass 1 use / 60s · pay 1.6 ms · redeem 22.8 ms · total 190.5 ms
+write 10: 200 via paid · 10000 msat · $0.0100 · rail=settle cls=write · pass 1 use / 60s · pay 1.7 ms · redeem 20.4 ms · total 189.7 ms
+write 11: 200 via paid · 10000 msat · $0.0100 · rail=settle cls=write · pass 1 use / 60s · pay 1.9 ms · redeem 21.8 ms · total 202.1 ms
+write 12: 200 via paid · 10000 msat · $0.0100 · rail=settle cls=write · pass 1 use / 60s · pay 1.6 ms · redeem 22.7 ms · total 195.4 ms
+write 13: 200 via paid · 10000 msat · $0.0100 · rail=settle cls=write · pass 1 use / 60s · pay 2.5 ms · redeem 23.3 ms · total 196.1 ms
+write 14: 200 via paid · 10000 msat · $0.0100 · rail=settle cls=write · pass 1 use / 60s · pay 1.7 ms · redeem 20.7 ms · total 197.7 ms
+write 15: 200 via paid · 10000 msat · $0.0100 · rail=settle cls=write · pass 1 use / 60s · pay 1.7 ms · redeem 22.8 ms · total 202.5 ms
+write 16: 200 via paid · 10000 msat · $0.0100 · rail=settle cls=write · pass 1 use / 60s · pay 1.7 ms · redeem 22.7 ms · total 209.1 ms
+write 17: 200 via paid · 10000 msat · $0.0100 · rail=settle cls=write · pass 1 use / 60s · pay 1.4 ms · redeem 21.6 ms · total 197.5 ms
+write 18: 200 via paid · 10000 msat · $0.0100 · rail=settle cls=write · pass 1 use / 60s · pay 1.7 ms · redeem 23.5 ms · total 198.2 ms
+write 19: 200 via paid · 10000 msat · $0.0100 · rail=settle cls=write · pass 1 use / 60s · pay 2.6 ms · redeem 22.9 ms · total 199.3 ms
+write 20: 200 via paid · 10000 msat · $0.0100 · rail=settle cls=write · pass 1 use / 60s · pay 1.7 ms · redeem 22.2 ms · total 198.8 ms
+replayed payment (offer off_d1b14d42d6f623458f2a3f52): 401 replay -> rejected
+spent pass reused: 402 -> refused
+ledger (this run): gross 200000 msat · fee held 20000 msat · net 180000 msat
+ledger (site total): gross 830000 msat · fee held 83000 msat · available 747000 msat · USD collected $0.83 · available $0.74
+balance before: 567000 msat ($0.56) · after: 747000 msat ($0.74) · delta: +180000 msat ($0.18) · USD at the test rate 100000, rounded down
+payment server stats (this run): offer_shown 0 · paid 0 · work_after_402 0 · challenges minted 0 · settled_msat 200000 · passes accepted: work 0, settle 0
+20/20 writes accepted (20 paid, 0 work) · replay rejected · spent pass refused -> OK
+
+## 2. Payment server owner balance (GET /v1/owner/balance), before and after
+before: {"available_msat":567000,"available_usd":"$0.56","fee_bps":1000,"paid_requests":63,"degraded":false,"collecting":true}
+after:  {"available_msat":747000,"available_usd":"$0.74","fee_bps":1000,"paid_requests":83,"degraded":false,"collecting":true}
+delta:  available +180000 msat ($0.56 -> $0.74, +$0.18) · paid_requests +20 (the replay and the spent pass booked nothing)
+
+## 3. WordPress counters, today (UTC), before and after
+before: {"pass_accept":205,"pass_reject":29,"pass_absent":151,"turned_away":111,"offer_shown":53,"paid":45,"work_after_402":2,"challenges_minted":144}
+after:  {"pass_accept":225,"pass_reject":30,"pass_absent":171,"turned_away":111,"offer_shown":74,"paid":65,"work_after_402":2,"challenges_minted":144}
+delta:  pass_accept +20 · pass_reject +1 (spent pass) · pass_absent +20 · turned_away +0 · offer_shown +21 · paid +20 · work_after_402 +0 · challenges_minted +0
+
+## 4. Audit: what makes up the demo balance (Data Scientist question: $0.56 shown vs $0.18 for one run)
+The demo ledger is in memory and shared by everything that pays through it. It started empty at the demo restart (03:35 CDT).
+Every credit since then, from the demo log (owner_redeem = WordPress paid redeem, redeem_ok rail=settle = Node /v1/redeem), net 9000 msat each:
+  03:36:59 CDT  WordPress manual smoke, 3 writes        +27000 msat
+  03:38:27 CDT  tests/wp-agent.test.ts (standalone run)   +180000 msat
+  03:41:02 CDT  tests/wp-agent.test.ts (inside npm test)  +180000 msat
+  03:41:56 CDT  Node agent-pay 20 (npm run agent-pay)      +180000 msat
+  = 567000 msat available = $0.56 at the test rate (the WordPress admin screenshot at 03:42 CDT)
+  03:49:50 CDT  this run                                  +180000 msat -> 747000 msat = $0.74
+So the extra ~$0.38 (387000 msat) before this run was the manual smoke, the earlier wp-agent test run and the Node agent-pay run.
+No double counting: gross 830000 msat = 83 payments x 10000 msat, paid_requests = 83, and 83 credit events in the log; the 5 replays (4 WordPress, 1 Node) were rejected and booked nothing.
+The WordPress 'paid' counter also includes 2 redeems against the stand-in server in tests/wp-agent.test.ts (one per run); those never touch the demo ledger.

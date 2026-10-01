@@ -209,6 +209,8 @@ test("Payment server: agent-pay 20 on the comment form is 20/20 paid; replay rej
   assert.deepEqual(d, { pass_accept: 20, pass_reject: 1, pass_absent: 20, turned_away: 0, offer_shown: 21, paid: 20, work_after_402: 0, challenges_minted: 0 });
   const b1 = await demoBalance();
   assert.equal(b1.available_msat - b0.available_msat, 180000, "net of the 10% fee");
+  assert.equal(b1.paid_requests - b0.paid_requests, 20, "each payment booked once on the payment server (the replay and the spent pass add nothing)");
+  assert.deepEqual(r.balance, { before_msat: b0.available_msat, after_msat: b1.available_msat, delta_msat: 180000, before_usd: b0.available_usd, after_usd: b1.available_usd, delta_usd: "$0.18", usd_rate: 100000 }, "the run log's before/after balance matches the owner API");
   await A.goto(WP + "/wp-admin/options-general.php?page=toll-gate");
   assert.equal(await A.locator(".toll-bal.not-down strong").innerText(), b1.available_usd, "WP admin shows the payment server's balance");
   console.log(`  Payment server agent-pay: ${r.accepted}/20 accepted (${r.paid} paid); replay ${r.replay?.status} ${r.replay?.error}; spent pass ${r.pass_reuse?.status}; WP counters delta ${JSON.stringify(d)}; balance ${b0.available_usd} -> ${b1.available_usd} (${b1.available_msat} msat)`);
