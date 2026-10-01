@@ -1,6 +1,6 @@
 {
   "name": "toll/server",
-  "description": "Toll verifier for PHP: challenges, work, passes.",
+  "description": "Toll verifier for PHP: challenges, work, passes, paid-request display rules.",
   "type": "library",
   "license": "proprietary",
   "require": {
@@ -9,7 +9,8 @@
   },
   "autoload": {
     "files": [
-      "src/Toll.php"
+      "src/Toll.php",
+      "src/Settlement.php"
     ]
   }
 }

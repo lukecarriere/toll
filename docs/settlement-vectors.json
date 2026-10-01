@@ -1,0 +1,443 @@
+{
+  "version": 1,
+  "about": "Toll settlement vectors (phase 2, local test backend). Offer credentials and lnstub1 invoices are test-only stand-ins from the stub engine; real ones come from the settlement engine and are opaque to Toll. Amounts are integer msat. The secret and preimages are for tests only.",
+  "secret": "toll-test-vector-secret-do-not-use",
+  "engine_secret": "7cb1b3a942c8852ba4541b6dd81b6c0497cf581fca06b4899b58f1e702bc5d4c",
+  "engine_secret_derivation": "HMAC-SHA256(key = Toll secret, message = 'toll/settlement/stub/v1'), lowercase hex",
+  "site": "site_abc123",
+  "base_msat": {
+    "search": 2000,
+    "write": 10000,
+    "account": 25000,
+    "admin": 100000
+  },
+  "price_rule": "amount_msat = ceil(round(base_msat[cls] * velocity_mult * suspicion_mult) / 1000) * 1000",
+  "fee_rule": "fee_msat = floor(gross_msat * fee_bps / 10000); net_msat = gross_msat - fee_msat",
+  "usd_rule": "fresh = rate > 0 and now - fetched_at <= 900. owner: cents = floor(msat * rate / 1e9 + 1e-6); '$D.CC', 'less than $0.01' when msat > 0 and cents < 1. offer: units = ceil(msat * rate / 1e7 - 1e-6); 'D.UUUU'. null when not fresh.",
+  "settle_pass_rule": "pass claims n = 1, exp = iat + 60 (Q6); same token format as work passes",
+  "price_cases": [
+    {
+      "cls": "search",
+      "velocity_mult": 1,
+      "suspicion_mult": 1,
+      "price_msat": 2000,
+      "amount_msat": 2000
+    },
+    {
+      "cls": "write",
+      "velocity_mult": 1,
+      "suspicion_mult": 1,
+      "price_msat": 10000,
+      "amount_msat": 10000
+    },
+    {
+      "cls": "account",
+      "velocity_mult": 1,
+      "suspicion_mult": 1,
+      "price_msat": 25000,
+      "amount_msat": 25000
+    },
+    {
+      "cls": "admin",
+      "velocity_mult": 1,
+      "suspicion_mult": 1,
+      "price_msat": 100000,
+      "amount_msat": 100000
+    },
+    {
+      "cls": "write",
+      "velocity_mult": 1.1,
+      "suspicion_mult": 1,
+      "price_msat": 11000,
+      "amount_msat": 11000
+    },
+    {
+      "cls": "search",
+      "velocity_mult": 1,
+      "suspicion_mult": 1.25,
+      "price_msat": 2500,
+      "amount_msat": 3000
+    },
+    {
+      "cls": "search",
+      "velocity_mult": 1.0004,
+      "suspicion_mult": 1,
+      "price_msat": 2001,
+      "amount_msat": 3000
+    },
+    {
+      "cls": "write",
+      "velocity_mult": 1.5,
+      "suspicion_mult": 1.3,
+      "price_msat": 19500,
+      "amount_msat": 20000
+    },
+    {
+      "cls": "admin",
+      "velocity_mult": 2,
+      "suspicion_mult": 1,
+      "price_msat": 200000,
+      "amount_msat": 200000
+    },
+    {
+      "cls": "search",
+      "velocity_mult": 0.3,
+      "suspicion_mult": 1,
+      "price_msat": 600,
+      "amount_msat": 1000
+    }
+  ],
+  "fee_cases": [
+    {
+      "gross_msat": 10000,
+      "fee_bps": 1000,
+      "fee_msat": 1000,
+      "net_msat": 9000
+    },
+    {
+      "gross_msat": 2000,
+      "fee_bps": 1234,
+      "fee_msat": 246,
+      "net_msat": 1754
+    },
+    {
+      "gross_msat": 1,
+      "fee_bps": 1000,
+      "fee_msat": 0,
+      "net_msat": 1
+    },
+    {
+      "gross_msat": 999,
+      "fee_bps": 10000,
+      "fee_msat": 999,
+      "net_msat": 0
+    },
+    {
+      "gross_msat": 12345,
+      "fee_bps": 0,
+      "fee_msat": 0,
+      "net_msat": 12345
+    },
+    {
+      "gross_msat": 50000,
+      "fee_bps": 1000,
+      "fee_msat": 5000,
+      "net_msat": 45000
+    },
+    {
+      "gross_msat": 25000,
+      "fee_bps": 333,
+      "fee_msat": 832,
+      "net_msat": 24168
+    }
+  ],
+  "usd_cases": [
+    {
+      "msat": 180000,
+      "usd_per_btc": 100000,
+      "fetched_at": 1790000000,
+      "now": 1790000000,
+      "owner": "$0.18",
+      "offer": "0.1800"
+    },
+    {
+      "msat": 100,
+      "usd_per_btc": 100000,
+      "fetched_at": 1790000000,
+      "now": 1790000000,
+      "owner": "less than $0.01",
+      "offer": "0.0001"
+    },
+    {
+      "msat": 0,
+      "usd_per_btc": 100000,
+      "fetched_at": 1790000000,
+      "now": 1790000000,
+      "owner": "$0.00",
+      "offer": "0.0000"
+    },
+    {
+      "msat": 45000,
+      "usd_per_btc": 100000,
+      "fetched_at": 1790000000,
+      "now": 1790000000,
+      "owner": "$0.04",
+      "offer": "0.0450"
+    },
+    {
+      "msat": 1000000000,
+      "usd_per_btc": 100000,
+      "fetched_at": 1790000000,
+      "now": 1790000000,
+      "owner": "$1000.00",
+      "offer": "1000.0000"
+    },
+    {
+      "msat": 10000,
+      "usd_per_btc": 100000,
+      "fetched_at": 1790000000,
+      "now": 1790000000,
+      "owner": "$0.01",
+      "offer": "0.0100"
+    },
+    {
+      "msat": 2000,
+      "usd_per_btc": 100000,
+      "fetched_at": 1790000000,
+      "now": 1790000000,
+      "owner": "less than $0.01",
+      "offer": "0.0020"
+    },
+    {
+      "msat": 10000,
+      "usd_per_btc": 63412.57,
+      "fetched_at": 1790000000,
+      "now": 1790000000,
+      "owner": "less than $0.01",
+      "offer": "0.0064"
+    },
+    {
+      "msat": 25000,
+      "usd_per_btc": 63412.57,
+      "fetched_at": 1790000000,
+      "now": 1790000000,
+      "owner": "$0.01",
+      "offer": "0.0159"
+    },
+    {
+      "msat": 1234567,
+      "usd_per_btc": 63412.57,
+      "fetched_at": 1790000000,
+      "now": 1790000000,
+      "owner": "$0.78",
+      "offer": "0.7829"
+    },
+    {
+      "msat": 999999999,
+      "usd_per_btc": 63412.57,
+      "fetched_at": 1790000000,
+      "now": 1790000000,
+      "owner": "$634.12",
+      "offer": "634.1257"
+    },
+    {
+      "msat": 10000,
+      "usd_per_btc": 100000,
+      "fetched_at": 1789999100,
+      "now": 1790000000,
+      "owner": "$0.01",
+      "offer": "0.0100"
+    },
+    {
+      "msat": 10000,
+      "usd_per_btc": 100000,
+      "fetched_at": 1789999099,
+      "now": 1790000000,
+      "owner": null,
+      "offer": null
+    },
+    {
+      "msat": 10000,
+      "usd_per_btc": null,
+      "fetched_at": null,
+      "now": 1790000000,
+      "owner": null,
+      "offer": null
+    }
+  ],
+  "paid": [
+    {
+      "name": "paid write",
+      "offer": {
+        "id": "off_000000000000000000000001",
+        "kind": "ln402",
+        "amount_msat": 10000,
+        "invoice": "lnstub110000m11601d8c20aa71dd3bcfc2866c1af004a9d1b8517c9cccd08b09768a8e1b6772adfdf8576343fc62b",
+        "macaroon": "eyJhbW91bnRfbXNhdCI6MTAwMDAsImNscyI6IndyaXRlIiwiZXhwIjoxNzkwMDAwMTIwLCJvZmZlcl9pZCI6Im9mZl8wMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDEiLCJwYXltZW50X2hhc2giOiIxNjAxZDhjMjBhYTcxZGQzYmNmYzI4NjZjMWFmMDA0YTlkMWI4NTE3YzljY2NkMDhiMDk3NjhhOGUxYjY3NzJhIiwic2l0ZSI6InNpdGVfYWJjMTIzIiwidiI6MX0.xft5oTPnWWgXMmM47K5j7iqSww1vtCR7PkJQ0IQKgaQ",
+        "exp": 1790000120
+      },
+      "preimage": "5e11111111111111111111111111111111111111111111111111111111111111",
+      "payment_hash": "1601d8c20aa71dd3bcfc2866c1af004a9d1b8517c9cccd08b09768a8e1b6772a",
+      "now": 1790000005,
+      "expect": {
+        "cls": "write",
+        "amount_msat": 10000
+      },
+      "ledger": {
+        "fee_bps": 1000,
+        "gross_msat": 10000,
+        "fee_msat": 1000,
+        "net_msat": 9000
+      },
+      "settle_pass": {
+        "claims": {
+          "v": 1,
+          "site": "site_abc123",
+          "sub": "pass_5e771e0000000000",
+          "cls": "write",
+          "n": 1,
+          "iat": 1790000005,
+          "exp": 1790000065,
+          "jti": "5e771e00000000000000000000000000"
+        },
+        "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJjbHMiOiJ3cml0ZSIsImV4cCI6MTc5MDAwMDA2NSwiaWF0IjoxNzkwMDAwMDA1LCJqdGkiOiI1ZTc3MWUwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMCIsIm4iOjEsInNpdGUiOiJzaXRlX2FiYzEyMyIsInN1YiI6InBhc3NfNWU3NzFlMDAwMDAwMDAwMCIsInYiOjF9.KiR93FxTcwzfNFGnAPY2z2HRdmx7HOE12vkgVqj08hI",
+        "valid_at": 1790000064,
+        "expired_at": 1790000065
+      }
+    },
+    {
+      "name": "paid search",
+      "offer": {
+        "id": "off_000000000000000000000002",
+        "kind": "ln402",
+        "amount_msat": 2000,
+        "invoice": "lnstub12000m11601d8c20aa71dd3bcfc2866c1af004a9d1b8517c9cccd08b09768a8e1b6772abcc7ef17119cd202",
+        "macaroon": "eyJhbW91bnRfbXNhdCI6MjAwMCwiY2xzIjoic2VhcmNoIiwiZXhwIjoxNzkwMDAwMTIwLCJvZmZlcl9pZCI6Im9mZl8wMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDIiLCJwYXltZW50X2hhc2giOiIxNjAxZDhjMjBhYTcxZGQzYmNmYzI4NjZjMWFmMDA0YTlkMWI4NTE3YzljY2NkMDhiMDk3NjhhOGUxYjY3NzJhIiwic2l0ZSI6InNpdGVfYWJjMTIzIiwidiI6MX0.iUCFjK-2iEHkis00iGT-U8AHK7FKE93bY3gd7uqNMgw",
+        "exp": 1790000120
+      },
+      "preimage": "5e11111111111111111111111111111111111111111111111111111111111111",
+      "payment_hash": "1601d8c20aa71dd3bcfc2866c1af004a9d1b8517c9cccd08b09768a8e1b6772a",
+      "now": 1790000005,
+      "expect": {
+        "cls": "search",
+        "amount_msat": 2000
+      },
+      "ledger": {
+        "fee_bps": 1000,
+        "gross_msat": 2000,
+        "fee_msat": 200,
+        "net_msat": 1800
+      },
+      "settle_pass": {
+        "claims": {
+          "v": 1,
+          "site": "site_abc123",
+          "sub": "pass_5e771e0000000001",
+          "cls": "search",
+          "n": 1,
+          "iat": 1790000005,
+          "exp": 1790000065,
+          "jti": "5e771e00000000000000000000000100"
+        },
+        "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJjbHMiOiJzZWFyY2giLCJleHAiOjE3OTAwMDAwNjUsImlhdCI6MTc5MDAwMDAwNSwianRpIjoiNWU3NzFlMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAxMDAiLCJuIjoxLCJzaXRlIjoic2l0ZV9hYmMxMjMiLCJzdWIiOiJwYXNzXzVlNzcxZTAwMDAwMDAwMDEiLCJ2IjoxfQ.Iii_-k5Kzk6QKVCxPtCNeUlWduGwrrEYA5KzGQH6zdY",
+        "valid_at": 1790000064,
+        "expired_at": 1790000065
+      }
+    },
+    {
+      "name": "paid account",
+      "offer": {
+        "id": "off_000000000000000000000003",
+        "kind": "ln402",
+        "amount_msat": 25000,
+        "invoice": "lnstub125000m11601d8c20aa71dd3bcfc2866c1af004a9d1b8517c9cccd08b09768a8e1b6772a2788b69fe2d915be",
+        "macaroon": "eyJhbW91bnRfbXNhdCI6MjUwMDAsImNscyI6ImFjY291bnQiLCJleHAiOjE3OTAwMDAxMjAsIm9mZmVyX2lkIjoib2ZmXzAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMyIsInBheW1lbnRfaGFzaCI6IjE2MDFkOGMyMGFhNzFkZDNiY2ZjMjg2NmMxYWYwMDRhOWQxYjg1MTdjOWNjY2QwOGIwOTc2OGE4ZTFiNjc3MmEiLCJzaXRlIjoic2l0ZV9hYmMxMjMiLCJ2IjoxfQ.838NkBEblhQob3ChKlYfUxG1wpkN0U9uws3w2zogymw",
+        "exp": 1790000120
+      },
+      "preimage": "5e11111111111111111111111111111111111111111111111111111111111111",
+      "payment_hash": "1601d8c20aa71dd3bcfc2866c1af004a9d1b8517c9cccd08b09768a8e1b6772a",
+      "now": 1790000005,
+      "expect": {
+        "cls": "account",
+        "amount_msat": 25000
+      },
+      "ledger": {
+        "fee_bps": 1000,
+        "gross_msat": 25000,
+        "fee_msat": 2500,
+        "net_msat": 22500
+      },
+      "settle_pass": {
+        "claims": {
+          "v": 1,
+          "site": "site_abc123",
+          "sub": "pass_5e771e0000000002",
+          "cls": "account",
+          "n": 1,
+          "iat": 1790000005,
+          "exp": 1790000065,
+          "jti": "5e771e00000000000000000000000200"
+        },
+        "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJjbHMiOiJhY2NvdW50IiwiZXhwIjoxNzkwMDAwMDY1LCJpYXQiOjE3OTAwMDAwMDUsImp0aSI6IjVlNzcxZTAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMjAwIiwibiI6MSwic2l0ZSI6InNpdGVfYWJjMTIzIiwic3ViIjoicGFzc181ZTc3MWUwMDAwMDAwMDAyIiwidiI6MX0.R3hO5Dysvrf0H0j79stEEz7by0oG4xSQIQKwYP_i-KQ",
+        "valid_at": 1790000064,
+        "expired_at": 1790000065
+      }
+    }
+  ],
+  "paid_invalid": [
+    {
+      "name": "wrong preimage",
+      "offer_id": "off_000000000000000000000001",
+      "macaroon": "eyJhbW91bnRfbXNhdCI6MTAwMDAsImNscyI6IndyaXRlIiwiZXhwIjoxNzkwMDAwMTIwLCJvZmZlcl9pZCI6Im9mZl8wMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDEiLCJwYXltZW50X2hhc2giOiIxNjAxZDhjMjBhYTcxZGQzYmNmYzI4NjZjMWFmMDA0YTlkMWI4NTE3YzljY2NkMDhiMDk3NjhhOGUxYjY3NzJhIiwic2l0ZSI6InNpdGVfYWJjMTIzIiwidiI6MX0.xft5oTPnWWgXMmM47K5j7iqSww1vtCR7PkJQ0IQKgaQ",
+      "preimage": "5e22222222222222222222222222222222222222222222222222222222222222",
+      "now": 1790000005,
+      "expect": "bad_solution"
+    },
+    {
+      "name": "credential from another offer (substituted invoice)",
+      "offer_id": "off_000000000000000000000001",
+      "macaroon": "eyJhbW91bnRfbXNhdCI6MjAwMCwiY2xzIjoic2VhcmNoIiwiZXhwIjoxNzkwMDAwMTIwLCJvZmZlcl9pZCI6Im9mZl8wMDAwMDAwMDAwMDAwMDAwMDAwMDAwZmYiLCJwYXltZW50X2hhc2giOiIxNjAxZDhjMjBhYTcxZGQzYmNmYzI4NjZjMWFmMDA0YTlkMWI4NTE3YzljY2NkMDhiMDk3NjhhOGUxYjY3NzJhIiwic2l0ZSI6InNpdGVfYWJjMTIzIiwidiI6MX0.xfuQqdOfv9KtCQ3UGnVV9P7_I-5_Xi3CWHL5ZlBOGxA",
+      "preimage": "5e11111111111111111111111111111111111111111111111111111111111111",
+      "now": 1790000005,
+      "expect": "bad_sig"
+    },
+    {
+      "name": "tampered credential payload",
+      "offer_id": "off_000000000000000000000001",
+      "macaroon": "eyJhbW91bnRfbXNhdCI6MTAwMDAsImNscyI6IndyaXRlIiwiZXhwIjoxNzkwMDAwMTIwLCJvZmZlcl9pZCI6Im9mZl8wMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDEiLCJwYXltZW50X2hhc2giOiIxNjAxZDhjMjBhYTcxZGQzYmNmYzI4NjZjMWFmMDA0YTlkMWI4NTE3YzljY2NkMDhiMDk3NjhhOGUxYjY3NzJhIiwic2l0ZSI6InNpdGVfYWJjMTIzIiwidiI6MAA.xft5oTPnWWgXMmM47K5j7iqSww1vtCR7PkJQ0IQKgaQ",
+      "preimage": "5e11111111111111111111111111111111111111111111111111111111111111",
+      "now": 1790000005,
+      "expect": "bad_sig"
+    },
+    {
+      "name": "tampered credential seal",
+      "offer_id": "off_000000000000000000000001",
+      "macaroon": "eyJhbW91bnRfbXNhdCI6MTAwMDAsImNscyI6IndyaXRlIiwiZXhwIjoxNzkwMDAwMTIwLCJvZmZlcl9pZCI6Im9mZl8wMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDEiLCJwYXltZW50X2hhc2giOiIxNjAxZDhjMjBhYTcxZGQzYmNmYzI4NjZjMWFmMDA0YTlkMWI4NTE3YzljY2NkMDhiMDk3NjhhOGUxYjY3NzJhIiwic2l0ZSI6InNpdGVfYWJjMTIzIiwidiI6MX0.xft5oTPnWWgXMmM47K5j7iqSww1vtCR7PkJQ0IQKgAA",
+      "preimage": "5e11111111111111111111111111111111111111111111111111111111111111",
+      "now": 1790000005,
+      "expect": "bad_sig"
+    },
+    {
+      "name": "expired offer",
+      "offer_id": "off_000000000000000000000001",
+      "macaroon": "eyJhbW91bnRfbXNhdCI6MTAwMDAsImNscyI6IndyaXRlIiwiZXhwIjoxNzkwMDAwMTIwLCJvZmZlcl9pZCI6Im9mZl8wMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDEiLCJwYXltZW50X2hhc2giOiIxNjAxZDhjMjBhYTcxZGQzYmNmYzI4NjZjMWFmMDA0YTlkMWI4NTE3YzljY2NkMDhiMDk3NjhhOGUxYjY3NzJhIiwic2l0ZSI6InNpdGVfYWJjMTIzIiwidiI6MX0.xft5oTPnWWgXMmM47K5j7iqSww1vtCR7PkJQ0IQKgaQ",
+      "preimage": "5e11111111111111111111111111111111111111111111111111111111111111",
+      "now": 1790000121,
+      "expect": "expired"
+    },
+    {
+      "name": "offer for another site",
+      "offer_id": "off_0000000000000000000000ee",
+      "macaroon": "eyJhbW91bnRfbXNhdCI6MTAwMDAsImNscyI6IndyaXRlIiwiZXhwIjoxNzkwMDAwMTIwLCJvZmZlcl9pZCI6Im9mZl8wMDAwMDAwMDAwMDAwMDAwMDAwMDAwZWUiLCJwYXltZW50X2hhc2giOiIxNjAxZDhjMjBhYTcxZGQzYmNmYzI4NjZjMWFmMDA0YTlkMWI4NTE3YzljY2NkMDhiMDk3NjhhOGUxYjY3NzJhIiwic2l0ZSI6InNpdGVfb3RoZXIiLCJ2IjoxfQ.8LbwFAsEuu0aLJj6mnkSuWOTTlxd5KZmM61WsJA2OVA",
+      "preimage": "5e11111111111111111111111111111111111111111111111111111111111111",
+      "now": 1790000005,
+      "expect": "wrong_site"
+    },
+    {
+      "name": "malformed preimage",
+      "offer_id": "off_000000000000000000000001",
+      "macaroon": "eyJhbW91bnRfbXNhdCI6MTAwMDAsImNscyI6IndyaXRlIiwiZXhwIjoxNzkwMDAwMTIwLCJvZmZlcl9pZCI6Im9mZl8wMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDEiLCJwYXltZW50X2hhc2giOiIxNjAxZDhjMjBhYTcxZGQzYmNmYzI4NjZjMWFmMDA0YTlkMWI4NTE3YzljY2NkMDhiMDk3NjhhOGUxYjY3NzJhIiwic2l0ZSI6InNpdGVfYWJjMTIzIiwidiI6MX0.xft5oTPnWWgXMmM47K5j7iqSww1vtCR7PkJQ0IQKgaQ",
+      "preimage": "5e11",
+      "now": 1790000005,
+      "expect": "malformed"
+    },
+    {
+      "name": "uppercase preimage is malformed (the issuer lowercases before calling)",
+      "offer_id": "off_000000000000000000000001",
+      "macaroon": "eyJhbW91bnRfbXNhdCI6MTAwMDAsImNscyI6IndyaXRlIiwiZXhwIjoxNzkwMDAwMTIwLCJvZmZlcl9pZCI6Im9mZl8wMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDEiLCJwYXltZW50X2hhc2giOiIxNjAxZDhjMjBhYTcxZGQzYmNmYzI4NjZjMWFmMDA0YTlkMWI4NTE3YzljY2NkMDhiMDk3NjhhOGUxYjY3NzJhIiwic2l0ZSI6InNpdGVfYWJjMTIzIiwidiI6MX0.xft5oTPnWWgXMmM47K5j7iqSww1vtCR7PkJQ0IQKgaQ",
+      "preimage": "5E11111111111111111111111111111111111111111111111111111111111111",
+      "now": 1790000005,
+      "expect": "malformed"
+    }
+  ],
+  "paid_replay": {
+    "offer_id": "off_000000000000000000000001",
+    "macaroon": "eyJhbW91bnRfbXNhdCI6MTAwMDAsImNscyI6IndyaXRlIiwiZXhwIjoxNzkwMDAwMTIwLCJvZmZlcl9pZCI6Im9mZl8wMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDEiLCJwYXltZW50X2hhc2giOiIxNjAxZDhjMjBhYTcxZGQzYmNmYzI4NjZjMWFmMDA0YTlkMWI4NTE3YzljY2NkMDhiMDk3NjhhOGUxYjY3NzJhIiwic2l0ZSI6InNpdGVfYWJjMTIzIiwidiI6MX0.xft5oTPnWWgXMmM47K5j7iqSww1vtCR7PkJQ0IQKgaQ",
+    "preimage": "5e11111111111111111111111111111111111111111111111111111111111111",
+    "now": 1790000005,
+    "expect": [
+      "ok",
+      "replay"
+    ]
+  }
+}
