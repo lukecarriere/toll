@@ -330,6 +330,16 @@ export function createToll(config: TollConfig, opts: TollOptions = {}) {
       if (!paid || !paid.rail.isCollecting()) return null;
       return Object.fromEntries(PAID_CLASSES.map((c) => [c, paid.rail.price(c)])) as PriceTable;
     },
+    /**
+     * The price of one paid request that applies right now for this caller (Amendment 3 base-price
+     * note): the same policy and multipliers as offersFor(), so it equals the live 402 offer.
+     * Mints nothing and counts nothing. null when this issuer makes no paid offers.
+     */
+    currentPrice: (input: IssueInput): { amount_msat: number; usd: string | undefined; load_multiplier: number } | null => {
+      if (!paid || !paid.rail.isCollecting()) return null;
+      const { wp } = policyFor(input);
+      return { ...paid.rail.price(input.action as Exclude<ActionClass, "read">, { velocity: wp.mults.velocity, suspicion: 1 }), load_multiplier: wp.mults.velocity };
+    },
     /** "test": paid offers come from the local test backend. "stub": no paid offer here. */
     priceStatus: (): PriceStatus => (paid && paid.rail.isCollecting() ? "test" : "stub"),
     classCovers,

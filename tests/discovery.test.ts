@@ -7,7 +7,7 @@ import { readFileSync } from "node:fs";
 import { startDemo, PAID_ON, TEST_SECRET, type Running } from "./helpers.ts";
 import { McpClient } from "./mcp-client.ts";
 import { MCP_COUNTERS } from "../packages/mcp/src/server.ts";
-import { TOOLS, MANIFEST_DESCRIPTION, NOT_FOR, INPUT_SCHEMAS, buildManifest } from "../packages/server-node/src/manifest.ts";
+import { TOOLS, MANIFEST_DESCRIPTION, NOT_FOR, INPUT_SCHEMAS, BASE_PRICE_NOTE, buildManifest } from "../packages/server-node/src/manifest.ts";
 // @ts-ignore plain JS helper
 import { lintDiscovery } from "../scripts/copy-lib.mjs";
 
@@ -65,7 +65,9 @@ test("GET /.well-known/toll.json and agents.json: 200, no pass, no challenge, ch
   assert.ok(paid.events.some((e) => e.event === "manifest_fetch" && Object.keys(e).sort().join() === "event,ts"), "event line with no visitor fields");
 });
 
-test("prices: manifest, /v1/price and MCP price_write_action equal the live 402 offer (write $0.0100, search $0.0020, both (test))", async () => {
+test("prices at load multiplier 1: manifest (base), /v1/price and MCP price_write_action (current) equal the live 402 offer (write $0.0100, search $0.0020, both (test))", async () => {
+  // Pinned to x1: this demo has velocity off, and each side's multiplier is asserted, so load cannot make it flaky.
+  assert.equal(paid.demo.toll.config.adaptive.velocity, false, "parity runs at load multiplier 1");
   const doc: any = await (await fetch(paid.url + "/.well-known/toll.json")).json();
   const gate = doc.tools.find((t: any) => t.name === "gate_form_write");
   for (const [action, path, display] of [["write", "/comments", "$0.0100 (test)"], ["search", "/search", "$0.0020 (test)"]] as const) {
@@ -74,6 +76,9 @@ test("prices: manifest, /v1/price and MCP price_write_action equal the live 402 
     const offer = (await r.json()).offers[0];
     const fromManifest = gate.price.by_action[action];
     const fromMcp = (await mcp.call("price_write_action", { site: paid.url, action })).price;
+    assert.equal(fromManifest.basis, "base");
+    assert.equal(fromMcp.basis, "current");
+    assert.equal(fromMcp.load_multiplier, 1);
     for (const p of [fromManifest, fromMcp]) {
       assert.equal(p.amount_msat, offer.amount_msat, action);
       assert.equal(p.usd, offer.display.usd, action);
@@ -81,6 +86,13 @@ test("prices: manifest, /v1/price and MCP price_write_action equal the live 402 
       assert.equal(p.display, display);
     }
   }
+  // docs/copy.md "Base price label": the manifest price is labelled base, and each priced tool carries the exact note.
+  assert.ok(COPY.includes(`carries this exact note: "${BASE_PRICE_NOTE}"`));
+  assert.ok(WP_DISCOVERY.includes(BASE_PRICE_NOTE), "WordPress carries the note verbatim");
+  assert.equal(gate.price.basis, "base");
+  assert.equal(gate.price.note, BASE_PRICE_NOTE);
+  for (const t of doc.tools) assert.equal(t.price.basis, "base", t.name);
+  for (const t of doc.tools.filter((t: any) => t.name !== "gate_form_write")) assert.equal(t.price.note, undefined, t.name + " is free, so not a priced tool");
   assert.equal(gate.price.display, "$0.0100 (test)", "the tool's headline price is a write");
   for (const t of doc.tools) for (const v of JSON.stringify(t.price).match(/"display":"[^"]*"/g) ?? []) assert.match(v, /\((test|stub)\)"$/, "never a bare number");
   assert.equal(doc.tools.find((t: any) => t.name === "price_write_action").price.display, "$0.0000 (test)");
@@ -89,15 +101,59 @@ test("prices: manifest, /v1/price and MCP price_write_action equal the live 402 
 test("settlement off: prices are null with status stub, payment lists no method, x402 stub", async () => {
   const doc: any = await (await fetch(off.url + "/.well-known/toll.json")).json();
   const gate = doc.tools.find((t: any) => t.name === "gate_form_write");
-  assert.deepEqual(gate.price.by_action.write, { amount_msat: null, usd: null, status: "stub", display: null });
+  assert.deepEqual(gate.price.by_action.write, { amount_msat: null, usd: null, status: "stub", display: null, basis: "base" });
+  assert.equal(gate.price.note, undefined, "no paid price, so no base-price note");
   assert.deepEqual(gate.payment, { status: "stub", protocol: "none", methods: [], x402: { status: "stub" } });
   const pr: any = await (await fetch(off.url + "/v1/price?action=write")).json();
   assert.equal(pr.status, "stub");
   assert.equal(pr.amount_msat, null);
+  assert.equal(pr.basis, "current");
+  assert.equal(pr.load_multiplier, null);
   assert.match(pr.work.challenge_url, /offers=0/);
   assert.equal((await fetch(off.url + "/v1/price?action=read")).status, 400, "reads are never priced");
   const paidDoc: any = await (await fetch(paid.url + "/.well-known/toll.json")).json();
   assert.deepEqual(paidDoc.tools[1].payment, { status: "stub", protocol: "HTTP 402", methods: [{ kind: "ln402", status: "test" }], x402: { status: "stub" } });
+});
+
+test("load raised: MCP price_write_action returns the price that applies now and matches a live 402 at the raised price; the manifest stays the base", async () => {
+  // Velocity on, with low steps so a few paid writes from this caller raise the multiplier: 2 -> x2, 4 -> x4.
+  const hot = await startDemo({ work: { standard: { cost: 500 }, velocity_steps: [[2, 2], [4, 4]] }, adaptive: { velocity: true }, ...PAID_ON });
+  try {
+    const pay = async (offer: any) => (await (await fetch(hot.url + "/demo/stub-pay", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ invoice: offer.invoice }) })).json()).preimage;
+    const paidWrite = async () => {
+      const g = await mcp.call("gate_form_write", { site: hot.url, action: "write", path: "/comments" });
+      const o = g.offers[0];
+      const r = await mcp.call("gate_form_write", { site: hot.url, action: "write", payment: { offer_id: o.id, kind: o.kind, preimage: await pay(o), macaroon: o.macaroon } });
+      assert.equal(r.paid, true);
+    };
+    const live402 = async () => {
+      const r = await agentPost(hot, "/comments");
+      assert.equal(r.status, 402);
+      return (await r.json()).offers[0];
+    };
+    const at1 = (await mcp.call("price_write_action", { site: hot.url, action: "write" })).price;
+    const o1 = await live402();
+    assert.deepEqual([at1.load_multiplier, at1.amount_msat, at1.display], [1, o1.amount_msat, "$0.0100 (test)"]);
+    for (const [mult, msat, display] of [[2, 20000, "$0.0200 (test)"], [4, 40000, "$0.0400 (test)"]] as const) {
+      await paidWrite();
+      await paidWrite();
+      const now = (await mcp.call("price_write_action", { site: hot.url, action: "write" })).price;
+      const offer = await live402();
+      const direct: any = await (await fetch(hot.url + "/v1/price?action=write")).json();
+      assert.equal(now.basis, "current");
+      assert.equal(now.load_multiplier, mult);
+      assert.equal(offer.amount_msat, msat, "the live 402 went up with load");
+      assert.equal(now.amount_msat, offer.amount_msat);
+      assert.equal(now.usd, offer.display.usd);
+      assert.equal(now.display, display);
+      assert.deepEqual([direct.amount_msat, direct.display, direct.load_multiplier], [msat, display, mult], "/v1/price agrees");
+    }
+    const doc: any = await (await fetch(hot.url + "/.well-known/toll.json")).json();
+    const gate = doc.tools.find((t: any) => t.name === "gate_form_write");
+    assert.deepEqual([gate.price.amount_msat, gate.price.display, gate.price.basis, gate.price.note], [10000, "$0.0100 (test)", "base", BASE_PRICE_NOTE], "the manifest stays the base price, with the note");
+  } finally {
+    await hot.close();
+  }
 });
 
 test("MCP tools/list: exactly the three tools with the exact copy and input schemas", async () => {

@@ -58,6 +58,14 @@ export const INPUT_SCHEMAS: Record<ToolName, Record<string, unknown>> = {
 
 export interface Price { amount_msat: number | null; usd: string | null; status: PriceStatus; display: string | null }
 
+/**
+ * docs/copy.md "Base price label" (PM, verbatim). Every manifest price is labelled `basis: "base"`
+ * (the 402 at load multiplier 1); each priced tool carries this note. /v1/price and the MCP
+ * price_write_action answer with `basis: "current"`: the price that applies right now, load included.
+ */
+export const BASE_PRICE_NOTE = "Base price. The 402 offer is the price that applies, and it can go up while the site is under load.";
+const base = (p: Price) => ({ ...p, basis: "base" as const });
+
 /** "$0.0100 (test)". Never a bare number; null when there is no USD to show (no paid offer, or the rate is unavailable). */
 export function priceDisplay(usd: string | null | undefined, status: PriceStatus): string | null {
   return usd ? `$${usd} (${status})` : null;
@@ -83,10 +91,10 @@ export type PriceTable = Partial<Record<Exclude<ActionClass, "read">, { amount_m
  */
 export function buildManifest(o: { api: string; docs: string | null; status: PriceStatus; prices: PriceTable }) {
   const paid = !!o.prices;
-  const by_action: Record<string, Price> = {};
+  const by_action: Record<string, Price & { basis: "base" }> = {};
   for (const c of PAID_CLASSES) {
     const p = o.prices?.[c];
-    by_action[c] = p ? price(p.amount_msat, p.usd, o.status) : price(null, null, "stub");
+    by_action[c] = base(p ? price(p.amount_msat, p.usd, o.status) : price(null, null, "stub"));
   }
   const tool = (name: ToolName) => TOOLS.find((t) => t.name === name)!;
   return {
@@ -97,9 +105,9 @@ export function buildManifest(o: { api: string; docs: string | null; status: Pri
     reads_free: true,
     not_for: [...NOT_FOR],
     tools: [
-      { ...tool("price_write_action"), input_schema: INPUT_SCHEMAS.price_write_action, endpoint: o.api + "/price?action={action}", price: FREE(o.status), payment: payment(o.status, false) },
-      { ...tool("gate_form_write"), input_schema: INPUT_SCHEMAS.gate_form_write, endpoint: o.api + "/challenge?action={action}&path={path}&client=agent", price: { ...by_action.write, by_action }, payment: payment(o.status, paid) },
-      { ...tool("verify_write_pass"), input_schema: INPUT_SCHEMAS.verify_write_pass, endpoint: o.api + "/siteverify", price: FREE(o.status), payment: payment(o.status, false) },
+      { ...tool("price_write_action"), input_schema: INPUT_SCHEMAS.price_write_action, endpoint: o.api + "/price?action={action}", price: base(FREE(o.status)), payment: payment(o.status, false) },
+      { ...tool("gate_form_write"), input_schema: INPUT_SCHEMAS.gate_form_write, endpoint: o.api + "/challenge?action={action}&path={path}&client=agent", price: { ...by_action.write, ...(paid ? { note: BASE_PRICE_NOTE } : {}), by_action }, payment: payment(o.status, paid) },
+      { ...tool("verify_write_pass"), input_schema: INPUT_SCHEMAS.verify_write_pass, endpoint: o.api + "/siteverify", price: base(FREE(o.status)), payment: payment(o.status, false) },
     ],
   };
 }
@@ -109,7 +117,11 @@ export function agentsPointer(manifestUrl: string) {
   return { manifest: manifestUrl };
 }
 
-/** GET /v1/price?action= body: the price of one paid request plus the free work alternative. */
-export function priceBody(o: { action: Exclude<ActionClass, "read">; status: PriceStatus; p: { amount_msat: number; usd: string | undefined } | null; challenge_url: string }) {
-  return { action: o.action, ...(o.p ? price(o.p.amount_msat, o.p.usd, o.status) : price(null, null, "stub")), work: { challenge_url: o.challenge_url }, reads_free: true };
+/**
+ * GET /v1/price?action= body: the price of one paid request that applies right now (`basis: "current"`,
+ * the 402 offer's amount for this caller including the load multiplier), plus the free work alternative.
+ * load_multiplier is null when there is no paid offer.
+ */
+export function priceBody(o: { action: Exclude<ActionClass, "read">; status: PriceStatus; p: { amount_msat: number; usd: string | undefined; load_multiplier: number } | null; challenge_url: string }) {
+  return { action: o.action, ...(o.p ? price(o.p.amount_msat, o.p.usd, o.status) : price(null, null, "stub")), basis: "current" as const, load_multiplier: o.p ? o.p.load_multiplier : null, work: { challenge_url: o.challenge_url }, reads_free: true };
 }

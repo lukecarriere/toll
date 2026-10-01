@@ -10,7 +10,7 @@ Tools (names and descriptions are docs/copy.md, verbatim, from `packages/server-
 
 | Tool | Calls | Returns |
 |---|---|---|
-| `price_write_action` `{site, action}` | `GET <api>/price?action=` | `{ action, price: { amount_msat, usd, status, display }, work: { challenge_url }, reads_free }` |
+| `price_write_action` `{site, action}` | `GET <api>/price?action=` | `{ action, price: { amount_msat, usd, status, display, basis: "current", load_multiplier }, work: { challenge_url }, reads_free }`: the price that applies now, load included, from the site's live `/price` (never the manifest's base figure) |
 | `gate_form_write` `{site, action, path}` | `GET <api>/challenge?action&path&client=agent` | `{ offers, challenge, redeem_url }`: the payment offer and a work challenge |
 | `gate_form_write` `{site, action, payment: {offer_id, kind, preimage, macaroon}}` | `POST <api>/redeem` | `{ paid: true, pass, exp, cls }`, a one-use pass |
 | `verify_write_pass` `{site, secret, pass, action}` | `POST <api>/siteverify` | `{ valid: true, action, hostname }` or `{ valid: false, reason }` (spends one pass use) |

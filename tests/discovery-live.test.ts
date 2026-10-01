@@ -9,7 +9,7 @@ import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { McpClient } from "./mcp-client.ts";
-import { TOOLS, INPUT_SCHEMAS } from "../packages/server-node/src/manifest.ts";
+import { TOOLS, INPUT_SCHEMAS, BASE_PRICE_NOTE } from "../packages/server-node/src/manifest.ts";
 import { solveWork } from "../packages/work-adapter/src/index.ts";
 
 const DEMO = process.env.TOLL_DEMO ?? "http://127.0.0.1:8787";
@@ -61,10 +61,20 @@ async function fetchDiscovery(base: string) {
   assert.deepEqual(doc.not_for, ["page views", "crawler blocking", "citation licensing"]);
   return doc;
 }
-/** Manifest price, MCP price and the live 402 offer for one action must agree. */
+/**
+ * Manifest price (base), MCP price (current) and the live 402 offer for one action must agree, pinned
+ * to load multiplier 1: the MCP answer must report x1 (live Node demo runs with velocity off; the
+ * WordPress relay carries no multiplier), so load cannot make this flaky. Raised load is tested in
+ * discovery.test.ts against a live 402 on its own server.
+ */
 async function parity(base: string, doc: any, action: string, offer: any) {
-  const m = doc.tools.find((t: any) => t.name === "gate_form_write").price.by_action[action];
+  const gate = doc.tools.find((t: any) => t.name === "gate_form_write");
+  assert.equal(gate.price.note, BASE_PRICE_NOTE, `${base} priced tool carries the base-price note`);
+  const m = gate.price.by_action[action];
   const p = (await mcp.call("price_write_action", { site: base, action })).price;
+  assert.equal(m.basis, "base");
+  assert.equal(p.basis, "current");
+  assert.equal(p.load_multiplier, 1, `${base} parity runs at load multiplier 1`);
   for (const x of [m, p]) {
     assert.equal(x.amount_msat, offer.amount_msat, `${base} ${action} amount`);
     assert.equal(x.usd, offer.display.usd, `${base} ${action} usd`);
@@ -153,7 +163,9 @@ test("A3 edge (work only): manifest free, no paid price anywhere (manifest, MCP,
   const body: any = await live.json();
   assert.equal(live.status, 403, "the edge answers agents with the work check, never a 402");
   assert.equal(body.offers, undefined);
-  for (const x of [m, p]) assert.deepEqual(x, { amount_msat: null, usd: null, status: "stub", display: null });
+  assert.deepEqual(m, { amount_msat: null, usd: null, status: "stub", display: null, basis: "base" });
+  assert.deepEqual(p, { amount_msat: null, usd: null, status: "stub", display: null, basis: "current", load_multiplier: null });
+  assert.equal(doc.tools[1].price.note, undefined, "no paid price, so no base-price note");
   const g = await mcp.call("gate_form_write", { site: EDGE, action: "write", path: "/contact" });
   assert.deepEqual(g.offers, []);
   const s = await solveWork(g.challenge.work);

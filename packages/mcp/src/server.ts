@@ -76,7 +76,9 @@ export async function callTool(name: ToolName, args: Record<string, any>, counte
     const api = await apiFor(args.site);
     const { status, body } = await getJson(`${api}/price?` + new URLSearchParams({ action: action(args.action) }));
     if (status !== 200) throw new ToolError(`price lookup failed (HTTP ${status}${body.error ? ", " + body.error : ""})`);
-    return { action: body.action, price: { amount_msat: body.amount_msat, usd: body.usd, status: body.status, display: body.display }, work: body.work, reads_free: body.reads_free === true };
+    // The price that applies right now (basis "current", load multiplier included), straight from the
+    // site's live pricing, never the manifest's base figure: the description says "current".
+    return { action: body.action, price: { amount_msat: body.amount_msat, usd: body.usd, status: body.status, display: body.display, basis: body.basis ?? "current", load_multiplier: body.load_multiplier ?? null }, work: body.work, reads_free: body.reads_free === true };
   }
   if (name === "gate_form_write") {
     counters.bump("mcp_call_gate_form_write");

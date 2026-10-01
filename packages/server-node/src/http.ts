@@ -184,13 +184,14 @@ export function tollRouter(toll: Toll) {
         return send(res, 200, body);
       }
 
-      // Price of one paid request (Amendment 3, price_write_action). Read-only: mints nothing.
+      // Price of one paid request that applies now, load included (Amendment 3, price_write_action). Read-only: mints nothing.
       if (path === "/v1/price" && req.method === "GET") {
         const action = url.searchParams.get("action") ?? "write";
         if (!(PAID_CLASSES as readonly string[]).includes(action)) return send(res, 400, { error: "bad_action" });
         const cls = action as (typeof PAID_CLASSES)[number];
-        const table = toll.priceTable();
-        return send(res, 200, priceBody({ action: cls, status: toll.priceStatus(), p: table?.[cls] ?? null, challenge_url: toll.challengeUrl(cls, url.searchParams.get("path") ?? "/") }));
+        const at = url.searchParams.get("path") ?? "/";
+        const p = toll.currentPrice({ action: cls, path: at, ip: clientIp(req), userAgent: String(req.headers["user-agent"] ?? ""), client: "agent" });
+        return send(res, 200, priceBody({ action: cls, status: toll.priceStatus(), p, challenge_url: toll.challengeUrl(cls, at) }));
       }
 
       if (path === "/v1/challenge" && req.method === "GET") {
