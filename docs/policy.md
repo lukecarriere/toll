@@ -175,7 +175,15 @@ All grind figures are **derived** from public benchmarks. No GPU was run on this
    Residential proxies get around per-IP limits (21% of bad-bot attacks used them, Imperva 2025).
 6. **Issuer cost in hardened mode.** Minting a hardened challenge costs the issuer about 52 ms p50 of
    CPU (§2), so a challenge flood costs the server more than solving costs the attacker. The per-IP
-   challenge limit is the guard.
+   challenge limit is the guard. Since `6395b1f`, an agent's 402 links `challenge_url` instead of
+   minting a challenge, so paid traffic mints none (median server time per paid write in hardened
+   mode fell from 51.1 ms to 1.8 ms).
+7. **Read the paid share (M6) only at velocity x1.** Escalation raises price and work by the same
+   multiplier, the step to Argon2id narrows the gap about 13x, and past the work cap only the price
+   rises, so paying never beats grinding at any tier. A cost-driven client will stop paying as
+   velocity rises, and M6 falling toward 0 under attack is expected, not a fault. Paid passes are
+   1 use within 60 s, so each paid check covers exactly one write (the per-write paid figures above
+   are unchanged).
 
 **Phone weight for hardened mode (Data Scientist recommendation, 2026-09-30):** keep hardened opt-in
 and at its current weight on phones for now. The phone-like run already includes `device_mult` 0.6.
