@@ -30,6 +30,16 @@ foreach ($v['fee_cases'] as $c) {
     $r = Settlement::splitFee($c['gross_msat'], $c['fee_bps']);
     check($r === ['fee_msat' => $c['fee_msat'], 'net_msat' => $c['net_msat']], "fee {$c['gross_msat']} msat at {$c['fee_bps']} bps -> {$c['fee_msat']}");
 }
+foreach ($v['fee_display_cases'] as $c) {
+    check(Settlement::feePercent($c['fee_bps']) === $c['fee'], "{fee} for {$c['fee_bps']} bps -> {$c['fee']}");
+}
+check(Settlement::feePercent(1000) === '10' && Settlement::feePercent(750) === '7.5' && Settlement::feePercent(25) === '0.25', '{fee} examples from docs/copy.md: 10, 7.5, 0.25');
+// WordPress strings with {fee}, read from docs/copy.md (copy only; no plugin code exists yet).
+$copy = file_get_contents(__DIR__ . '/../../docs/copy.md');
+foreach (['available to withdraw, after the {fee}% platform fee' => 'available to withdraw, after the 7.5% platform fee', '{fee}% · recorded on each payment' => '7.5% · recorded on each payment'] as $tpl => $want) {
+    check(str_contains($copy, $tpl) && Settlement::fillFee($tpl, 750) === $want, "WordPress copy fills {fee}: \"$want\"");
+}
+
 foreach ($v['usd_cases'] as $c) {
     $rate = $c['usd_per_btc'] === null ? null : (float) $c['usd_per_btc'];
     $o = Settlement::usdDisplay($c['msat'], $rate, $c['fetched_at'], $c['now']);

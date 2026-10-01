@@ -4,7 +4,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { TollError, signPass, verifyPassToken } from "../packages/protocol/src/index.ts";
-import { StubSettler, mintOffer, verifyPaidRedeem, offerAmountMsat, priceMsat, splitFee, usdDisplay, offerUsd, stubEngineSecret } from "../packages/settlement-ln/src/index.ts";
+import { StubSettler, mintOffer, verifyPaidRedeem, offerAmountMsat, priceMsat, splitFee, usdDisplay, offerUsd, stubEngineSecret, feePercent, fillFee } from "../packages/settlement-ln/src/index.ts";
 
 const V = JSON.parse(readFileSync(new URL("../docs/settlement-vectors.json", import.meta.url), "utf8"));
 
@@ -28,6 +28,16 @@ test("settlement vectors: Q3 prices round up to whole 1,000 msat", () => {
 
 test("settlement vectors: Q5 fee rounds down", () => {
   for (const c of V.fee_cases) assert.deepEqual(splitFee(c.gross_msat, c.fee_bps), { fee_msat: c.fee_msat, net_msat: c.net_msat }, JSON.stringify(c));
+});
+
+test("{fee} placeholder: fee_bps / 100 with trailing zeros dropped (docs/copy.md Money): 1000 -> 10, 750 -> 7.5, 25 -> 0.25", () => {
+  assert.equal(feePercent(1000), "10");
+  assert.equal(feePercent(750), "7.5");
+  assert.equal(feePercent(25), "0.25");
+  for (const c of V.fee_display_cases) assert.equal(feePercent(c.fee_bps), c.fee, JSON.stringify(c));
+  assert.equal(fillFee("after the {fee}% platform fee", 750), "after the 7.5% platform fee");
+  assert.throws(() => feePercent(10001));
+  assert.throws(() => feePercent(1.5));
 });
 
 test("settlement vectors: Q4 USD strings, hidden when the rate is stale or missing", () => {

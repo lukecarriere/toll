@@ -35,6 +35,22 @@ final class Settlement
         return ['fee_msat' => $fee, 'net_msat' => $gross_msat - $fee];
     }
 
+    /** `{fee}` in owner copy: fee_bps / 100, trailing zeros dropped (1000 -> "10", 750 -> "7.5", 25 -> "0.25"). */
+    public static function feePercent(int $fee_bps): string
+    {
+        if ($fee_bps < 0 || $fee_bps > 10000) throw new \InvalidArgumentException('fee_bps must be 0..10000');
+        $whole = intdiv($fee_bps, 100);
+        $frac = $fee_bps % 100;
+        if ($frac === 0) return (string) $whole;
+        return $whole . '.' . rtrim(str_pad((string) $frac, 2, '0', STR_PAD_LEFT), '0');
+    }
+
+    /** Replace every `{fee}` in a docs/copy.md template (e.g. the WordPress balance line). */
+    public static function fillFee(string $template, int $fee_bps): string
+    {
+        return str_replace('{fee}', self::feePercent($fee_bps), $template);
+    }
+
     private static function fresh(?float $usd_per_btc, ?int $fetched_at, int $now): bool
     {
         return $usd_per_btc !== null && $usd_per_btc > 0 && $fetched_at !== null && $now - $fetched_at <= self::FX_MAX_AGE_S;

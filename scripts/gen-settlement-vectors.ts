@@ -8,7 +8,7 @@
 import { writeFileSync } from "node:fs";
 import { type PassClaims, sha256, fromHex, toHex, signPass } from "../packages/protocol/src/index.ts";
 import {
-  StubSettler, mintOffer, verifyPaidRedeem, offerAmountMsat, priceMsat, splitFee, usdDisplay, offerUsd, stubEngineSecret, type Offer,
+  StubSettler, mintOffer, verifyPaidRedeem, offerAmountMsat, priceMsat, splitFee, usdDisplay, offerUsd, stubEngineSecret, feePercent, type Offer,
 } from "../packages/settlement-ln/src/index.ts";
 
 const SECRET = "toll-test-vector-secret-do-not-use";
@@ -27,6 +27,9 @@ const price_cases = ([
 
 // Q5: fee = floor(gross * fee_bps / 10000), net = gross - fee.
 const fee_cases = ([[10000, 1000], [2000, 1234], [1, 1000], [999, 10000], [12345, 0], [50000, 1000], [25000, 333]] as const).map(([gross_msat, fee_bps]) => ({ gross_msat, fee_bps, ...splitFee(gross_msat, fee_bps) }));
+
+// {fee} in owner copy (docs/copy.md "Money"): fee_bps / 100, trailing zeros dropped.
+const fee_display_cases = [1000, 750, 25, 0, 1, 1005, 1230, 1234, 10000].map((fee_bps) => ({ fee_bps, fee: feePercent(fee_bps) }));
 
 // Q4: owner totals (two decimals, rounded down, "less than $0.01"), offer display (4 places, rounded
 // up), null = hide when the rate is missing or older than 900 s. Rates are illustrative test values.
@@ -90,14 +93,16 @@ const out = {
   base_msat: { search: 2000, write: 10000, account: 25000, admin: 100000 },
   price_rule: "amount_msat = ceil(round(base_msat[cls] * velocity_mult * suspicion_mult) / 1000) * 1000",
   fee_rule: "fee_msat = floor(gross_msat * fee_bps / 10000); net_msat = gross_msat - fee_msat",
-  usd_rule: "fresh = rate > 0 and now - fetched_at <= 900. owner: cents = floor(msat * rate / 1e9 + 1e-6); '$D.CC', 'less than $0.01' when msat > 0 and cents < 1. offer: units = ceil(msat * rate / 1e7 - 1e-6); 'D.UUUU'. null when not fresh.",
+  fee_display_rule: "{fee} = fee_bps / 100, plain number, trailing zeros dropped (docs/copy.md Money)",
+  usd_rule: "fresh = rate > 0 and now - fetched_at <= 900. owner: cents = floor(msat * rate / 1e9 + 1e-6); '$D.CC', 'less than $0.01' when msat > 0 and cents < 1. offer: units = ceil(msat * rate / 1e7 - 1e-6); 'D.UUUU'. null when not fresh. Rounding confirmed in docs/copy.md 'Money': owner totals round down to the cent, offers round up to $0.0001.",
   settle_pass_rule: "pass claims n = 1, exp = iat + 60 (Q6); same token format as work passes",
   price_cases,
   fee_cases,
+  fee_display_cases,
   usd_cases,
   paid,
   paid_invalid,
   paid_replay,
 };
 writeFileSync(new URL("../docs/settlement-vectors.json", import.meta.url), JSON.stringify(out, null, 2) + "\n");
-console.log(`settlement vectors: ${price_cases.length} price, ${fee_cases.length} fee, ${usd_cases.length} usd, ${paid.length} paid, ${paid_invalid.length} paid_invalid, 1 replay`);
+console.log(`settlement vectors: ${price_cases.length} price, ${fee_cases.length} fee, ${fee_display_cases.length} fee display, ${usd_cases.length} usd, ${paid.length} paid, ${paid_invalid.length} paid_invalid, 1 replay`);

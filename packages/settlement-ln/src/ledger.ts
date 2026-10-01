@@ -30,6 +30,23 @@ export function splitFee(gross_msat: number, fee_bps: number): { fee_msat: numbe
   return { fee_msat, net_msat: gross_msat - fee_msat };
 }
 
+/**
+ * `{fee}` in owner copy (docs/copy.md "Money"): fee_bps / 100 as a plain number with trailing zeros
+ * dropped. 1000 -> "10", 750 -> "7.5", 25 -> "0.25". Integer arithmetic, so Node and PHP agree.
+ */
+export function feePercent(fee_bps: number): string {
+  if (!Number.isInteger(fee_bps) || fee_bps < 0 || fee_bps > 10_000) throw new Error("fee_bps must be 0..10000");
+  const whole = Math.floor(fee_bps / 100);
+  const frac = fee_bps % 100;
+  if (frac === 0) return String(whole);
+  return whole + "." + String(frac).padStart(2, "0").replace(/0$/, "");
+}
+
+/** Replace every `{fee}` in a copy.md template with feePercent(fee_bps). */
+export function fillFee(template: string, fee_bps: number): string {
+  return template.split("{fee}").join(feePercent(fee_bps));
+}
+
 export class MemoryLedger {
   private entries: LedgerEntry[] = [];
   private refs = new Set<string>();
