@@ -9,13 +9,6 @@ import { l402Challenge, paymentRequired, StubSettler } from "../../settlement-ln
 import type { Toll } from "./toll.ts";
 import { buildManifest, agentsPointer, priceBody, PAID_CLASSES } from "./manifest.ts";
 
-/**
- * Whether offers relayed to a WordPress site (/v1/owner/offers) apply a load multiplier. false: the
- * site does not pass its visitor's load to this server yet. Reported to the site in /v1/owner/price
- * load_pricing, so its manifest shows the base-price note only once this becomes true.
- */
-const RELAY_APPLIES_LOAD = false;
-
 /** Origin of this request as the client sees it (for absolute URLs in the manifest). */
 function requestOrigin(req: Req): string {
   const proto = (req.socket as any)?.encrypted ? "https" : "http";
@@ -256,7 +249,7 @@ export function tollRouter(toll: Toll) {
       // Owner API (option A, docs/settlement.md §9): a WordPress site set to "Payment server" reads its
       // balance and sends withdrawals here, server to server, with the owner key. Off unless
       // settlement.owner_key is set. Amounts are integer msat plus the owner's USD string.
-      if (path === "/v1/owner/balance" || path === "/v1/owner/withdraw" || path === "/v1/owner/offers" || path === "/v1/owner/redeem" || path === "/v1/owner/price") {
+      if (path === "/v1/owner/balance" || path === "/v1/owner/withdraw" || path === "/v1/owner/offers" || path === "/v1/owner/redeem" || path === "/v1/owner/price" || path === "/v1/owner/quote") {
         const key = toll.config.settlement.owner_key;
         if (!key || !toll.paid) return send(res, 404, { error: "not_found" });
         const auth = /^Bearer\s+(\S+)$/i.exec(String(req.headers.authorization ?? ""));
@@ -291,27 +284,44 @@ export function tollRouter(toll: Toll) {
         // no credential or invoice code), and forwards each paid redeem here: the settlement engine
         // checks the proof (single use) and the payment is booked in this issuer's ledger. The site
         // then mints its own one-use, 60-second pass. offers [] when paid requests are off or paused.
+        // Load: the site sends its visitor's coarse network as `net` ("a.b.c.0/24" or
+        // "hhhh:hhhh:hhhh::/48", exactly). Offers and quotes are priced for that network with the same
+        // policy as this issuer's own 402, and a paid redeem counts toward its velocity. A missing or
+        // malformed net is the base price, not an error (older sites send none). The network is used
+        // only as an in-memory velocity key: it is never logged, stored or echoed back.
         // Prices for a WordPress site's manifest: amounts plus the rate, so the site derives the USD
         // with its own copy of the same function (Settlement::offerUsd). Read-only. load_pricing says,
-        // per class, whether the offers relayed below (/v1/owner/offers) can rise with load; the site
-        // shows the base-price note only when one can. Today the relay applies no multiplier.
+        // per class, whether the offers relayed below can rise with load: true only when the site
+        // declares it sends networks (?net=1) and this issuer applies a load multiplier (velocity on).
         if (path === "/v1/owner/price" && req.method === "GET") {
           const table = toll.priceTable();
           const fx = paid.quote();
-          return send(res, 200, { status: toll.priceStatus(), prices: table ? Object.fromEntries(Object.entries(table).map(([c, p]) => [c, { amount_msat: p!.amount_msat }])) : null, load_pricing: table ? Object.fromEntries(Object.keys(table).map((c) => [c, RELAY_APPLIES_LOAD])) : null, fx: fx ? { usd_per_btc: fx.usd_per_btc, fetched_at: fx.fetched_at } : null });
+          const sendsNet = url.searchParams.get("net") === "1";
+          const load = toll.loadPricing();
+          return send(res, 200, { status: toll.priceStatus(), prices: table ? Object.fromEntries(Object.entries(table).map(([c, p]) => [c, { amount_msat: p!.amount_msat }])) : null, load_pricing: table ? Object.fromEntries(Object.keys(table).map((c) => [c, sendsNet && load[c as keyof typeof load] === true])) : null, fx: fx ? { usd_per_btc: fx.usd_per_btc, fetched_at: fx.fetched_at } : null });
         }
         if (path === "/v1/owner/offers" && req.method === "POST") {
           const body = await readBody(req);
           const action = body?.action;
           if (!isActionClass(action) || action === "read") return send(res, 400, { error: "malformed" });
-          // No load multiplier on the relay (RELAY_APPLIES_LOAD): the site does not pass its visitor's load here yet.
-          const offers = await paid.offers(action).catch(() => []);
+          const offers = await toll.offersForNet(action, body?.net).catch(() => []);
           return send(res, 200, offers.length ? { offers, www_authenticate: l402Challenge(offers[0]) } : { offers: [] });
+        }
+        // The price that applies now for the site's visitor network (WordPress GET /wp-json/toll/v1/price,
+        // basis "current"): the amount a relayed offer would carry, its load multiplier, and the rate for
+        // the site's USD. Read-only: no offer, no velocity hit, no counter, no log line.
+        if (path === "/v1/owner/quote" && req.method === "POST") {
+          const body = await readBody(req);
+          const action = body?.action;
+          if (!isActionClass(action) || action === "read") return send(res, 400, { error: "malformed" });
+          const p = toll.currentPriceForNet(action, body?.net);
+          const fx = paid.quote();
+          return send(res, 200, { status: toll.priceStatus(), action, amount_msat: p ? p.amount_msat : null, load_multiplier: p ? p.load_multiplier : null, fx: p && fx ? { usd_per_btc: fx.usd_per_btc, fetched_at: fx.fetched_at } : null });
         }
         if (path === "/v1/owner/redeem" && req.method === "POST") {
           const body = await readBody(req);
           try {
-            const r = await paid.redeemPaid(body);
+            const r = await toll.redeemRelayed(body, body?.net);
             toll.metrics.emit("owner_redeem", { cls: r.cls, amount_msat: r.amount_msat });
             return send(res, 200, { ok: true, cls: r.cls, amount_msat: r.amount_msat, fee_msat: r.fee_msat, net_msat: r.net_msat });
           } catch (e) {

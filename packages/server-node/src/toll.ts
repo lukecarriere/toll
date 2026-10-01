@@ -9,6 +9,7 @@ import {
   classCovers,
   coarseKey,
   isActionClass,
+  isCoarseNet,
   mintChallenge,
   newPassClaims,
   signPass,
@@ -164,6 +165,36 @@ export function createToll(config: TollConfig, opts: TollOptions = {}) {
     return paid.rail.offers(input.action as Exclude<ActionClass, "read">, { velocity: wp.mults.velocity, suspicion: 1 });
   }
 
+  /**
+   * Load multiplier for a visitor network a relaying site sent (`net`, coarseNet form): the same
+   * policy as this issuer's own 402 for an address in that network, because coarseKey gives a network
+   * and any address in it the same key. A missing or malformed net is the base price (1), never an
+   * error, so sites that send no network keep working.
+   */
+  function netVelocity(action: Exclude<ActionClass, "read">, net: unknown): number {
+    if (!isCoarseNet(net)) return 1;
+    return policyFor({ action, ip: net, client: "agent" }).wp.mults.velocity;
+  }
+
+  /** Offers relayed to a site (/v1/owner/offers), priced for its visitor's network like offersFor(). [] when off or degraded. */
+  async function offersForNet(action: Exclude<ActionClass, "read">, net: unknown): Promise<Offer[]> {
+    if (!paid) return [];
+    return paid.rail.offers(action, { velocity: netVelocity(action, net), suspicion: 1 });
+  }
+
+  /**
+   * A paid redeem relayed by a site (/v1/owner/redeem): the rail checks and books it; with a valid
+   * net it counts toward that network's velocity like a paid redeem here, so a paying swarm's price
+   * rises on the site too. The site mints its own pass. The network is held only as a velocity
+   * window key in memory.
+   */
+  async function redeemRelayed(body: unknown, net: unknown) {
+    if (!paid) throw new TollError("unsupported", "paid redeem is not enabled on this issuer");
+    const r = await paid.rail.redeemPaid(body);
+    if (isCoarseNet(net)) velocity.hit(coarseKey(config.site_id, net, r.cls));
+    return r;
+  }
+
   /** Where an agent fetches the work challenge for this action (relative to the issuer origin). */
   function challengeUrl(action: ActionClass, path: string): string {
     return workChallengeUrl(config.site_id, action, path);
@@ -311,6 +342,8 @@ export function createToll(config: TollConfig, opts: TollOptions = {}) {
     issueChallenge,
     issueWithOffers,
     offersFor,
+    offersForNet,
+    redeemRelayed,
     challengeUrl,
     redeemPaid,
     /** Paid-request rail, when enabled (status, owner balance, recent payments). */
@@ -339,6 +372,16 @@ export function createToll(config: TollConfig, opts: TollOptions = {}) {
       if (!paid || !paid.rail.isCollecting()) return null;
       const { wp } = policyFor(input);
       return { ...paid.rail.price(input.action as Exclude<ActionClass, "read">, { velocity: wp.mults.velocity, suspicion: 1 }), load_multiplier: wp.mults.velocity };
+    },
+    /**
+     * currentPrice() for a relaying site's visitor network (POST /v1/owner/quote): the amount its
+     * relayed 402 offer carries now. Base price with multiplier 1 for a missing or malformed net.
+     * Mints nothing and counts nothing. null when this issuer makes no paid offers.
+     */
+    currentPriceForNet: (action: Exclude<ActionClass, "read">, net: unknown): { amount_msat: number; usd: string | undefined; load_multiplier: number } | null => {
+      if (!paid || !paid.rail.isCollecting()) return null;
+      const v = netVelocity(action, net);
+      return { ...paid.rail.price(action, { velocity: v, suspicion: 1 }), load_multiplier: v };
     },
     /**
      * Load pricing per paid action for this issuer's own 402 (Amendment 3 base-price note): true when

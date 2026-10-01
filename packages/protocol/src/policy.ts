@@ -104,10 +104,47 @@ export function workParams(policy: WorkPolicy, action: ActionClass, ctx: PolicyC
 /** Coarse velocity key: site + /24 (IPv4) or /48 (IPv6) + action. Used for cost only, never to block. */
 export function coarseKey(site: string, ip: string, action: string): string {
   let net = ip;
-  const v4 = ip.replace(/^::ffff:/, "");
+  const v4 = ip.replace(/^::ffff:/i, "");
   if (/^\d+\.\d+\.\d+\.\d+$/.test(v4)) net = v4.split(".").slice(0, 3).join(".") + ".0/24";
   else if (ip.includes(":")) net = expandV6(ip).slice(0, 3).join(":") + "::/48";
   return `${site}|${net}|${action}`;
+}
+
+const OCTET = "(?:25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]?\\d)";
+const V4 = new RegExp(`^${OCTET}\\.${OCTET}\\.${OCTET}\\.${OCTET}$`);
+const NET_V4 = new RegExp(`^${OCTET}\\.${OCTET}\\.${OCTET}\\.0/24$`);
+const NET_V6 = /^[0-9a-f]{4}:[0-9a-f]{4}:[0-9a-f]{4}::\/48$/;
+
+/**
+ * The network part of coarseKey for one address, validated: "a.b.c.0/24" for IPv4 (an IPv4-mapped
+ * "::ffff:a.b.c.d" counts as IPv4), the first three hextets expanded to four lowercase digits plus
+ * "::/48" for IPv6. null for anything that is not a plain IPv4 or IPv6 address (zone ids, prefixes,
+ * IPv6 with an embedded dotted quad other than the mapped form, junk). For every address it accepts,
+ * coarseKey(site, coarseNet(ip), action) === coarseKey(site, ip, action). The WordPress plugin's
+ * toll_gate_coarse_net() gives the same output (docs/net-vectors.json).
+ */
+export function coarseNet(ip: unknown): string | null {
+  if (typeof ip !== "string" || ip.length === 0 || ip.length > 64) return null;
+  const v4 = ip.replace(/^::ffff:(?=\d+\.)/i, "");
+  if (V4.test(v4)) return v4.split(".").slice(0, 3).join(".") + ".0/24";
+  if (!isPlainV6(ip)) return null;
+  return expandV6(ip).slice(0, 3).join(":") + "::/48";
+}
+
+/** True only for a network in exactly the form coarseNet() returns (what a relaying site may send as `net`). */
+export function isCoarseNet(net: unknown): net is string {
+  return typeof net === "string" && (NET_V4.test(net) || NET_V6.test(net));
+}
+
+/** RFC 4291 text form without an embedded IPv4 part or zone id: 1-4 hex digits per group, at most one "::". */
+function isPlainV6(ip: string): boolean {
+  if (!/^[0-9A-Fa-f:]+$/.test(ip) || !ip.includes(":")) return false;
+  const halves = ip.split("::");
+  if (halves.length > 2) return false;
+  const groups = (h: string) => (h === "" ? [] : h.split(":"));
+  const parts = halves.flatMap(groups);
+  if (!parts.every((g) => /^[0-9A-Fa-f]{1,4}$/.test(g))) return false;
+  return halves.length === 2 ? parts.length <= 7 : parts.length === 8;
 }
 
 function expandV6(ip: string): string[] {
