@@ -3,10 +3,12 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 // @ts-ignore plain JS helper
-import { lintList, lintRegexes, lintText, readmeTop, widgetStrings, readCopy, isExempt } from "../scripts/copy-lib.mjs";
+import { lintList, lintRegexes, lintText, readmeTop, widgetStrings, readCopy, isExempt, section } from "../scripts/copy-lib.mjs";
 // @ts-ignore plain JS helper
 import { runLint } from "../scripts/copy-lint.mjs";
-import { COPY } from "../demo/strings.ts";
+import * as demoStrings from "../demo/strings.ts";
+import { COPY, resultsFor } from "../demo/strings.ts";
+import { formsPage, hammerPage } from "../demo/pages.ts";
 
 const md = readCopy();
 
@@ -63,6 +65,31 @@ test("widget strings come from docs/copy.md and are the only visible text in tol
   for (const banned of ["I am not a robot", "human", "robot"]) assert.ok(!dist.toLowerCase().includes(banned.toLowerCase()), banned);
 });
 
-test("demo strings marked COPY appear verbatim in docs/copy.md", () => {
-  for (const [k, v] of Object.entries(COPY)) assert.ok(md.includes(v), `${k}: "${v}"`);
+test("every demo string is backed by docs/copy.md (Demo strings section; noJs from Widget strings)", () => {
+  // One group only: nothing outside copy.md is left in demo/strings.ts.
+  assert.deepEqual(Object.keys(demoStrings).sort(), ["COPY", "resultsFor"]);
+  const demo = section(md, "Demo strings");
+  const widget = section(md, "Widget strings");
+  assert.ok(demo.length > 200, "Demo strings section found");
+  for (const [k, v] of Object.entries(COPY)) {
+    const where = k === "noJs" ? widget : demo;
+    assert.ok(where.includes(v), `${k}: "${v}" is not in docs/copy.md`);
+  }
+  // Results line: copy.md pattern `N result(s) for "query"`, singular at 1.
+  assert.ok(demo.includes('N result(s) for "query"') && demo.includes("singular at 1"));
+  assert.equal(resultsFor(1, "workshop"), '1 result for "workshop"');
+  assert.equal(resultsFor(0, "x"), '0 results for "x"');
+  assert.equal(resultsFor(3, "x"), '3 results for "x"');
+});
+
+test("demo pages: the action class in each card description is in code style, like the prototype", () => {
+  const html = formsPage({ host: "localhost:8787", comments: [] });
+  assert.ok(html.includes("A write. Gated as <code>write</code>."));
+  assert.ok(html.includes("In-memory thread. Gated as <code>write</code>; your pass covers about 20 comments for 15 minutes."));
+  assert.ok(html.includes("A search that POSTs. Gated as <code>search</code> (cheaper than a write)."));
+  // Visible text with tags stripped is still the exact copy.md string.
+  const text = html.replace(/<[^>]+>/g, "");
+  for (const v of [COPY.commentsSub, COPY.searchSub, COPY.introLede, COPY.noPassSub]) assert.ok(text.includes(v), v);
+  const hammer = hammerPage({ host: "localhost:8787" }).replace(/<[^>]+>/g, "");
+  for (const v of [COPY.hammerTitle, COPY.hammerLede, COPY.runWithoutSub, COPY.runWithSub, COPY.agentSub, COPY.phase2, COPY.legendPending]) assert.ok(hammer.includes(v), v);
 });

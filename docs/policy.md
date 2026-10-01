@@ -119,12 +119,71 @@ Measured against the §9.3 targets (run above):
 - **Velocity (off by default):** work scales linearly with the multiplier, so (derived, not measured) a
   desktop write reaches the §9.3 "1–2 s" band only around x4. Thresholds need real traffic before velocity is on by default.
 
-## 5. Pay vs grind (placeholder)
+## 5. Pay vs grind
 
-The Data Scientist's pay-vs-grind table (what a request costs an attacker in work vs what it would
-cost to pay the offer, by class and velocity step) goes here. It depends on the settlement price
-table (`docs/settlement.md` §3) and on GPU throughput figures that have not been measured yet, so this
-section is intentionally empty. No figures have been filled in.
+Filled by the Data Scientist, 2026-09-30 (CT). Question: for an automated client, is it cheaper to pay
+the settlement offer or to grind the PBKDF2 work challenge on rented GPUs? Everything below is
+**derived** from the inputs listed; no GPU run was made on this project.
+
+**Inputs**
+- Work: `unit_iterations` 400,000; class multipliers search 1, write 4, account 8, admin 16; desktop
+  `device_mult` 1.0; velocity x1–x16; `max_iterations` 11M worst case, about 5.5M expected (§2).
+- Prices: `docs/settlement.md` §3, `amount_msat = base_msat × velocity_mult` (search 2,000, write
+  10,000, account 25,000, admin 100,000 msat), converted at about $85,000 per BTC (Sep 30, 2026 spot,
+  findings memo). Real offers use the live rate.
+- GPU: one RTX 4090 does about 8.86 billion PBKDF2-HMAC-SHA256 iterations a second (public hashcat
+  benchmark, mode 10900: 8,865.7 kH/s at 999 iterations). Rented at about $0.34 an hour (RunPod
+  community cloud), which is about $0.000094 per GPU-second. Spot prices go lower, so grind costs here
+  are an upper bound.
+- Desktop browser time is scaled from the measured write p50 (268 ms at 1.6M iterations, §3).
+- "Per write" divides one solve across the 20 uses of a work pass (`pass_uses: 20`, 900 s), which
+  any client that solves the work gets.
+
+| Class | Velocity | Expected work (iterations) | Desktop browser time | One RTX 4090 time | Grind cost per challenge | Grind cost per write (20-use pass) | Pay per write | Pay ÷ grind (per challenge) | Pay ÷ grind (per write) |
+|---|---|---|---|---|---|---|---|---|---|
+| search | x1 | 400,000 | 67 ms | 0.05 ms | $4.3e-9 | $2.1e-10 | $0.0017 | 398,558x | 7,971,151x |
+| search | x2 | 800,000 | 134 ms | 0.09 ms | $8.5e-9 | $4.3e-10 | $0.0034 | 398,558x | 7,971,151x |
+| search | x4 | 1,600,000 | 268 ms | 0.18 ms | $1.7e-8 | $8.5e-10 | $0.0068 | 398,558x | 7,971,151x |
+| search | x8 | 3,200,000 | 536 ms | 0.36 ms | $3.4e-8 | $1.7e-9 | $0.0136 | 398,558x | 7,971,151x |
+| search | x16 | 5,500,000 (cap) | 921 ms | 0.62 ms | $5.9e-8 | $2.9e-9 | $0.0272 | 463,776x | 9,275,521x |
+| write | x1 | 1,600,000 | 268 ms | 0.18 ms | $1.7e-8 | $8.5e-10 | $0.0085 | 498,197x | 9,963,939x |
+| write | x2 | 3,200,000 | 536 ms | 0.36 ms | $3.4e-8 | $1.7e-9 | $0.0170 | 498,197x | 9,963,939x |
+| write | x4 | 5,500,000 (cap) | 921 ms | 0.62 ms | $5.9e-8 | $2.9e-9 | $0.0340 | 579,720x | 11,594,401x |
+| write | x8 | 5,500,000 (cap) | 921 ms | 0.62 ms | $5.9e-8 | $2.9e-9 | $0.0680 | 1,159,440x | 23,188,803x |
+| write | x16 | 5,500,000 (cap) | 921 ms | 0.62 ms | $5.9e-8 | $2.9e-9 | $0.1360 | 2,318,880x | 46,377,605x |
+| account | x1 | 3,200,000 | 536 ms | 0.36 ms | $3.4e-8 | $1.7e-9 | $0.0212 | 622,746x | 12,454,923x |
+| account | x2 | 5,500,000 (cap) | 921 ms | 0.62 ms | $5.9e-8 | $2.9e-9 | $0.0425 | 724,650x | 14,493,002x |
+| account | x4 | 5,500,000 (cap) | 921 ms | 0.62 ms | $5.9e-8 | $2.9e-9 | $0.0850 | 1,449,300x | 28,986,003x |
+| account | x8 | 5,500,000 (cap) | 921 ms | 0.62 ms | $5.9e-8 | $2.9e-9 | $0.1700 | 2,898,600x | 57,972,006x |
+| account | x16 | 5,500,000 (cap) | 921 ms | 0.62 ms | $5.9e-8 | $2.9e-9 | $0.3400 | 5,797,201x | 115,944,013x |
+| admin | x1 | 5,500,000 (cap) | 921 ms | 0.62 ms | $5.9e-8 | $2.9e-9 | $0.0850 | 1,449,300x | 28,986,003x |
+| admin | x2 | 5,500,000 (cap) | 921 ms | 0.62 ms | $5.9e-8 | $2.9e-9 | $0.1700 | 2,898,600x | 57,972,006x |
+| admin | x4 | 5,500,000 (cap) | 921 ms | 0.62 ms | $5.9e-8 | $2.9e-9 | $0.3400 | 5,797,201x | 115,944,013x |
+| admin | x8 | 5,500,000 (cap) | 921 ms | 0.62 ms | $5.9e-8 | $2.9e-9 | $0.6800 | 11,594,401x | 231,888,025x |
+| admin | x16 | 5,500,000 (cap) | 921 ms | 0.62 ms | $5.9e-8 | $2.9e-9 | $1.3600 | 23,188,803x | 463,776,051x |
+
+**What it says**
+1. On the PBKDF2 rail, paying never wins on cost. Grinding a write is about 500,000x cheaper per
+   challenge at x1, and about 10 million x cheaper per write once the 20-use pass is counted. The
+   findings memo's "at least 200x" assumed a 100M iterations/s browser; at the measured browser speed
+   the real gap is about 2,500 times larger, so read the memo figure as a loose lower bound.
+2. Velocity widens the gap instead of closing it. The price keeps doubling, but work stops at the
+   `max_iterations` cap (reached at write x4, account x2, admin x1), so a GPU's cost per challenge
+   tops out at about $0.00000006 while a write offer climbs to $0.136 at x16. Difficulty and price stop
+   moving together once the cap is hit (spec §6.7).
+3. One 4090 solves about 1,600 capped challenges a second (about 32,000 writes a second on 20-use
+   passes). Throughput is limited by the per-IP challenge rate limit (60 a minute), not by cost, and
+   residential proxies get around per-IP limits (21% of bad-bot attacks used them, Imperva 2025).
+4. So agents pay for convenience, not savings: the agent SDK pays by default (spec §6.3) and needs no
+   GPU setup. Settlement's value against a funded attacker is that its spend lands with the site
+   owner (spec §16), not that it is cheaper than the work.
+5. The only work-side lever that narrows the gap is memory-hard work (argon2id, phase 3). Its GPU
+   throughput has not been measured; add a GPU column for it here in phase 3.
+
+**For product (not a spec change):** with the current rules, a client over the work cap still gets
+the work option, so it never has to pay. Whether a high-velocity, over-cap client should ever be
+offered payment only is a product call (it touches §9.5 "never hard-block humans"), and it needs
+real traffic data first.
 
 ## 6. Open items
 

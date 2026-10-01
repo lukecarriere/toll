@@ -3,7 +3,7 @@
    Everything inherits from the host page (font, color) so it looks native on any site.
    Hosts may override: --toll-error, --toll-accent (focus ring), --toll-gap. */
 :host { display: block; font: inherit; color: inherit; }
-:host([hidden]), .s[hidden] { display: none !important; }
+:host([hidden]), [hidden] { display: none !important; }
 
 /* Status line (Checking… / Verified / error). One 20px row, placed right after the submit button. */
 .s {

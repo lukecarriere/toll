@@ -157,13 +157,19 @@ Never log preimages, macaroons, invoices after payment (bolt11), NWC URIs or nod
 - §19.11 stays green: settlement off → widget flow works and `offers` is empty (already tested).
 - Degraded mode: stub outage → offers empty, work writes accepted, `settlement_degraded` logged, no 500.
 
-## 15. Open questions (need a product or engineering decision before phase 2 ships)
+## 15. Decisions and open questions
 
-- **Q1. Macaroon format.** Toll HMAC token (simple, done in the stub) or real libmacaroons-format macaroons so existing L402 clients and proxies work unmodified? Interop argues for real macaroons; it adds a dependency on both Node and PHP.
-- **Q2. 402 vs 403.** Spec §4 says agents get 402; §10 says `toll.fetch` handles 403 `toll_required`. Proposal: 402 + `WWW-Authenticate: L402` only when the request says it is an agent (`Toll-Client: agent` header or `client=agent`), 403 otherwise. Needs a yes.
-- **Q3. Sub-sat amounts.** Base prices are whole sats today, but velocity/suspicion multipliers can produce sub-sat msat amounts that some wallets round. Round offers up to a whole sat?
-- **Q4. FX source.** Which public rate source, and is a single source acceptable (spec says hide USD rather than block when it is down)?
-- **Q5. Fee rounding and display.** Fee rounds down per payment (owner-favourable). Should the held fee be visible to the owner anywhere (e.g. an Advanced line), or only in the ledger?
-- **Q6. Agent pass shape.** Spec allows "n=1 or exp ≤ 60s"; the draft does both. Confirm both, or allow n>1 with a 60s expiry for bursty-but-paying clients?
-- **Q7. Where the held fee goes in phase 4** (hosted processor, batching, partner for owner payouts). Not needed for phase 2.
-- **Q8. Copy conflict with the phase 4 dashboard (for the PM).** `docs/copy.md` (Demo strings, Owner block, and WordPress "Usage payouts") keeps the §18 helper "High-volume clients can pay per request. You withdraw from the dashboard." The hosted dashboard is now phase 4, so in the MVP there is no dashboard to withdraw from: withdrawals happen under **Advanced settlement** on the WordPress settings page (and nowhere in the demo). The owner block is not rendered in phase 1, so nothing ships with the old line yet. The PM needs to reword it in `docs/copy.md` before phase 2. The code will pick up the new string from there.
+Decision log, 2026-09-30 (CT). Amendment 1 (in force 7:55 PM CT) changes how this rail is built: Toll wraps an existing settlement engine (Aperture, or direct L402 over NWC/LND) instead of writing its own. The rest of this draft is the pre-amendment design and will be revised against the chosen engine (`docs/adapters.md`).
+
+- **Q1. Macaroon format: DECIDED by Amendment 1 (Luke).** The settlement engine supplies the macaroon (Amendment 1 §B and §F: no new macaroon format). The Toll HMAC token in `packages/settlement-ln` is retired with the from-scratch stack. The library survey the EM asked for was stopped when the amendment landed and is not needed.
+- **Q2. 402 vs 403: DECIDED (PM).** A request that identifies as an agent (`Toll-Client: agent` header or `client=agent`) gets `402` with `WWW-Authenticate: L402`. Everything else gets `403 {"error":"toll_required"}`.
+- **Q3. Sub-sat amounts: DECIDED (PM).** Offers round up to a whole sat (`amount_msat` is always a multiple of 1,000).
+- **Q4. FX source: DECIDED (PM).** Use one free public rate source whose terms allow commercial use, and hide USD when it is down (spec §8.6). Do not sign up for a paid source; if the only good source is paid, flag it for Luke. *Not done:* naming candidate sources and checking their terms. That was stopped by the Amendment 1 pivot and is still to do before phase 2.
+- **Q5. Fee rounding and display: DECIDED (PM).** The fee rounds down on each payment (owner-favourable, as implemented). The MVP UI shows no held-fee amount; Advanced shows "10% · recorded on each payment".
+- **Q6. Agent pass shape: DECIDED (PM).** Keep the §8.6 default: one use or a 60-second expiry. More uses per pass is a config option only.
+- **Q7. Where the held fee goes in phase 4: OPEN (Luke, phase 4).** Options include a hosted processor, batching, or a partner for owner payouts. Not needed for phase 2.
+- **Q8. "Dashboard" in the owner-block copy: DECIDED (PM).** The owner-block lines stay word for word. "Dashboard" means WP admin, where Advanced settlement lives. `docs/copy.md` never mentions the hosted dashboard (phase 4).
+
+### Deferred (waits for real traffic)
+
+- **D1 (Data Scientist, for Luke).** With the current rules a client over the work cap still gets the work option, so it never has to pay. Should a high-velocity, over-cap client ever be offered payment only? It touches spec §9.5 ("never hard-block humans") and needs real traffic data first. See `docs/policy.md` §5.

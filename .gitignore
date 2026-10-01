@@ -9,3 +9,6 @@ dist/
 /design/
 *.gen.ts
 bench/dist/
+
+# Planning inputs
+/AMENDMENT_1.md

@@ -246,6 +246,97 @@ test("8s cap (owner setting): a solve that runs past the cap switches to checkbo
   await ctx.close();
 });
 
+// Designer bug: `.btn { display: inline-flex }` beat the UA [hidden] rule, so the hidden checkbox
+// button drew an empty 28x40 bordered box next to "Verified". Sample every frame: any element in the
+// widget's shadow root that is hidden must have a zero-size box, in every state.
+async function sampleHidden(page: Page) {
+  await page.addInitScript(() => {
+    const w = window as any;
+    w.__hiddenBad = [];
+    w.__views = new Set<string>();
+    w.__frames = 0;
+    const tick = () => {
+      for (const g of Array.from(document.querySelectorAll("toll-gate")) as any[]) {
+        const root = g.shadowRoot as ShadowRoot | null;
+        if (!root) continue;
+        const status = root.querySelector('[role="status"]') as HTMLElement;
+        const alert = root.querySelector('[role="alert"]') as HTMLElement;
+        const btn = root.querySelector("button.btn") as HTMLButtonElement;
+        const view = g.hidden ? "none" : [status && !status.hidden ? "status:" + status.textContent : "", alert && !alert.hidden ? "alert" : "", btn && !btn.hidden ? "button:" + btn.textContent : ""].filter(Boolean).join("|");
+        w.__views.add(view);
+        for (const el of Array.from(root.querySelectorAll("[hidden]")) as HTMLElement[]) {
+          const r = el.getBoundingClientRect();
+          if (r.width !== 0 || r.height !== 0) w.__hiddenBad.push({ view, el: el.className || el.tagName, w: r.width, h: r.height });
+        }
+        if (btn?.hidden) {
+          const r = btn.getBoundingClientRect();
+          if (getComputedStyle(btn).display !== "none" || r.width || r.height) w.__hiddenBad.push({ view, el: "btn(display " + getComputedStyle(btn).display + ")", w: r.width, h: r.height });
+        }
+      }
+      w.__frames++;
+      requestAnimationFrame(tick);
+    };
+    requestAnimationFrame(tick);
+  });
+}
+const hiddenReport = (page: Page) => page.evaluate(() => { const w = window as any; return { bad: w.__hiddenBad.slice(0, 5), badCount: w.__hiddenBad.length, views: [...w.__views], frames: w.__frames }; });
+const btnBox = (page: Page, sel = "toll-gate") => page.evaluate((s) => {
+  const b = (document.querySelector(s) as any).shadowRoot.querySelector("button.btn") as HTMLButtonElement;
+  const r = b.getBoundingClientRect();
+  return { hidden: b.hidden, w: r.width, h: r.height, display: getComputedStyle(b).display };
+}, sel);
+
+test("hidden widget parts take no space in any state: Checking…, Verified, error, checkbox (button is 0x0 whenever hidden)", async () => {
+  // Checking… then Verified (slow policy), and the in-page hide afterwards.
+  {
+    const { page, ctx } = await newPage();
+    await sampleHidden(page);
+    await fixture(page, slow.url, `<form method="post" action="/contact" data-toll="write"><input name="m"><button type="submit">Send</button></form>`);
+    await page.waitForFunction(() => { const g = document.querySelector("toll-gate") as any; return g && !g.hidden && g.shadowRoot.querySelector('[role="status"]').textContent === "Checking…"; }, null, { timeout: 8000 });
+    assert.deepEqual(await btnBox(page), { hidden: true, w: 0, h: 0, display: "none" }, "during Checking…");
+    await page.waitForFunction(() => { const g = document.querySelector("toll-gate") as any; return g && !g.hidden && g.shadowRoot.querySelector('[role="status"]').textContent === "Verified"; }, null, { timeout: 15000 });
+    await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
+    assert.deepEqual(await btnBox(page), { hidden: true, w: 0, h: 0, display: "none" }, "after Verified");
+    // The status row is the only thing drawn next to Verified.
+    const row = await page.evaluate(() => { const g = document.querySelector("toll-gate") as any; return Array.from(g.shadowRoot.children as HTMLCollection).filter((e: any) => e.getBoundingClientRect().width > 0).map((e: any) => e.className); });
+    assert.deepEqual(row, ["s"]);
+    await page.waitForTimeout(1500);
+    const rep = await hiddenReport(page);
+    assert.ok(rep.views.includes("status:Checking…") && rep.views.includes("status:Verified"), JSON.stringify(rep.views));
+    assert.equal(rep.badCount, 0, JSON.stringify(rep));
+    await ctx.close();
+  }
+  // Error state (issuer unreachable): button and status hidden while the alert shows.
+  {
+    const { page, ctx } = await newPage();
+    await sampleHidden(page);
+    await page.route("**/v1/challenge*", (r) => r.abort());
+    await fixture(page, fast.url, `<form method="post" action="/contact" data-toll="write"><input name="m"><button type="submit">Send</button></form>`);
+    await page.waitForFunction(() => { const g = document.querySelector("toll-gate") as any; return g && !g.shadowRoot.querySelector('[role="alert"]').hidden; }, null, { timeout: 8000 });
+    await page.waitForTimeout(300);
+    assert.deepEqual(await btnBox(page), { hidden: true, w: 0, h: 0, display: "none" }, "error state");
+    const rep = await hiddenReport(page);
+    assert.ok(rep.views.includes("alert"), JSON.stringify(rep.views));
+    assert.equal(rep.badCount, 0, JSON.stringify(rep));
+    await ctx.close();
+  }
+  // Checkbox mode: the status and alert rows are hidden while the button shows, before and after Verified.
+  {
+    const { page, ctx } = await newPage();
+    await sampleHidden(page);
+    await fixture(page, fast.url, `<form method="post" action="/contact" data-toll="write" data-toll-checkbox="true"><input name="m"><button type="submit">Send</button></form>`);
+    const b = page.getByRole("button", { name: "Verify before sending" });
+    await b.waitFor();
+    await b.click();
+    await page.waitForFunction(() => (document.querySelector("toll-gate") as any).shadowRoot.querySelector("button.btn").textContent === "Verified", null, { timeout: 10000 });
+    await page.waitForTimeout(300);
+    const rep = await hiddenReport(page);
+    assert.ok(rep.views.some((v: string) => v.startsWith("button:")), JSON.stringify(rep.views));
+    assert.equal(rep.badCount, 0, JSON.stringify(rep));
+    await ctx.close();
+  }
+});
+
 test("state 9: without JavaScript the form shows the note and the POST is rejected", async () => {
   const { page, ctx } = await newPage({ js: false });
   await page.goto(fast.url + "/");
