@@ -25,7 +25,7 @@ credential, invoice, payment proof).
 | Piece | Package | Version | Licence | Where |
 |---|---|---|---|---|
 | Issue, verify, headless solver (Node and browser) | `altcha-lib` | **2.5.0** (released 2026-09-10) | MIT | `packages/work-adapter` (dependency); bundled into `toll.js` via `@toll/work-adapter/browser` |
-| Prebuilt standalone workers (PBKDF2, Argon2id) | `altcha` | **3.2.4** (published 2026-09-30 05:35 UTC) | MIT | `packages/widget` devDependency; `dist/workers/pbkdf2.js` and `argon2id.js` are copied unchanged to `toll.worker.js` and `toll.worker-argon2id.js`. The package's web component and UI are never loaded. |
+| Prebuilt standalone workers (PBKDF2, Argon2id) | `altcha` | **3.2.3** (published 2026-09-20 09:11 UTC) | MIT | `packages/widget` devDependency; `dist/workers/pbkdf2.js` and `argon2id.js` are copied unchanged to `toll.worker.js` and `toll.worker-argon2id.js`. The package's web component and UI are never loaded. |
 | Argon2id on the issuer (Node 22) | `hash-wasm` | **4.12.0** | MIT | `packages/work-adapter`; also inside the vendor Argon2id worker |
 | PHP verifier | `altcha-org/altcha` (Composer) | **2.1.0** | MIT | `packages/server-php/composer.json` + `composer.lock`; needs PHP ≥ 8.1, and `ext-sodium` for Argon2id |
 
@@ -100,7 +100,7 @@ All 840 solves redeemed OK. Method and the full table: docs/policy.md §3 and `b
 
 ### Catches (for Luke)
 
-1. **Very fresh widget package.** `altcha@3.2.4` was published on 2026-09-30, the same day we pinned it. We only copy its two standalone worker files, which are small and contain no URLs, and they are pinned exactly. If we'd rather not ship a day-old release, 3.2.3 is the fallback to evaluate. The solver library `altcha-lib@2.5.0` is three weeks old.
+1. **Widget package pinned one release back (resolved).** `altcha@3.2.4` was published on 2026-09-30, the day we first pinned it. For supply-chain caution, Engineering pinned **3.2.3** instead (published 2026-09-20) on the same day. The two worker files we ship are **byte-identical** between 3.2.3 and 3.2.4 (`pbkdf2.js` sha256 `7862add9…b9c86f`, `argon2id.js` sha256 `cd9770a7…27b9fe9`), so nothing shipped changed. We copy only those two files; they contain no URLs and are pinned exactly. The solver library `altcha-lib@2.5.0` is three weeks old.
 2. **Hardened mode costs the issuer CPU on every challenge.** Issuing a challenge derives the secret counter's key once, so with Argon2id the issuer pays one Argon2id call per challenge. With the shipped m = 19 MiB, t = 2, that measured p50 52 ms (p95 91 ms) in WASM on this box (Node 22; 20 mints). Verifying is still one HMAC. A flood of challenge requests in hardened mode is therefore a server cost; per-IP challenge rate limits apply.
 3. **Node 22 has no native Argon2id.** The issuer uses `hash-wasm` (WASM), the same code the vendor worker runs. Node ≥ 24.7 has `crypto.argon2` and can switch later, with identical output. PHP uses sodium (native).
 4. **The hardened worker needs `'wasm-unsafe-eval'`.** The issuer sends that worker its own CSP (`default-src 'none'; script-src 'self' 'wasm-unsafe-eval'`), so host pages don't have to loosen theirs. A host that serves `toll.worker-argon2id.js` from its own CDN must send the same header.

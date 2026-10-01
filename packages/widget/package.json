@@ -9,6 +9,6 @@
     "@toll/work-adapter": "0.1.0"
   },
   "devDependencies": {
-    "altcha": "3.2.4"
+    "altcha": "3.2.3"
   }
 }
