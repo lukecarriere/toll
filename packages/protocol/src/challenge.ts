@@ -1,5 +1,5 @@
 // Challenge envelope, spec §8.1 as amended (Amendment 1 §C). Toll owns id, site, binding, times
-// and the signature. The puzzle is the work engine's payload, carried opaque in `work`.
+// and the signature. The proof-of-work check is the work engine's payload, carried opaque in `work`.
 
 import { canonicalJson } from "./canonical.ts";
 import { fromB64, randomHex, toB64, utf8, fromHex } from "./bytes.ts";

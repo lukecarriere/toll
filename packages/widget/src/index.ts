@@ -1,5 +1,5 @@
 // toll.js: invisible check for forms (spec §10, design handoff §1).
-// - The puzzle is the work engine's (docs/adapters.md), solved headless with the engine's solver in
+// - The proof-of-work check is the work engine's (docs/adapters.md), solved headless with the engine's solver in
 //   its prebuilt workers (toll.worker.js, toll.worker-argon2id.js), served from the issuer. Nothing
 //   is hashed on the page's main thread and the engine never renders any UI: this element and
 //   toll-gate.css are the only visible surface.

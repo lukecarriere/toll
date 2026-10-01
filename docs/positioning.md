@@ -14,7 +14,7 @@ Toll's job is the fourth one: make high-volume *writes* expensive, without askin
 
 Putting Toll on page views fights discovery. Putting Toll on comments does not.
 
-A site can use both. Allow answering crawlers on public pages. Block or license training crawlers somewhere else. Put Toll on the form. They clash only if Toll taxes the read.
+A site can use both. Allow answering crawlers on public pages. Block or license training crawlers somewhere else. Put Toll on the form. They clash only if Toll gates the read.
 
 ## Discovery
 

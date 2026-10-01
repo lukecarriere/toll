@@ -1,6 +1,6 @@
 <?php
 // Toll protocol v1 verifier for PHP 8.1+ (spec §12, Amendment 1). Toll owns the envelope and pass;
-// the puzzle is verified by the work engine's PHP library (pinned in composer.json, see
+// the proof-of-work check is verified by the work engine's PHP library (pinned in composer.json, see
 // docs/adapters.md). Argon2id (hardened mode) needs ext-sodium. Mirrors packages/protocol and
 // packages/work-adapter (TypeScript). Both must pass docs/vectors.json.
 declare(strict_types=1);

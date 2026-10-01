@@ -1,4 +1,4 @@
-// Work policy, spec §9.3 and §9.5 (behavioural since Amendment 1: the vendor supplies the puzzle).
+// Work policy, spec §9.3 and §9.5 (behavioural since Amendment 1: the vendor supplies the proof-of-work check).
 // Turns an action class plus context into engine parameters for the work adapter.
 //
 // expected_tries = unit_tries[mode] * class_mult * device_mult * velocity_mult * suspicion_mult

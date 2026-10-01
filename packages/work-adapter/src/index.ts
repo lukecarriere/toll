@@ -1,5 +1,5 @@
 // Work engine adapter (Amendment 1 §B, §C). Toll owns the /v1 envelope, replay cache, policy and
-// pass. The proof-of-work puzzle itself is ALTCHA v2 (altcha-lib, MIT, pinned in package.json):
+// pass. The proof-of-work check itself is ALTCHA v2 (altcha-lib, MIT, pinned in package.json):
 // this module only issues and verifies vendor challenges. It never calls the network
 // (no Sentinel, no cloud verification): verification is local HMAC and KDF work.
 //
