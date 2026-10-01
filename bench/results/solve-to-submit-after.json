@@ -1,0 +1,1647 @@
+{
+  "label": "after",
+  "at": "2026-10-01T18:58:02.328Z",
+  "runs_per_cell": 10,
+  "cpu_throttling_rate": 4,
+  "phone": {
+    "viewport": {
+      "width": 412,
+      "height": 823
+    },
+    "deviceScaleFactor": 1.75,
+    "isMobile": true,
+    "hasTouch": true,
+    "userAgent": "Mozilla/5.0 (Linux; Android 11; moto g power (2022)) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Mobile Safari/537.36"
+  },
+  "node": "v22.23.3",
+  "chromium": "153.0.8010.12",
+  "cpus": 8,
+  "cpu_model": "Intel(R) Xeon(R) Processor",
+  "note": "CDP CPU throttling slows the page main thread only; the solve runs in dedicated workers at box speed (bench/README.md).",
+  "cells": [
+    {
+      "scenario": "a",
+      "policy": "default",
+      "outcomes": {
+        "posted": 10
+      },
+      "submit_to_post_ms": {
+        "n": 10,
+        "median": 12,
+        "p90": 13,
+        "min": 10,
+        "max": 13
+      },
+      "solve_done_rel_submit_ms": {
+        "n": 10,
+        "median": -3482,
+        "p90": -3407,
+        "min": -3572,
+        "max": -3402
+      },
+      "solve_ms": {
+        "n": 10,
+        "median": 155,
+        "p90": 235,
+        "min": 50,
+        "max": 239
+      },
+      "longtasks_in_solve": {
+        "total": 0,
+        "max_ms": 0,
+        "per_run_median": 0
+      },
+      "longtasks_whole_run": {
+        "total": 0,
+        "max_ms": 0
+      },
+      "shown_before_interaction_runs": 0,
+      "runs": [
+        {
+          "i": 0,
+          "outcome": "posted",
+          "submit_to_post_ms": 12,
+          "solve_done_rel_submit_ms": -3453,
+          "solve_ms": 202,
+          "solve_start_rel_load_ms": 23,
+          "took_ms": 180,
+          "longtasks": {
+            "count": 0,
+            "max_ms": 0
+          },
+          "longtasks_run": {
+            "count": 0,
+            "max_ms": 0
+          },
+          "first_view": null,
+          "first_view_rel_load_ms": null,
+          "first_interaction_rel_load_ms": 3116,
+          "shown_before_interaction": false,
+          "views": []
+        },
+        {
+          "i": 1,
+          "outcome": "posted",
+          "submit_to_post_ms": 13,
+          "solve_done_rel_submit_ms": -3465,
+          "solve_ms": 170,
+          "solve_start_rel_load_ms": 20,
+          "took_ms": 157,
+          "longtasks": {
+            "count": 0,
+            "max_ms": 0
+          },
+          "longtasks_run": {
+            "count": 0,
+            "max_ms": 0
+          },
+          "first_view": null,
+          "first_view_rel_load_ms": null,
+          "first_interaction_rel_load_ms": 3092,
+          "shown_before_interaction": false,
+          "views": []
+        },
+        {
+          "i": 2,
+          "outcome": "posted",
+          "submit_to_post_ms": 12,
+          "solve_done_rel_submit_ms": -3540,
+          "solve_ms": 96,
+          "solve_start_rel_load_ms": 24,
+          "took_ms": 81,
+          "longtasks": {
+            "count": 0,
+            "max_ms": 0
+          },
+          "longtasks_run": {
+            "count": 0,
+            "max_ms": 0
+          },
+          "first_view": null,
+          "first_view_rel_load_ms": null,
+          "first_interaction_rel_load_ms": 3096,
+          "shown_before_interaction": false,
+          "views": []
+        },
+        {
+          "i": 3,
+          "outcome": "posted",
+          "submit_to_post_ms": 10,
+          "solve_done_rel_submit_ms": -3407,
+          "solve_ms": 239,
+          "solve_start_rel_load_ms": 21,
+          "took_ms": 227,
+          "longtasks": {
+            "count": 0,
+            "max_ms": 0
+          },
+          "longtasks_run": {
+            "count": 0,
+            "max_ms": 0
+          },
+          "first_view": null,
+          "first_view_rel_load_ms": null,
+          "first_interaction_rel_load_ms": 3102,
+          "shown_before_interaction": false,
+          "views": []
+        },
+        {
+          "i": 4,
+          "outcome": "posted",
+          "submit_to_post_ms": 12,
+          "solve_done_rel_submit_ms": -3482,
+          "solve_ms": 155,
+          "solve_start_rel_load_ms": 22,
+          "took_ms": 141,
+          "longtasks": {
+            "count": 0,
+            "max_ms": 0
+          },
+          "longtasks_run": {
+            "count": 0,
+            "max_ms": 0
+          },
+          "first_view": null,
+          "first_view_rel_load_ms": null,
+          "first_interaction_rel_load_ms": 3093,
+          "shown_before_interaction": false,
+          "views": []
+        },
+        {
+          "i": 5,
+          "outcome": "posted",
+          "submit_to_post_ms": 13,
+          "solve_done_rel_submit_ms": -3436,
+          "solve_ms": 201,
+          "solve_start_rel_load_ms": 24,
+          "took_ms": 188,
+          "longtasks": {
+            "count": 0,
+            "max_ms": 0
+          },
+          "longtasks_run": {
+            "count": 0,
+            "max_ms": 0
+          },
+          "first_view": null,
+          "first_view_rel_load_ms": null,
+          "first_interaction_rel_load_ms": 3097,
+          "shown_before_interaction": false,
+          "views": []
+        },
+        {
+          "i": 6,
+          "outcome": "posted",
+          "submit_to_post_ms": 12,
+          "solve_done_rel_submit_ms": -3402,
+          "solve_ms": 235,
+          "solve_start_rel_load_ms": 19,
+          "took_ms": 220,
+          "longtasks": {
+            "count": 0,
+            "max_ms": 0
+          },
+          "longtasks_run": {
+            "count": 0,
+            "max_ms": 0
+          },
+          "first_view": null,
+          "first_view_rel_load_ms": null,
+          "first_interaction_rel_load_ms": 3091,
+          "shown_before_interaction": false,
+          "views": []
+        },
+        {
+          "i": 7,
+          "outcome": "posted",
+          "submit_to_post_ms": 11,
+          "solve_done_rel_submit_ms": -3495,
+          "solve_ms": 148,
+          "solve_start_rel_load_ms": 26,
+          "took_ms": 135,
+          "longtasks": {
+            "count": 0,
+            "max_ms": 0
+          },
+          "longtasks_run": {
+            "count": 0,
+            "max_ms": 0
+          },
+          "first_view": null,
+          "first_view_rel_load_ms": null,
+          "first_interaction_rel_load_ms": 3103,
+          "shown_before_interaction": false,
+          "views": []
+        },
+        {
+          "i": 8,
+          "outcome": "posted",
+          "submit_to_post_ms": 12,
+          "solve_done_rel_submit_ms": -3539,
+          "solve_ms": 117,
+          "solve_start_rel_load_ms": 23,
+          "took_ms": 103,
+          "longtasks": {
+            "count": 0,
+            "max_ms": 0
+          },
+          "longtasks_run": {
+            "count": 0,
+            "max_ms": 0
+          },
+          "first_view": null,
+          "first_view_rel_load_ms": null,
+          "first_interaction_rel_load_ms": 3116,
+          "shown_before_interaction": false,
+          "views": []
+        },
+        {
+          "i": 9,
+          "outcome": "posted",
+          "submit_to_post_ms": 11,
+          "solve_done_rel_submit_ms": -3572,
+          "solve_ms": 50,
+          "solve_start_rel_load_ms": 27,
+          "took_ms": 37,
+          "longtasks": {
+            "count": 0,
+            "max_ms": 0
+          },
+          "longtasks_run": {
+            "count": 0,
+            "max_ms": 0
+          },
+          "first_view": null,
+          "first_view_rel_load_ms": null,
+          "first_interaction_rel_load_ms": 3101,
+          "shown_before_interaction": false,
+          "views": []
+        }
+      ]
+    },
+    {
+      "scenario": "a",
+      "policy": "slow",
+      "outcomes": {
+        "posted": 10
+      },
+      "submit_to_post_ms": {
+        "n": 10,
+        "median": 265,
+        "p90": 372,
+        "min": 60,
+        "max": 899
+      },
+      "solve_done_rel_submit_ms": {
+        "n": 10,
+        "median": 255,
+        "p90": 361,
+        "min": -25,
+        "max": 888
+      },
+      "solve_ms": {
+        "n": 10,
+        "median": 4005,
+        "p90": 4697,
+        "min": 3833,
+        "max": 5151
+      },
+      "longtasks_in_solve": {
+        "total": 5,
+        "max_ms": 465,
+        "per_run_median": 0
+      },
+      "longtasks_whole_run": {
+        "total": 5,
+        "max_ms": 465
+      },
+      "shown_before_interaction_runs": 0,
+      "runs": [
+        {
+          "i": 0,
+          "outcome": "posted",
+          "submit_to_post_ms": 246,
+          "solve_done_rel_submit_ms": 236,
+          "solve_ms": 3858,
+          "solve_start_rel_load_ms": 24,
+          "took_ms": 3842,
+          "longtasks": {
+            "count": 0,
+            "max_ms": 0
+          },
+          "longtasks_run": {
+            "count": 0,
+            "max_ms": 0
+          },
+          "first_view": "status:Checking…",
+          "first_view_rel_load_ms": 3603,
+          "first_interaction_rel_load_ms": 3083,
+          "shown_before_interaction": false,
+          "views": [
+            "status:Checking…"
+          ]
+        },
+        {
+          "i": 1,
+          "outcome": "posted",
+          "submit_to_post_ms": 265,
+          "solve_done_rel_submit_ms": 255,
+          "solve_ms": 3903,
+          "solve_start_rel_load_ms": 23,
+          "took_ms": 3887,
+          "longtasks": {
+            "count": 0,
+            "max_ms": 0
+          },
+          "longtasks_run": {
+            "count": 0,
+            "max_ms": 0
+          },
+          "first_view": "status:Checking…",
+          "first_view_rel_load_ms": 3600,
+          "first_interaction_rel_load_ms": 3085,
+          "shown_before_interaction": false,
+          "views": [
+            "status:Checking…"
+          ]
+        },
+        {
+          "i": 2,
+          "outcome": "posted",
+          "submit_to_post_ms": 60,
+          "solve_done_rel_submit_ms": -25,
+          "solve_ms": 5151,
+          "solve_start_rel_load_ms": 29,
+          "took_ms": 5116,
+          "longtasks": {
+            "count": 5,
+            "max_ms": 465
+          },
+          "longtasks_run": {
+            "count": 5,
+            "max_ms": 465
+          },
+          "first_view": "status:Checking…",
+          "first_view_rel_load_ms": 4855,
+          "first_interaction_rel_load_ms": 3111,
+          "shown_before_interaction": false,
+          "views": [
+            "status:Checking…"
+          ]
+        },
+        {
+          "i": 3,
+          "outcome": "posted",
+          "submit_to_post_ms": 361,
+          "solve_done_rel_submit_ms": 313,
+          "solve_ms": 4008,
+          "solve_start_rel_load_ms": 42,
+          "took_ms": 3990,
+          "longtasks": {
+            "count": 0,
+            "max_ms": 0
+          },
+          "longtasks_run": {
+            "count": 0,
+            "max_ms": 0
+          },
+          "first_view": "status:Checking…",
+          "first_view_rel_load_ms": 3639,
+          "first_interaction_rel_load_ms": 3110,
+          "shown_before_interaction": false,
+          "views": [
+            "status:Checking…",
+            "status:Verified"
+          ]
+        },
+        {
+          "i": 4,
+          "outcome": "posted",
+          "submit_to_post_ms": 899,
+          "solve_done_rel_submit_ms": 888,
+          "solve_ms": 4697,
+          "solve_start_rel_load_ms": 46,
+          "took_ms": 4666,
+          "longtasks": {
+            "count": 0,
+            "max_ms": 0
+          },
+          "longtasks_run": {
+            "count": 0,
+            "max_ms": 0
+          },
+          "first_view": "status:Checking…",
+          "first_view_rel_load_ms": 3653,
+          "first_interaction_rel_load_ms": 3147,
+          "shown_before_interaction": false,
+          "views": [
+            "status:Checking…"
+          ]
+        },
+        {
+          "i": 5,
+          "outcome": "posted",
+          "submit_to_post_ms": 372,
+          "solve_done_rel_submit_ms": 361,
+          "solve_ms": 4071,
+          "solve_start_rel_load_ms": 30,
+          "took_ms": 4050,
+          "longtasks": {
+            "count": 0,
+            "max_ms": 0
+          },
+          "longtasks_run": {
+            "count": 0,
+            "max_ms": 0
+          },
+          "first_view": "status:Checking…",
+          "first_view_rel_load_ms": 3679,
+          "first_interaction_rel_load_ms": 3133,
+          "shown_before_interaction": false,
+          "views": [
+            "status:Checking…"
+          ]
+        },
+        {
+          "i": 6,
+          "outcome": "posted",
+          "submit_to_post_ms": 300,
+          "solve_done_rel_submit_ms": 283,
+          "solve_ms": 4006,
+          "solve_start_rel_load_ms": 16,
+          "took_ms": 3990,
+          "longtasks": {
+            "count": 0,
+            "max_ms": 0
+          },
+          "longtasks_run": {
+            "count": 0,
+            "max_ms": 0
+          },
+          "first_view": "status:Checking…",
+          "first_view_rel_load_ms": 3662,
+          "first_interaction_rel_load_ms": 3118,
+          "shown_before_interaction": false,
+          "views": [
+            "status:Checking…"
+          ]
+        },
+        {
+          "i": 7,
+          "outcome": "posted",
+          "submit_to_post_ms": 369,
+          "solve_done_rel_submit_ms": 351,
+          "solve_ms": 4005,
+          "solve_start_rel_load_ms": 33,
+          "took_ms": 3986,
+          "longtasks": {
+            "count": 0,
+            "max_ms": 0
+          },
+          "longtasks_run": {
+            "count": 0,
+            "max_ms": 0
+          },
+          "first_view": "status:Checking…",
+          "first_view_rel_load_ms": 3638,
+          "first_interaction_rel_load_ms": 3102,
+          "shown_before_interaction": false,
+          "views": [
+            "status:Checking…"
+          ]
+        },
+        {
+          "i": 8,
+          "outcome": "posted",
+          "submit_to_post_ms": 219,
+          "solve_done_rel_submit_ms": 205,
+          "solve_ms": 3833,
+          "solve_start_rel_load_ms": 23,
+          "took_ms": 3823,
+          "longtasks": {
+            "count": 0,
+            "max_ms": 0
+          },
+          "longtasks_run": {
+            "count": 0,
+            "max_ms": 0
+          },
+          "first_view": "status:Checking…",
+          "first_view_rel_load_ms": 3602,
+          "first_interaction_rel_load_ms": 3086,
+          "shown_before_interaction": false,
+          "views": [
+            "status:Checking…"
+          ]
+        },
+        {
+          "i": 9,
+          "outcome": "posted",
+          "submit_to_post_ms": 239,
+          "solve_done_rel_submit_ms": 228,
+          "solve_ms": 3865,
+          "solve_start_rel_load_ms": 25,
+          "took_ms": 3851,
+          "longtasks": {
+            "count": 0,
+            "max_ms": 0
+          },
+          "longtasks_run": {
+            "count": 0,
+            "max_ms": 0
+          },
+          "first_view": "status:Checking…",
+          "first_view_rel_load_ms": 3613,
+          "first_interaction_rel_load_ms": 3095,
+          "shown_before_interaction": false,
+          "views": [
+            "status:Checking…"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": "b",
+      "policy": "default",
+      "outcomes": {
+        "posted": 10
+      },
+      "submit_to_post_ms": {
+        "n": 10,
+        "median": 10,
+        "p90": 11,
+        "min": 9,
+        "max": 12
+      },
+      "solve_done_rel_submit_ms": {
+        "n": 10,
+        "median": -85,
+        "p90": -38,
+        "min": -221,
+        "max": -37
+      },
+      "solve_ms": {
+        "n": 10,
+        "median": 211,
+        "p90": 256,
+        "min": 53,
+        "max": 258
+      },
+      "longtasks_in_solve": {
+        "total": 0,
+        "max_ms": 0,
+        "per_run_median": 0
+      },
+      "longtasks_whole_run": {
+        "total": 0,
+        "max_ms": 0
+      },
+      "shown_before_interaction_runs": 0,
+      "runs": [
+        {
+          "i": 0,
+          "outcome": "posted",
+          "submit_to_post_ms": 10,
+          "solve_done_rel_submit_ms": -221,
+          "solve_ms": 54,
+          "solve_start_rel_load_ms": 61,
+          "took_ms": 35,
+          "longtasks": {
+            "count": 0,
+            "max_ms": 0
+          },
+          "longtasks_run": {
+            "count": 0,
+            "max_ms": 0
+          },
+          "first_view": null,
+          "first_view_rel_load_ms": null,
+          "first_interaction_rel_load_ms": 83,
+          "shown_before_interaction": false,
+          "views": []
+        },
+        {
+          "i": 1,
+          "outcome": "posted",
+          "submit_to_post_ms": 11,
+          "solve_done_rel_submit_ms": -90,
+          "solve_ms": 221,
+          "solve_start_rel_load_ms": 26,
+          "took_ms": 176,
+          "longtasks": {
+            "count": 0,
+            "max_ms": 0
+          },
+          "longtasks_run": {
+            "count": 0,
+            "max_ms": 0
+          },
+          "first_view": null,
+          "first_view_rel_load_ms": null,
+          "first_interaction_rel_load_ms": 89,
+          "shown_before_interaction": false,
+          "views": []
+        },
+        {
+          "i": 2,
+          "outcome": "posted",
+          "submit_to_post_ms": 10,
+          "solve_done_rel_submit_ms": -216,
+          "solve_ms": 53,
+          "solve_start_rel_load_ms": 61,
+          "took_ms": 32,
+          "longtasks": {
+            "count": 0,
+            "max_ms": 0
+          },
+          "longtasks_run": {
+            "count": 0,
+            "max_ms": 0
+          },
+          "first_view": null,
+          "first_view_rel_load_ms": null,
+          "first_interaction_rel_load_ms": 82,
+          "shown_before_interaction": false,
+          "views": []
+        },
+        {
+          "i": 3,
+          "outcome": "posted",
+          "submit_to_post_ms": 10,
+          "solve_done_rel_submit_ms": -205,
+          "solve_ms": 68,
+          "solve_start_rel_load_ms": 69,
+          "took_ms": 47,
+          "longtasks": {
+            "count": 0,
+            "max_ms": 0
+          },
+          "longtasks_run": {
+            "count": 0,
+            "max_ms": 0
+          },
+          "first_view": null,
+          "first_view_rel_load_ms": null,
+          "first_interaction_rel_load_ms": 76,
+          "shown_before_interaction": false,
+          "views": []
+        },
+        {
+          "i": 4,
+          "outcome": "posted",
+          "submit_to_post_ms": 9,
+          "solve_done_rel_submit_ms": -85,
+          "solve_ms": 187,
+          "solve_start_rel_load_ms": 62,
+          "took_ms": 164,
+          "longtasks": {
+            "count": 0,
+            "max_ms": 0
+          },
+          "longtasks_run": {
+            "count": 0,
+            "max_ms": 0
+          },
+          "first_view": null,
+          "first_view_rel_load_ms": null,
+          "first_interaction_rel_load_ms": 87,
+          "shown_before_interaction": false,
+          "views": []
+        },
+        {
+          "i": 5,
+          "outcome": "posted",
+          "submit_to_post_ms": 12,
+          "solve_done_rel_submit_ms": -37,
+          "solve_ms": 258,
+          "solve_start_rel_load_ms": 55,
+          "took_ms": 235,
+          "longtasks": {
+            "count": 0,
+            "max_ms": 0
+          },
+          "longtasks_run": {
+            "count": 0,
+            "max_ms": 0
+          },
+          "first_view": null,
+          "first_view_rel_load_ms": null,
+          "first_interaction_rel_load_ms": 75,
+          "shown_before_interaction": false,
+          "views": []
+        },
+        {
+          "i": 6,
+          "outcome": "posted",
+          "submit_to_post_ms": 11,
+          "solve_done_rel_submit_ms": -50,
+          "solve_ms": 216,
+          "solve_start_rel_load_ms": 64,
+          "took_ms": 199,
+          "longtasks": {
+            "count": 0,
+            "max_ms": 0
+          },
+          "longtasks_run": {
+            "count": 0,
+            "max_ms": 0
+          },
+          "first_view": null,
+          "first_view_rel_load_ms": null,
+          "first_interaction_rel_load_ms": 72,
+          "shown_before_interaction": false,
+          "views": []
+        },
+        {
+          "i": 7,
+          "outcome": "posted",
+          "submit_to_post_ms": 9,
+          "solve_done_rel_submit_ms": -58,
+          "solve_ms": 211,
+          "solve_start_rel_load_ms": 69,
+          "took_ms": 190,
+          "longtasks": {
+            "count": 0,
+            "max_ms": 0
+          },
+          "longtasks_run": {
+            "count": 0,
+            "max_ms": 0
+          },
+          "first_view": null,
+          "first_view_rel_load_ms": null,
+          "first_interaction_rel_load_ms": 78,
+          "shown_before_interaction": false,
+          "views": []
+        },
+        {
+          "i": 8,
+          "outcome": "posted",
+          "submit_to_post_ms": 9,
+          "solve_done_rel_submit_ms": -38,
+          "solve_ms": 255,
+          "solve_start_rel_load_ms": 55,
+          "took_ms": 231,
+          "longtasks": {
+            "count": 0,
+            "max_ms": 0
+          },
+          "longtasks_run": {
+            "count": 0,
+            "max_ms": 0
+          },
+          "first_view": null,
+          "first_view_rel_load_ms": null,
+          "first_interaction_rel_load_ms": 76,
+          "shown_before_interaction": false,
+          "views": []
+        },
+        {
+          "i": 9,
+          "outcome": "posted",
+          "submit_to_post_ms": 10,
+          "solve_done_rel_submit_ms": -39,
+          "solve_ms": 256,
+          "solve_start_rel_load_ms": 57,
+          "took_ms": 230,
+          "longtasks": {
+            "count": 0,
+            "max_ms": 0
+          },
+          "longtasks_run": {
+            "count": 0,
+            "max_ms": 0
+          },
+          "first_view": null,
+          "first_view_rel_load_ms": null,
+          "first_interaction_rel_load_ms": 79,
+          "shown_before_interaction": false,
+          "views": []
+        }
+      ]
+    },
+    {
+      "scenario": "b",
+      "policy": "slow",
+      "outcomes": {
+        "posted": 10
+      },
+      "submit_to_post_ms": {
+        "n": 10,
+        "median": 3663,
+        "p90": 3790,
+        "min": 3593,
+        "max": 3817
+      },
+      "solve_done_rel_submit_ms": {
+        "n": 10,
+        "median": 3647,
+        "p90": 3775,
+        "min": 3578,
+        "max": 3802
+      },
+      "solve_ms": {
+        "n": 10,
+        "median": 3930,
+        "p90": 4044,
+        "min": 3869,
+        "max": 4082
+      },
+      "longtasks_in_solve": {
+        "total": 0,
+        "max_ms": 0,
+        "per_run_median": 0
+      },
+      "longtasks_whole_run": {
+        "total": 0,
+        "max_ms": 0
+      },
+      "shown_before_interaction_runs": 0,
+      "runs": [
+        {
+          "i": 0,
+          "outcome": "posted",
+          "submit_to_post_ms": 3597,
+          "solve_done_rel_submit_ms": 3581,
+          "solve_ms": 3870,
+          "solve_start_rel_load_ms": 57,
+          "took_ms": 3851,
+          "longtasks": {
+            "count": 0,
+            "max_ms": 0
+          },
+          "longtasks_run": {
+            "count": 0,
+            "max_ms": 0
+          },
+          "first_view": "status:Checking…",
+          "first_view_rel_load_ms": 599,
+          "first_interaction_rel_load_ms": 76,
+          "shown_before_interaction": false,
+          "views": [
+            "status:Checking…"
+          ]
+        },
+        {
+          "i": 1,
+          "outcome": "posted",
+          "submit_to_post_ms": 3663,
+          "solve_done_rel_submit_ms": 3647,
+          "solve_ms": 3919,
+          "solve_start_rel_load_ms": 63,
+          "took_ms": 3903,
+          "longtasks": {
+            "count": 0,
+            "max_ms": 0
+          },
+          "longtasks_run": {
+            "count": 0,
+            "max_ms": 0
+          },
+          "first_view": "status:Checking…",
+          "first_view_rel_load_ms": 605,
+          "first_interaction_rel_load_ms": 71,
+          "shown_before_interaction": false,
+          "views": [
+            "status:Checking…"
+          ]
+        },
+        {
+          "i": 2,
+          "outcome": "posted",
+          "submit_to_post_ms": 3618,
+          "solve_done_rel_submit_ms": 3600,
+          "solve_ms": 3874,
+          "solve_start_rel_load_ms": 53,
+          "took_ms": 3850,
+          "longtasks": {
+            "count": 0,
+            "max_ms": 0
+          },
+          "longtasks_run": {
+            "count": 0,
+            "max_ms": 0
+          },
+          "first_view": "status:Checking…",
+          "first_view_rel_load_ms": 606,
+          "first_interaction_rel_load_ms": 77,
+          "shown_before_interaction": false,
+          "views": [
+            "status:Checking…"
+          ]
+        },
+        {
+          "i": 3,
+          "outcome": "posted",
+          "submit_to_post_ms": 3593,
+          "solve_done_rel_submit_ms": 3578,
+          "solve_ms": 3869,
+          "solve_start_rel_load_ms": 53,
+          "took_ms": 3851,
+          "longtasks": {
+            "count": 0,
+            "max_ms": 0
+          },
+          "longtasks_run": {
+            "count": 0,
+            "max_ms": 0
+          },
+          "first_view": "status:Checking…",
+          "first_view_rel_load_ms": 603,
+          "first_interaction_rel_load_ms": 60,
+          "shown_before_interaction": false,
+          "views": [
+            "status:Checking…"
+          ]
+        },
+        {
+          "i": 4,
+          "outcome": "posted",
+          "submit_to_post_ms": 3663,
+          "solve_done_rel_submit_ms": 3647,
+          "solve_ms": 3933,
+          "solve_start_rel_load_ms": 62,
+          "took_ms": 3918,
+          "longtasks": {
+            "count": 0,
+            "max_ms": 0
+          },
+          "longtasks_run": {
+            "count": 0,
+            "max_ms": 0
+          },
+          "first_view": "status:Checking…",
+          "first_view_rel_load_ms": 623,
+          "first_interaction_rel_load_ms": 76,
+          "shown_before_interaction": false,
+          "views": [
+            "status:Checking…"
+          ]
+        },
+        {
+          "i": 5,
+          "outcome": "posted",
+          "submit_to_post_ms": 3817,
+          "solve_done_rel_submit_ms": 3802,
+          "solve_ms": 4082,
+          "solve_start_rel_load_ms": 64,
+          "took_ms": 4063,
+          "longtasks": {
+            "count": 0,
+            "max_ms": 0
+          },
+          "longtasks_run": {
+            "count": 0,
+            "max_ms": 0
+          },
+          "first_view": "status:Checking…",
+          "first_view_rel_load_ms": 595,
+          "first_interaction_rel_load_ms": 71,
+          "shown_before_interaction": false,
+          "views": [
+            "status:Checking…"
+          ]
+        },
+        {
+          "i": 6,
+          "outcome": "posted",
+          "submit_to_post_ms": 3698,
+          "solve_done_rel_submit_ms": 3677,
+          "solve_ms": 3945,
+          "solve_start_rel_load_ms": 69,
+          "took_ms": 3928,
+          "longtasks": {
+            "count": 0,
+            "max_ms": 0
+          },
+          "longtasks_run": {
+            "count": 0,
+            "max_ms": 0
+          },
+          "first_view": "status:Checking…",
+          "first_view_rel_load_ms": 599,
+          "first_interaction_rel_load_ms": 75,
+          "shown_before_interaction": false,
+          "views": [
+            "status:Checking…"
+          ]
+        },
+        {
+          "i": 7,
+          "outcome": "posted",
+          "submit_to_post_ms": 3681,
+          "solve_done_rel_submit_ms": 3661,
+          "solve_ms": 3930,
+          "solve_start_rel_load_ms": 59,
+          "took_ms": 3908,
+          "longtasks": {
+            "count": 0,
+            "max_ms": 0
+          },
+          "longtasks_run": {
+            "count": 0,
+            "max_ms": 0
+          },
+          "first_view": "status:Checking…",
+          "first_view_rel_load_ms": 597,
+          "first_interaction_rel_load_ms": 82,
+          "shown_before_interaction": false,
+          "views": [
+            "status:Checking…",
+            "status:Verified"
+          ]
+        },
+        {
+          "i": 8,
+          "outcome": "posted",
+          "submit_to_post_ms": 3722,
+          "solve_done_rel_submit_ms": 3710,
+          "solve_ms": 3978,
+          "solve_start_rel_load_ms": 69,
+          "took_ms": 3947,
+          "longtasks": {
+            "count": 0,
+            "max_ms": 0
+          },
+          "longtasks_run": {
+            "count": 0,
+            "max_ms": 0
+          },
+          "first_view": "status:Checking…",
+          "first_view_rel_load_ms": 622,
+          "first_interaction_rel_load_ms": 77,
+          "shown_before_interaction": false,
+          "views": [
+            "status:Checking…"
+          ]
+        },
+        {
+          "i": 9,
+          "outcome": "posted",
+          "submit_to_post_ms": 3790,
+          "solve_done_rel_submit_ms": 3775,
+          "solve_ms": 4044,
+          "solve_start_rel_load_ms": 64,
+          "took_ms": 4025,
+          "longtasks": {
+            "count": 0,
+            "max_ms": 0
+          },
+          "longtasks_run": {
+            "count": 0,
+            "max_ms": 0
+          },
+          "first_view": "status:Checking…",
+          "first_view_rel_load_ms": 632,
+          "first_interaction_rel_load_ms": 84,
+          "shown_before_interaction": false,
+          "views": [
+            "status:Checking…"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": "c",
+      "policy": "default",
+      "outcomes": {
+        "posted": 10
+      },
+      "submit_to_post_ms": {
+        "n": 10,
+        "median": 17,
+        "p90": 21,
+        "min": 12,
+        "max": 39
+      },
+      "solve_done_rel_submit_ms": {
+        "n": 10,
+        "median": -1496,
+        "p90": -1425,
+        "min": -1804,
+        "max": -1398
+      },
+      "solve_ms": {
+        "n": 10,
+        "median": 155,
+        "p90": 255,
+        "min": 84,
+        "max": 269
+      },
+      "longtasks_in_solve": {
+        "total": 0,
+        "max_ms": 0,
+        "per_run_median": 0
+      },
+      "longtasks_whole_run": {
+        "total": 3,
+        "max_ms": 100
+      },
+      "shown_before_interaction_runs": 0,
+      "runs": [
+        {
+          "i": 0,
+          "outcome": "posted",
+          "submit_to_post_ms": 39,
+          "solve_done_rel_submit_ms": -1657,
+          "solve_ms": 132,
+          "solve_start_rel_load_ms": 1993,
+          "took_ms": 124,
+          "longtasks": {
+            "count": 0,
+            "max_ms": 0
+          },
+          "longtasks_run": {
+            "count": 2,
+            "max_ms": 100
+          },
+          "first_view": null,
+          "first_view_rel_load_ms": null,
+          "first_interaction_rel_load_ms": 3102,
+          "shown_before_interaction": false,
+          "views": []
+        },
+        {
+          "i": 1,
+          "outcome": "posted",
+          "submit_to_post_ms": 20,
+          "solve_done_rel_submit_ms": -1471,
+          "solve_ms": 255,
+          "solve_start_rel_load_ms": 2006,
+          "took_ms": 242,
+          "longtasks": {
+            "count": 0,
+            "max_ms": 0
+          },
+          "longtasks_run": {
+            "count": 0,
+            "max_ms": 0
+          },
+          "first_view": null,
+          "first_view_rel_load_ms": null,
+          "first_interaction_rel_load_ms": 3127,
+          "shown_before_interaction": false,
+          "views": []
+        },
+        {
+          "i": 2,
+          "outcome": "posted",
+          "submit_to_post_ms": 19,
+          "solve_done_rel_submit_ms": -1472,
+          "solve_ms": 269,
+          "solve_start_rel_load_ms": 2007,
+          "took_ms": 243,
+          "longtasks": {
+            "count": 0,
+            "max_ms": 0
+          },
+          "longtasks_run": {
+            "count": 0,
+            "max_ms": 0
+          },
+          "first_view": null,
+          "first_view_rel_load_ms": null,
+          "first_interaction_rel_load_ms": 3124,
+          "shown_before_interaction": false,
+          "views": []
+        },
+        {
+          "i": 3,
+          "outcome": "posted",
+          "submit_to_post_ms": 21,
+          "solve_done_rel_submit_ms": -1804,
+          "solve_ms": 84,
+          "solve_start_rel_load_ms": 1996,
+          "took_ms": 64,
+          "longtasks": {
+            "count": 0,
+            "max_ms": 0
+          },
+          "longtasks_run": {
+            "count": 1,
+            "max_ms": 53
+          },
+          "first_view": null,
+          "first_view_rel_load_ms": null,
+          "first_interaction_rel_load_ms": 3184,
+          "shown_before_interaction": false,
+          "views": []
+        },
+        {
+          "i": 4,
+          "outcome": "posted",
+          "submit_to_post_ms": 14,
+          "solve_done_rel_submit_ms": -1585,
+          "solve_ms": 122,
+          "solve_start_rel_load_ms": 2011,
+          "took_ms": 102,
+          "longtasks": {
+            "count": 0,
+            "max_ms": 0
+          },
+          "longtasks_run": {
+            "count": 0,
+            "max_ms": 0
+          },
+          "first_view": null,
+          "first_view_rel_load_ms": null,
+          "first_interaction_rel_load_ms": 3119,
+          "shown_before_interaction": false,
+          "views": []
+        },
+        {
+          "i": 5,
+          "outcome": "posted",
+          "submit_to_post_ms": 17,
+          "solve_done_rel_submit_ms": -1507,
+          "solve_ms": 163,
+          "solve_start_rel_load_ms": 2019,
+          "took_ms": 137,
+          "longtasks": {
+            "count": 0,
+            "max_ms": 0
+          },
+          "longtasks_run": {
+            "count": 0,
+            "max_ms": 0
+          },
+          "first_view": null,
+          "first_view_rel_load_ms": null,
+          "first_interaction_rel_load_ms": 3112,
+          "shown_before_interaction": false,
+          "views": []
+        },
+        {
+          "i": 6,
+          "outcome": "posted",
+          "submit_to_post_ms": 15,
+          "solve_done_rel_submit_ms": -1398,
+          "solve_ms": 253,
+          "solve_start_rel_load_ms": 2008,
+          "took_ms": 233,
+          "longtasks": {
+            "count": 0,
+            "max_ms": 0
+          },
+          "longtasks_run": {
+            "count": 0,
+            "max_ms": 0
+          },
+          "first_view": null,
+          "first_view_rel_load_ms": null,
+          "first_interaction_rel_load_ms": 3095,
+          "shown_before_interaction": false,
+          "views": []
+        },
+        {
+          "i": 7,
+          "outcome": "posted",
+          "submit_to_post_ms": 19,
+          "solve_done_rel_submit_ms": -1489,
+          "solve_ms": 145,
+          "solve_start_rel_load_ms": 2010,
+          "took_ms": 128,
+          "longtasks": {
+            "count": 0,
+            "max_ms": 0
+          },
+          "longtasks_run": {
+            "count": 0,
+            "max_ms": 0
+          },
+          "first_view": null,
+          "first_view_rel_load_ms": null,
+          "first_interaction_rel_load_ms": 3096,
+          "shown_before_interaction": false,
+          "views": []
+        },
+        {
+          "i": 8,
+          "outcome": "posted",
+          "submit_to_post_ms": 13,
+          "solve_done_rel_submit_ms": -1425,
+          "solve_ms": 231,
+          "solve_start_rel_load_ms": 1993,
+          "took_ms": 220,
+          "longtasks": {
+            "count": 0,
+            "max_ms": 0
+          },
+          "longtasks_run": {
+            "count": 0,
+            "max_ms": 0
+          },
+          "first_view": null,
+          "first_view_rel_load_ms": null,
+          "first_interaction_rel_load_ms": 3084,
+          "shown_before_interaction": false,
+          "views": []
+        },
+        {
+          "i": 9,
+          "outcome": "posted",
+          "submit_to_post_ms": 12,
+          "solve_done_rel_submit_ms": -1496,
+          "solve_ms": 155,
+          "solve_start_rel_load_ms": 2003,
+          "took_ms": 140,
+          "longtasks": {
+            "count": 0,
+            "max_ms": 0
+          },
+          "longtasks_run": {
+            "count": 0,
+            "max_ms": 0
+          },
+          "first_view": null,
+          "first_view_rel_load_ms": null,
+          "first_interaction_rel_load_ms": 3090,
+          "shown_before_interaction": false,
+          "views": []
+        }
+      ]
+    },
+    {
+      "scenario": "c",
+      "policy": "slow",
+      "outcomes": {
+        "posted": 10
+      },
+      "submit_to_post_ms": {
+        "n": 10,
+        "median": 2196,
+        "p90": 2270,
+        "min": 2046,
+        "max": 2317
+      },
+      "solve_done_rel_submit_ms": {
+        "n": 10,
+        "median": 2175,
+        "p90": 2255,
+        "min": 2025,
+        "max": 2297
+      },
+      "solve_ms": {
+        "n": 10,
+        "median": 3867,
+        "p90": 3950,
+        "min": 3838,
+        "max": 3969
+      },
+      "longtasks_in_solve": {
+        "total": 0,
+        "max_ms": 0,
+        "per_run_median": 0
+      },
+      "longtasks_whole_run": {
+        "total": 0,
+        "max_ms": 0
+      },
+      "shown_before_interaction_runs": 0,
+      "runs": [
+        {
+          "i": 0,
+          "outcome": "posted",
+          "submit_to_post_ms": 2187,
+          "solve_done_rel_submit_ms": 2165,
+          "solve_ms": 3838,
+          "solve_start_rel_load_ms": 1996,
+          "took_ms": 3826,
+          "longtasks": {
+            "count": 0,
+            "max_ms": 0
+          },
+          "longtasks_run": {
+            "count": 0,
+            "max_ms": 0
+          },
+          "first_view": "status:Checking…",
+          "first_view_rel_load_ms": 3591,
+          "first_interaction_rel_load_ms": 3087,
+          "shown_before_interaction": false,
+          "views": [
+            "status:Checking…",
+            "status:Verified"
+          ]
+        },
+        {
+          "i": 1,
+          "outcome": "posted",
+          "submit_to_post_ms": 2270,
+          "solve_done_rel_submit_ms": 2255,
+          "solve_ms": 3950,
+          "solve_start_rel_load_ms": 2005,
+          "took_ms": 3938,
+          "longtasks": {
+            "count": 0,
+            "max_ms": 0
+          },
+          "longtasks_run": {
+            "count": 0,
+            "max_ms": 0
+          },
+          "first_view": "status:Checking…",
+          "first_view_rel_load_ms": 3597,
+          "first_interaction_rel_load_ms": 3094,
+          "shown_before_interaction": false,
+          "views": [
+            "status:Checking…"
+          ]
+        },
+        {
+          "i": 2,
+          "outcome": "posted",
+          "submit_to_post_ms": 2317,
+          "solve_done_rel_submit_ms": 2297,
+          "solve_ms": 3969,
+          "solve_start_rel_load_ms": 2009,
+          "took_ms": 3958,
+          "longtasks": {
+            "count": 0,
+            "max_ms": 0
+          },
+          "longtasks_run": {
+            "count": 0,
+            "max_ms": 0
+          },
+          "first_view": "status:Checking…",
+          "first_view_rel_load_ms": 3622,
+          "first_interaction_rel_load_ms": 3092,
+          "shown_before_interaction": false,
+          "views": [
+            "status:Checking…"
+          ]
+        },
+        {
+          "i": 3,
+          "outcome": "posted",
+          "submit_to_post_ms": 2246,
+          "solve_done_rel_submit_ms": 2230,
+          "solve_ms": 3916,
+          "solve_start_rel_load_ms": 1996,
+          "took_ms": 3902,
+          "longtasks": {
+            "count": 0,
+            "max_ms": 0
+          },
+          "longtasks_run": {
+            "count": 0,
+            "max_ms": 0
+          },
+          "first_view": "status:Checking…",
+          "first_view_rel_load_ms": 3605,
+          "first_interaction_rel_load_ms": 3101,
+          "shown_before_interaction": false,
+          "views": [
+            "status:Checking…"
+          ]
+        },
+        {
+          "i": 4,
+          "outcome": "posted",
+          "submit_to_post_ms": 2199,
+          "solve_done_rel_submit_ms": 2185,
+          "solve_ms": 3867,
+          "solve_start_rel_load_ms": 2014,
+          "took_ms": 3849,
+          "longtasks": {
+            "count": 0,
+            "max_ms": 0
+          },
+          "longtasks_run": {
+            "count": 0,
+            "max_ms": 0
+          },
+          "first_view": "status:Checking…",
+          "first_view_rel_load_ms": 3655,
+          "first_interaction_rel_load_ms": 3116,
+          "shown_before_interaction": false,
+          "views": [
+            "status:Checking…"
+          ]
+        },
+        {
+          "i": 5,
+          "outcome": "posted",
+          "submit_to_post_ms": 2196,
+          "solve_done_rel_submit_ms": 2175,
+          "solve_ms": 3883,
+          "solve_start_rel_load_ms": 1994,
+          "took_ms": 3870,
+          "longtasks": {
+            "count": 0,
+            "max_ms": 0
+          },
+          "longtasks_run": {
+            "count": 0,
+            "max_ms": 0
+          },
+          "first_view": "status:Checking…",
+          "first_view_rel_load_ms": 3645,
+          "first_interaction_rel_load_ms": 3106,
+          "shown_before_interaction": false,
+          "views": [
+            "status:Checking…",
+            "status:Verified"
+          ]
+        },
+        {
+          "i": 6,
+          "outcome": "posted",
+          "submit_to_post_ms": 2168,
+          "solve_done_rel_submit_ms": 2148,
+          "solve_ms": 3854,
+          "solve_start_rel_load_ms": 1996,
+          "took_ms": 3844,
+          "longtasks": {
+            "count": 0,
+            "max_ms": 0
+          },
+          "longtasks_run": {
+            "count": 0,
+            "max_ms": 0
+          },
+          "first_view": "status:Checking…",
+          "first_view_rel_load_ms": 3635,
+          "first_interaction_rel_load_ms": 3109,
+          "shown_before_interaction": false,
+          "views": [
+            "status:Checking…"
+          ]
+        },
+        {
+          "i": 7,
+          "outcome": "posted",
+          "submit_to_post_ms": 2189,
+          "solve_done_rel_submit_ms": 2175,
+          "solve_ms": 3859,
+          "solve_start_rel_load_ms": 1993,
+          "took_ms": 3851,
+          "longtasks": {
+            "count": 0,
+            "max_ms": 0
+          },
+          "longtasks_run": {
+            "count": 0,
+            "max_ms": 0
+          },
+          "first_view": "status:Checking…",
+          "first_view_rel_load_ms": 3644,
+          "first_interaction_rel_load_ms": 3099,
+          "shown_before_interaction": false,
+          "views": [
+            "status:Checking…"
+          ]
+        },
+        {
+          "i": 8,
+          "outcome": "posted",
+          "submit_to_post_ms": 2046,
+          "solve_done_rel_submit_ms": 2025,
+          "solve_ms": 3859,
+          "solve_start_rel_load_ms": 1856,
+          "took_ms": 3849,
+          "longtasks": {
+            "count": 0,
+            "max_ms": 0
+          },
+          "longtasks_run": {
+            "count": 0,
+            "max_ms": 0
+          },
+          "first_view": "status:Checking…",
+          "first_view_rel_load_ms": 3622,
+          "first_interaction_rel_load_ms": 3107,
+          "shown_before_interaction": false,
+          "views": [
+            "status:Checking…"
+          ]
+        },
+        {
+          "i": 9,
+          "outcome": "posted",
+          "submit_to_post_ms": 2263,
+          "solve_done_rel_submit_ms": 2247,
+          "solve_ms": 3930,
+          "solve_start_rel_load_ms": 1993,
+          "took_ms": 3915,
+          "longtasks": {
+            "count": 0,
+            "max_ms": 0
+          },
+          "longtasks_run": {
+            "count": 0,
+            "max_ms": 0
+          },
+          "first_view": "status:Checking…",
+          "first_view_rel_load_ms": 3646,
+          "first_interaction_rel_load_ms": 3094,
+          "shown_before_interaction": false,
+          "views": [
+            "status:Checking…"
+          ]
+        }
+      ]
+    }
+  ]
+}
