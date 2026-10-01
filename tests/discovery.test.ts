@@ -64,7 +64,7 @@ function toll_gate_json(array $b, int $s = 200): WP_REST_Response { return new W
 function get_transient(string $k) {
   if ($k !== 'toll_gate_price_cache') return false;
   $p = ['search' => 2000, 'write' => 10000, 'account' => 25000, 'admin' => 100000];
-  return ['status' => 'test', 'prices' => array_map(fn($m) => ['amount_msat' => $m], $p), 'load_pricing' => array_map(fn() => false, $p), 'fx' => ['usd_per_btc' => 100000, 'fetched_at' => time()]];
+  return ['net_declared' => true, 'status' => 'test', 'prices' => array_map(fn($m) => ['amount_msat' => $m], $p), 'load_pricing' => array_map(fn() => false, $p), 'fx' => ['usd_per_btc' => 100000, 'fetched_at' => time()]];
 }
 function set_transient(...$a): bool { return true; }
 require ${JSON.stringify(ROOT + "packages/wp-toll-gate/includes/discovery.php")};
@@ -215,13 +215,16 @@ test("base-price note follows load pricing: present only when a priced action's 
   assert.deepEqual(note({ ...at, prices, loadPricing: { search: true } }), [null, BASE_PRICE_NOTE, null], "one priced action that can rise is enough");
   assert.deepEqual(note({ ...at, status: "stub", prices: null, loadPricing: { write: true } }), [null, null, null], "no paid price, no note");
   for (const doc of [buildManifest({ ...at, prices }), buildManifest({ ...at, prices, loadPricing: { write: true } })]) for (const t of doc.tools) assert.equal(t.price.basis, "base");
-  // The payment server tells a WordPress site whether its relayed offers can rise. The relay applies no
-  // load multiplier today, so it reports false for every class even with velocity on.
+  // The payment server tells a WordPress site whether its relayed offers can rise. A site that does not
+  // say it sends its visitors' networks (no ?net=1, an older plugin) gets false for every class even with
+  // velocity on, because its offers are priced at the base; one that does (?net=1) gets true.
   const KEY = "owner-key-for-tests-0123456789";
   const srv = await startDemo({ work: { standard: { cost: 500 } }, adaptive: { velocity: true }, settlement: { ...PAID_ON.settlement, owner_key: KEY } });
   try {
     const own: any = await (await fetch(srv.url + "/v1/owner/price", { headers: { authorization: "Bearer " + KEY } })).json();
     assert.deepEqual(own.load_pricing, { search: false, write: false, account: false, admin: false });
+    const declared: any = await (await fetch(srv.url + "/v1/owner/price?net=1", { headers: { authorization: "Bearer " + KEY } })).json();
+    assert.deepEqual(declared.load_pricing, { search: true, write: true, account: true, admin: true });
     const doc: any = await (await fetch(srv.url + "/.well-known/toll.json")).json();
     assert.equal(doc.tools[1].price.note, BASE_PRICE_NOTE, "this issuer's own 402 does rise with velocity on");
   } finally {

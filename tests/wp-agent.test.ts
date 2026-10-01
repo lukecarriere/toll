@@ -102,6 +102,8 @@ after(async () => {
   await new Promise((ok) => fake?.close(ok));
 });
 
+/** The coarse network the plugin sends for this test's requests (they come from 127.0.0.1). */
+const NET = "127.0.0.0/24";
 const OFFER = (id = "off_fake_1") => ({ id, kind: "ln402", amount_msat: 10000, invoice: "inv-opaque-" + id, macaroon: "mac-opaque-" + id, exp: Math.floor(Date.now() / 1000) + 300, display: { usd: "0.0100", label: "per request" } });
 
 // ---- (b) no offers unless payouts + Payment server + address -----------------------------------
@@ -226,7 +228,8 @@ test("(a) the plugin relays the server's offers as they are and asks the server 
   assert.equal(r.headers.get("www-authenticate"), 'X-Test offer="off_write"', "header value relayed as the server gave it");
   const j: any = await r.json();
   assert.deepEqual(j.offers, [OFFER("off_write")].map((o) => ({ ...o, exp: j.offers[0].exp })), "offers relayed unchanged");
-  assert.deepEqual(fakeCalls[0], { path: "/v1/owner/offers", body: { action: "write" } });
+  // The visitor's coarse network goes along (this test connects from 127.0.0.1), never the address.
+  assert.deepEqual(fakeCalls[0], { path: "/v1/owner/offers", body: { action: "write", net: NET } });
   const pay = { offer_id: "off_write", kind: "ln402", preimage: "ab".repeat(32), macaroon: "mac-opaque-off_write" };
   const redeem = (body: object) => fetch(ISSUER + "/v1/redeem", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
   // The server says no: WordPress says no, with the server's reason.
@@ -234,7 +237,7 @@ test("(a) the plugin relays the server's offers as they are and asks the server 
   const no = await redeem(pay);
   assert.equal(no.status, 401);
   assert.deepEqual(await no.json(), { error: "replay" });
-  assert.deepEqual(fakeCalls.at(-1), { path: "/v1/owner/redeem", body: pay }, "the proof is forwarded unchanged");
+  assert.deepEqual(fakeCalls.at(-1), { path: "/v1/owner/redeem", body: { ...pay, net: NET } }, "the proof is forwarded unchanged, with the visitor's network");
   // The site's own key refused by the server is the site's problem: 503, not the agent's 401.
   fakeRedeem = () => ({ status: 401, body: { error: "unauthorized" } });
   assert.equal((await redeem(pay)).status, 503);
@@ -244,7 +247,7 @@ test("(a) the plugin relays the server's offers as they are and asks the server 
   const before = fakeCalls.length;
   const ok = await redeem(pay);
   assert.equal(ok.status, 200);
-  assert.deepEqual(fakeCalls.slice(before), [{ path: "/v1/owner/redeem", body: pay }], "the pass is minted only after exactly one verify call to the payment server");
+  assert.deepEqual(fakeCalls.slice(before), [{ path: "/v1/owner/redeem", body: { ...pay, net: NET } }], "the pass is minted only after exactly one verify call to the payment server");
   const p: any = await ok.json();
   assert.deepEqual(Object.keys(p), ["pass", "exp", "cls", "rail"]);
   assert.equal(p.rail, "settle");

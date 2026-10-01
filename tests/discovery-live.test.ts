@@ -67,13 +67,14 @@ async function fetchDiscovery(base: string, schemas: Record<string, unknown> = I
 }
 /**
  * Manifest price (base), MCP price (current) and the live 402 offer for one action must agree, pinned
- * to load multiplier 1: the MCP answer must report x1 (live Node demo runs with velocity off; the
- * WordPress relay carries no multiplier), so load cannot make this flaky. Raised load is tested in
- * discovery.test.ts against a live 402 on its own server.
+ * to load multiplier 1: the MCP answer must report x1 (the live Node demo runs with velocity off, and
+ * the WordPress site relays that demo's offers), so load cannot make this flaky. Raised load is tested
+ * in discovery.test.ts and load-pricing.test.ts against servers of their own, and on WordPress in
+ * wp-load-pricing.test.ts.
  */
 async function parity(base: string, doc: any, action: string, offer: any) {
   const gate = doc.tools.find((t: any) => t.name === "gate_form_write");
-  // Live Node demo (velocity off) and WordPress (relay applies no load multiplier): offers cannot rise, so no note.
+  // Live Node demo (velocity off) and WordPress relaying it: offers cannot rise, so no note.
   assert.equal(gate.price.basis, "base");
   assert.equal(gate.price.note, undefined, `${base}: offers cannot rise, so no base-price note`);
   const m = gate.price.by_action[action];
@@ -151,15 +152,17 @@ test("A3 WordPress (Payment server = demo, test backend): manifest free, prices 
     const secret = wpEval("echo toll_gate_secret();");
     assert.equal((await mcp.call("verify_write_pass", { site: WP, secret, pass: p.pass, action: "write" })).valid, true);
     assert.equal((await mcp.call("verify_write_pass", { site: WP, secret, pass: p.pass, action: "write" })).valid, false, "one use");
-    // Mock: the payment server reports load pricing (a future relay that applies the multiplier). The
-    // cached price answer is replaced with the real one plus load_pricing true; the note comes back on its own.
-    wpEval(`$r = toll_gate_server_call('GET', '/v1/owner/price', null, 5)['body']; $r['load_pricing'] = array_fill_keys(TOLL_GATE_PAID_CLASSES, true); set_transient('toll_gate_price_cache', $r, 30); echo 'ok';`);
+    // Mock: the payment server reports load pricing (as one with velocity on does). The cached price
+    // answer is replaced with the real one plus load_pricing true; the note comes back on its own.
+    wpEval(`$r = toll_gate_server_call('GET', '/v1/owner/price?net=1', null, 5)['body']; $r['load_pricing'] = array_fill_keys(TOLL_GATE_PAID_CLASSES, true); set_transient('toll_gate_price_cache', ['net_declared' => true] + $r, 30); echo 'ok';`);
     const mocked = await fetchDiscovery(WP, WP_INPUT_SCHEMAS);
     assert.equal(mocked.tools[1].price.note, BASE_PRICE_NOTE, "payment server reports load pricing: note present");
     assert.equal(mocked.tools[1].price.basis, "base");
     assert.equal(mocked.tools[0].price.note, undefined);
+    // Load-priced, /price asks the payment server for this visitor's current price (POST /v1/owner/quote).
+    // The live demo runs with velocity off, so its quote is the base at x1: a real number, not null.
     const wpNow: any = await (await fetch(WP + "/wp-json/toll/v1/price?action=write")).json();
-    assert.equal(wpNow.load_multiplier, null, "the site cannot see the server's multiplier yet: unknown, not 1");
+    assert.deepEqual([wpNow.basis, wpNow.amount_msat, wpNow.load_multiplier], ["current", 10000, 1], "the quoted multiplier, not unknown");
     wpEval("delete_transient('toll_gate_price_cache'); echo 'ok';");
     const real = await fetchDiscovery(WP, WP_INPUT_SCHEMAS);
     assert.equal(real.tools[1].price.note, undefined, "real server answer again: no note");

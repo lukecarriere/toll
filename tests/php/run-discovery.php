@@ -29,12 +29,12 @@ function toll_gate_count(string $name, int $n = 1): void {}
 function toll_gate_lib_ok(): bool { return true; }
 function toll_gate_offers_configured(): bool { return $GLOBALS['toll_test_paid']; }
 function toll_gate_server_call(...$a) { return null; }
-// The payment server's /v1/owner/price answer, as cached by the plugin (fixed test rate, no load pricing).
+// The payment server's /v1/owner/price?net=1 answer, as cached by the plugin (fixed test rate, no load pricing).
 function get_transient(string $k)
 {
     if ($k !== 'toll_gate_price_cache') return false;
     $p = ['search' => 2000, 'write' => 10000, 'account' => 25000, 'admin' => 100000];
-    return ['status' => 'test', 'prices' => array_map(fn($m) => ['amount_msat' => $m], $p), 'load_pricing' => array_map(fn() => false, $p), 'fx' => ['usd_per_btc' => 100000, 'fetched_at' => time()]];
+    return ['net_declared' => true, 'status' => 'test', 'prices' => array_map(fn($m) => ['amount_msat' => $m], $p), 'load_pricing' => array_map(fn() => false, $p), 'fx' => ['usd_per_btc' => 100000, 'fetched_at' => time()]];
 }
 function set_transient(...$a): bool { return true; }
 
