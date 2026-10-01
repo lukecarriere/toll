@@ -70,11 +70,13 @@ export class MemoryLedger {
 /**
  * USD display for owner screens (docs/copy.md "Money"): two decimals, "less than $0.01" for a
  * non-zero amount under a cent, and null (hide it) when the FX rate is missing or older than 15 min.
- * `usd_per_btc` comes from a cached FX source; msat -> BTC is /1e11.
+ * `usd_per_btc` comes from a cached FX source; msat -> BTC is /1e11, so cents = msat * rate / 1e9.
+ * Rounds DOWN to the cent (an owner total is never overstated). The 1e-6 tolerance absorbs float
+ * noise so Node and PHP (both IEEE doubles, same formula) give the same string; see the vectors.
  */
 export function usdDisplay(msat: number, fx: { usd_per_btc: number; fetched_at: number } | null, now: number): string | null {
   if (!fx || !(fx.usd_per_btc > 0) || now - fx.fetched_at > 15 * 60) return null;
-  const usd = (msat / 1e11) * fx.usd_per_btc;
-  if (msat > 0 && usd < 0.01) return "less than $0.01";
-  return "$" + usd.toFixed(2);
+  const cents = Math.floor((msat * fx.usd_per_btc) / 1e9 + 1e-6);
+  if (msat > 0 && cents < 1) return "less than $0.01";
+  return "$" + Math.floor(cents / 100) + "." + String(cents % 100).padStart(2, "0");
 }

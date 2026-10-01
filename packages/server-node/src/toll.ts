@@ -17,6 +17,19 @@ import {
   workParams,
 } from "../../protocol/src/index.ts";
 import { createWorkAdapter, type WorkAdapter } from "../../work-adapter/src/index.ts";
+import {
+  type FxSource,
+  type MemoryLedger,
+  type Offer,
+  type SettlementEngine,
+  type SettlementRail,
+  FixedTestRate,
+  NoRate,
+  StubEngine,
+  StubSettler,
+  createSettlementRail,
+  stubEngineSecret,
+} from "../../settlement-ln/src/index.ts";
 import { type TollConfig, classifyPath } from "./config.ts";
 import { Metrics } from "./metrics.ts";
 import { MemoryStore, type TollStore, WindowCounter } from "./stores.ts";
@@ -31,6 +44,8 @@ export interface TollOptions {
    * random (for example near the top, so a slow-path UI test is not left to chance). Never set in production.
    */
   pickCounter?: (counter_max: number) => number;
+  /** Paid-request wiring overrides (tests and the demo). Only used when settlement.enabled is true. */
+  settlement?: { settler?: StubSettler; engine?: SettlementEngine; fx?: FxSource; ledger?: MemoryLedger };
 }
 
 export interface IssueInput {
@@ -54,8 +69,15 @@ export interface RedeemResult {
   pass: string;
   exp: number;
   cls: ActionClass;
-  rail: "work";
+  rail: "work" | "settle";
   claims: PassClaims;
+}
+
+export interface PaidRedeemResult extends RedeemResult {
+  rail: "settle";
+  amount_msat: number;
+  fee_msat: number;
+  net_msat: number;
 }
 
 export type Toll = ReturnType<typeof createToll>;
@@ -68,6 +90,38 @@ export function createToll(config: TollConfig, opts: TollOptions = {}) {
   const velocity = new WindowCounter(config.work.velocity_window_s, () => now());
   const issued = new Map<string, { c: Challenge; until: number }>();
   const engine: WorkAdapter = createWorkAdapter(config.secret);
+  const paid = config.settlement.enabled ? createPaidRail() : undefined;
+
+  /**
+   * Paid requests (docs/settlement.md). Phase 2: the local stub backend only. The stub engine's key is
+   * derived from the site secret so its seals never collide with challenge or pass signatures.
+   */
+  function createPaidRail(): { rail: SettlementRail; settler: StubSettler | undefined } {
+    const so = opts.settlement ?? {};
+    const settler = so.engine ? so.settler : (so.settler ?? new StubSettler());
+    const ready: Promise<SettlementEngine> = so.engine ? Promise.resolve(so.engine) : stubEngineSecret(config.secret).then((k) => new StubEngine({ secret: k, settler }));
+    const lazy: SettlementEngine = {
+      kind: "stub",
+      offer: async (o) => (await ready).offer(o),
+      verifyPaid: async (o) => (await ready).verifyPaid(o),
+      healthy: async () => (await ready).healthy(),
+    };
+    const fxc = config.settlement.fx;
+    const fx = so.fx ?? (fxc.source === "fixed" ? new FixedTestRate(fxc.usd_per_btc!) : new NoRate());
+    const rail = createSettlementRail({
+      site: config.site_id,
+      engine: lazy,
+      fx,
+      ledger: so.ledger,
+      fee_bps: config.settlement.fee_bps,
+      offer_ttl_s: config.settlement.offer_ttl_s,
+      now,
+      firstUse: (key, ttl) => store.firstUse(key, ttl),
+      onDegraded: (reason) => metrics.settlementDegraded({ reason }),
+      onSettled: (x) => metrics.settled(x.amount_msat),
+    });
+    return { rail, settler };
+  }
 
   function rememberIssued(c: Challenge) {
     const t = now();
@@ -81,6 +135,21 @@ export function createToll(config: TollConfig, opts: TollOptions = {}) {
   }
 
   async function issueChallenge(input: IssueInput): Promise<Challenge> {
+    return (await issue(input)).challenge;
+  }
+
+  /**
+   * Challenge plus offers (spec §8.5, settlement.md Q2). Offers go only to agent clients, only when
+   * paid requests are on and healthy; otherwise `offers` is []. Never throws for an offer problem.
+   */
+  async function issueWithOffers(input: IssueInput): Promise<{ challenge: Challenge; offers: Offer[] }> {
+    const { challenge, velocity_mult } = await issue(input);
+    if (input.client !== "agent" || !paid) return { challenge, offers: [] };
+    const offers = await paid.rail.offers(input.action as Exclude<ActionClass, "read">, { velocity: velocity_mult, suspicion: 1 });
+    return { challenge, offers };
+  }
+
+  async function issue(input: IssueInput): Promise<{ challenge: Challenge; velocity_mult: number }> {
     const site = input.site ?? config.site_id;
     if (site !== config.site_id) throw new TollError("wrong_site");
     if (!isActionClass(input.action) || input.action === "read") throw new TollError("malformed", "action must be search, write, account or admin");
@@ -114,7 +183,7 @@ export function createToll(config: TollConfig, opts: TollOptions = {}) {
       velocity_mult: wp.mults.velocity,
       source: input.source ?? "sdk",
     });
-    return challenge;
+    return { challenge, velocity_mult: wp.mults.velocity };
   }
 
   /**
@@ -143,6 +212,27 @@ export function createToll(config: TollConfig, opts: TollOptions = {}) {
     } catch (e) {
       const reason = e instanceof TollError ? e.code : "error";
       metrics.redeemFail({ reason, cls, rail: "work" });
+      throw e;
+    }
+  }
+
+  /**
+   * Paid redeem (settlement.md §6): the settlement engine checks the proof, the rail books it in the
+   * msat ledger, then a short settle pass is minted (Q6 default: one use, 60 s).
+   */
+  async function redeemPaid(body: unknown): Promise<PaidRedeemResult> {
+    if (!paid) throw new TollError("unsupported", "paid redeem is not enabled on this issuer");
+    const t0 = performance.now();
+    try {
+      const r = await paid.rail.redeemPaid(body);
+      const s = config.settlement;
+      const claims = newPassClaims({ site: config.site_id, cls: r.cls, n: s.pass_uses, ttl_s: s.pass_ttl_s, now: now() });
+      await store.setTag("pass:" + claims.jti, "settle", s.pass_ttl_s + 60);
+      const pass = await signPass(config.secret, claims);
+      metrics.redeemOk({ rail: "settle", cls: r.cls, took_ms: null, ua_class: null, client: "agent", verify_ms: Math.round((performance.now() - t0) * 100) / 100 });
+      return { pass, exp: claims.exp, cls: claims.cls, rail: "settle", claims, amount_msat: r.amount_msat, fee_msat: r.fee_msat, net_msat: r.net_msat };
+    } catch (e) {
+      metrics.redeemFail({ reason: e instanceof TollError ? e.code : "error", rail: "settle" });
       throw e;
     }
   }
@@ -190,6 +280,12 @@ export function createToll(config: TollConfig, opts: TollOptions = {}) {
     now,
     allowChallenge,
     issueChallenge,
+    issueWithOffers,
+    redeemPaid,
+    /** Paid-request rail, when enabled (status, owner balance, recent payments). */
+    paid: paid?.rail,
+    /** Test-only stub backend handle (the demo's test payment endpoint uses it). */
+    stubSettler: paid?.settler,
     verifySolution,
     verifyPass,
     findIssued,

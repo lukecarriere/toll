@@ -50,8 +50,13 @@ export function fresh(fx: FxQuote | null, now: number): fx is FxQuote {
   return !!fx && fx.usd_per_btc > 0 && now - fx.fetched_at <= FX_MAX_AGE_S;
 }
 
-/** USD for an offer's `display.usd` (agents): plain decimal string, 4 places, or undefined to omit it. */
+/**
+ * USD for an offer's `display.usd` (agents): plain decimal string with 4 places, or undefined to omit
+ * it. Rounds UP to $0.0001 (an offer never looks cheaper than it is); the 1e-6 tolerance absorbs
+ * float noise so Node and PHP agree (settlement vectors).
+ */
 export function offerUsd(amount_msat: number, fx: FxQuote | null, now: number): string | undefined {
   if (!fresh(fx, now)) return undefined;
-  return ((amount_msat / 1e11) * fx.usd_per_btc).toFixed(4);
+  const units = Math.ceil((amount_msat * fx.usd_per_btc) / 1e7 - 1e-6); // 1 unit = $0.0001
+  return Math.floor(units / 10000) + "." + String(units % 10000).padStart(4, "0");
 }

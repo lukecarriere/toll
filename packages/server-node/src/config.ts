@@ -22,7 +22,26 @@ export interface TollConfig {
   rate_limit: { challenge_per_min: number };
   cookie: { secure: "auto" | boolean };
   routes: RouteRule[];
-  settlement: { enabled: boolean; backend?: string; fee_bps: number };
+  settlement: SettlementConfig;
+}
+
+/**
+ * Paid requests (spec §8.6, docs/settlement.md). Phase 2 ships only the "stub" backend: a local
+ * test settler with no network and no real funds. The rate is used for USD display only.
+ */
+export interface SettlementConfig {
+  enabled: boolean;
+  backend: "stub";
+  /** Platform fee in basis points, rounded down per payment and held until phase 4 (Q5). */
+  fee_bps: number;
+  /** Uses per settle pass (Q6: 1). */
+  pass_uses: number;
+  /** Settle pass lifetime in seconds (Q6: at most 60). */
+  pass_ttl_s: number;
+  /** Offer lifetime in seconds (at most 120). */
+  offer_ttl_s: number;
+  /** USD display rate. "fixed" is a test value, not a market price; "none" hides USD. */
+  fx: { source: "fixed" | "none"; usd_per_btc?: number };
 }
 
 // Policy defaults. Calibration and the measured runs behind them: docs/policy.md.
@@ -71,8 +90,7 @@ export function normalizeConfig(raw: Record<string, any>, env: NodeJS.ProcessEnv
     if (!(m.unit_tries > 0)) throw new Error("toll config: work unit_tries must be positive");
   }
   if (!(Number.isInteger(work.hardened.memory_kib) && work.hardened.memory_kib! >= 8192 && work.hardened.memory_kib! <= 262144)) throw new Error("toll config: work.hardened.memory_kib must be 8192..262144");
-  const s = raw.settlement ?? {};
-  if (s.enabled) throw new Error("toll config: settlement is not available in this version (phase 2). Set settlement.enabled: false");
+  const settlement = normalizeSettlement(raw.settlement ?? {});
   return {
     site_id,
     secret,
@@ -90,8 +108,31 @@ export function normalizeConfig(raw: Record<string, any>, env: NodeJS.ProcessEnv
     rate_limit: { challenge_per_min: Number(raw.rate_limit?.challenge_per_min ?? 60) },
     cookie: { secure: raw.cookie?.secure ?? "auto" },
     routes,
-    settlement: { enabled: false, backend: s.backend, fee_bps: Number(s.fee_bps ?? 1000) },
+    settlement,
   };
+}
+
+function normalizeSettlement(s: Record<string, any>): SettlementConfig {
+  const enabled = Boolean(s.enabled ?? false);
+  const backend = String(s.backend ?? "stub");
+  if (enabled && backend !== "stub") throw new Error(`toll config: settlement.backend "${backend}" is not available in this build (only "stub", the local test backend)`);
+  const fee_bps = Number(s.fee_bps ?? 1000);
+  if (!(Number.isInteger(fee_bps) && fee_bps >= 0 && fee_bps <= 10000)) throw new Error("toll config: settlement.fee_bps must be an integer 0..10000");
+  const pass_uses = Number(s.pass_uses ?? 1);
+  if (!(Number.isInteger(pass_uses) && pass_uses >= 1 && pass_uses <= 100)) throw new Error("toll config: settlement.pass_uses must be an integer 1..100");
+  const pass_ttl_s = Number(s.pass_ttl_s ?? 60);
+  if (!(Number.isInteger(pass_ttl_s) && pass_ttl_s >= 1 && pass_ttl_s <= 60)) throw new Error("toll config: settlement.pass_ttl_s must be 1..60");
+  const offer_ttl_s = Number(s.offer_ttl_s ?? 120);
+  if (!(Number.isInteger(offer_ttl_s) && offer_ttl_s >= 10 && offer_ttl_s <= 120)) throw new Error("toll config: settlement.offer_ttl_s must be 10..120");
+  const fxRaw = s.fx ?? {};
+  const source = String(fxRaw.source ?? "none");
+  if (source !== "fixed" && source !== "none") throw new Error(`toll config: settlement.fx.source "${source}" is not available in this build (fixed | none)`);
+  let usd_per_btc: number | undefined;
+  if (source === "fixed") {
+    usd_per_btc = Number(fxRaw.usd_per_btc);
+    if (!(usd_per_btc > 0 && Number.isFinite(usd_per_btc))) throw new Error("toll config: settlement.fx.usd_per_btc must be a positive number when source is fixed");
+  }
+  return { enabled, backend: "stub", fee_bps, pass_uses, pass_ttl_s, offer_ttl_s, fx: { source, usd_per_btc } };
 }
 
 export function loadConfig(path: string, env: NodeJS.ProcessEnv = process.env): TollConfig {

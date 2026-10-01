@@ -5,6 +5,7 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 import { readFileSync, existsSync, statSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { type ActionClass, TollError, isActionClass, timingSafeEqual, utf8, verifyPassToken, classCovers } from "../../protocol/src/index.ts";
+import { l402Challenge } from "../../settlement-ln/src/index.ts";
 import type { Toll } from "./toll.ts";
 
 export const VERSION = "1.0.0";
@@ -69,6 +70,11 @@ export function extractPass(req: Req, body?: any): string | undefined {
   if (m) return m[1];
   if (body && typeof body["toll-pass"] === "string" && body["toll-pass"]) return body["toll-pass"];
   return parseCookies(req.headers.cookie as string | undefined)[PASS_COOKIE] || undefined;
+}
+
+/** An automated client (settlement.md Q2): `client=agent` in the query or a `Toll-Client: agent` header. */
+function isAgentRequest(query: URLSearchParams | null, header: string | null | undefined): boolean {
+  return query?.get("client") === "agent" || String(header ?? "").trim().toLowerCase() === "agent";
 }
 
 function isSecure(toll: Toll, req: Req): boolean {
@@ -138,14 +144,16 @@ export function tollRouter(toll: Toll) {
       applyCors(toll, req, res);
       if (req.method === "OPTIONS") {
         res.setHeader("access-control-allow-methods", "GET, POST, OPTIONS");
-        res.setHeader("access-control-allow-headers", "content-type, authorization");
+        res.setHeader("access-control-allow-headers", "content-type, authorization, toll-client");
         res.setHeader("access-control-max-age", "600");
         res.statusCode = 204;
         return res.end();
       }
 
       if (path === "/v1/health" && req.method === "GET") {
-        const body = { ok: true, v: VERSION, settlement: "off" as const };
+        // "stub" is this build's extension of the spec's off | regtest | live: the local test backend.
+        const st = toll.paid ? await toll.paid.status() : null;
+        const body: Record<string, unknown> = st ? { ok: true, v: VERSION, settlement: st.mode, settlement_degraded: !st.healthy, usd_rate: st.usd } : { ok: true, v: VERSION, settlement: "off" };
         if (String(req.headers.accept ?? "").includes("text/html")) {
           res.statusCode = 200;
           res.setHeader("content-type", "text/html; charset=utf-8");
@@ -159,9 +167,10 @@ export function tollRouter(toll: Toll) {
       if (path === "/v1/challenge" && req.method === "GET") {
         const action = url.searchParams.get("action") ?? "write";
         if (!isActionClass(action) || action === "read") return send(res, 400, { error: "bad_action" });
-        const client = url.searchParams.get("client") === "agent" ? "agent" : "widget";
+        const client = isAgentRequest(url.searchParams, req.headers["toll-client"] as string | undefined) ? "agent" : "widget";
         if (!toll.allowChallenge(clientIp(req))) return send(res, 429, { error: "rate_limited" }, { "retry-after": "60" });
-        const challenge = await toll.issueChallenge({
+        // Offers only for agent clients with paid requests on and healthy; otherwise [] (spec §8.5, §19.11).
+        const { challenge, offers } = await toll.issueWithOffers({
           site: url.searchParams.get("site") ?? undefined,
           action,
           path: url.searchParams.get("path") ?? undefined,
@@ -170,13 +179,17 @@ export function tollRouter(toll: Toll) {
           ip: clientIp(req),
           source: "challenge_endpoint",
         });
-        // Work-only mode: no settlement backend, so offers is always empty (spec §8.5, §19.11).
-        return send(res, 200, { challenge, offers: [] });
+        return send(res, 200, { challenge, offers });
       }
 
       if (path === "/v1/redeem" && req.method === "POST") {
         const body = await readBody(req);
-        if (body && body.offer_id !== undefined) return send(res, 400, { error: "unsupported", detail: "paid redeem is not enabled on this issuer" });
+        if (body && body.offer_id !== undefined) {
+          if (!toll.paid) return send(res, 400, { error: "unsupported", detail: "paid redeem is not enabled on this issuer" });
+          // Paid pass: short (Q6), for the client's Authorization header. No cookie: agents carry it themselves.
+          const r = await toll.redeemPaid(body);
+          return send(res, 200, { pass: r.pass, exp: r.exp, cls: r.cls, rail: r.rail });
+        }
         if (!body || typeof body.challenge_id !== "string" || typeof body.solution !== "object" || body.solution === null) return send(res, 400, { error: "malformed" });
         const challenge = body.challenge ?? toll.findIssued(body.challenge_id);
         if (!challenge) return send(res, 401, { error: "unknown_challenge" });
@@ -298,21 +311,38 @@ export function protect(toll: Toll, o: ProtectOptions = {}) {
 }
 
 async function reject(toll: Toll, req: Req, res: ServerResponse, action: ActionClass, noJsMessage?: string) {
-  if (wantsHtml(req)) {
+  const agent = isAgentRequest(new URL(req.url ?? "/", "http://x").searchParams, req.headers["toll-client"] as string | undefined);
+  if (!agent && wantsHtml(req)) {
     res.statusCode = 403;
     res.setHeader("content-type", "text/html; charset=utf-8");
     res.setHeader("cache-control", "no-store");
     return res.end(`<!doctype html><meta charset="utf-8"><title>403</title><p>${noJsMessage ?? "This form needs JavaScript."}</p>`);
   }
-  let challenge;
+  let issued: Awaited<ReturnType<Toll["issueWithOffers"]>> | undefined;
   if (toll.allowChallenge(clientIp(req))) {
     try {
-      challenge = await toll.issueChallenge({ action, path: new URL(req.url ?? "/", "http://x").pathname, userAgent: req.headers["user-agent"], ip: clientIp(req), source: "middleware" });
+      issued = await toll.issueWithOffers({ action, path: new URL(req.url ?? "/", "http://x").pathname, client: agent ? "agent" : "widget", userAgent: req.headers["user-agent"], ip: clientIp(req), source: "middleware" });
     } catch {
-      challenge = undefined;
+      issued = undefined;
     }
   }
-  return send(res, 403, challenge ? { error: "toll_required", challenge } : { error: "toll_required" });
+  const r = requiredResponse(issued);
+  return send(res, r.status, r.body, r.headers);
+}
+
+/**
+ * 402 for an agent when there is an offer to pay (settlement.md §4, Q2); otherwise the work-only 403.
+ * Offers never appear in a 403.
+ */
+function requiredResponse(issued: { challenge: unknown; offers: Parameters<typeof l402Challenge>[0][] } | undefined): { status: number; body: unknown; headers: Record<string, string> } {
+  if (issued && issued.offers.length > 0) {
+    return {
+      status: 402,
+      body: { error: "payment_required", challenge: issued.challenge, offers: issued.offers },
+      headers: { "www-authenticate": l402Challenge(issued.offers[0]), "access-control-expose-headers": "www-authenticate" },
+    };
+  }
+  return { status: 403, body: issued ? { error: "toll_required", challenge: issued.challenge } : { error: "toll_required" }, headers: {} };
 }
 
 /**
@@ -336,10 +366,12 @@ export function guardFetch(toll: Toll, handler: (req: Request, claims: unknown) 
       return handler(request, claims);
     } catch (e) {
       if (e instanceof TollError && e.code === "store_unavailable") return Response.json({ error: "unavailable" }, { status: 503 });
-      let challenge;
       const ip = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim();
-      if (toll.allowChallenge(ip)) challenge = await toll.issueChallenge({ action, path: url.pathname, userAgent: request.headers.get("user-agent"), ip, source: "middleware" }).catch(() => undefined);
-      return Response.json(challenge ? { error: "toll_required", challenge } : { error: "toll_required" }, { status: 403 });
+      const agent = isAgentRequest(url.searchParams, request.headers.get("toll-client"));
+      let issued: Awaited<ReturnType<Toll["issueWithOffers"]>> | undefined;
+      if (toll.allowChallenge(ip)) issued = await toll.issueWithOffers({ action, path: url.pathname, client: agent ? "agent" : "widget", userAgent: request.headers.get("user-agent"), ip, source: "middleware" }).catch(() => undefined);
+      const r = requiredResponse(issued);
+      return Response.json(r.body, { status: r.status, headers: r.headers });
     }
   };
 }
