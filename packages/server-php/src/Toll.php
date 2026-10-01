@@ -152,6 +152,47 @@ final class Protocol
         return $c;
     }
 
+    /**
+     * Mint a signed Toll challenge whose engine payload comes from the engine's PHP library, bound to
+     * the Toll id (parameters.data.tid), with the answer hidden at a counter in [0, counter_max).
+     * Same envelope and payload shape as packages/protocol + packages/work-adapter (Node), so the
+     * widget solves it and either side can verify it. Costs one KDF call (the secret counter).
+     * $spec: alg ('pbkdf2-sha256' | 'argon2id'), cost, counter_max, optional memory_kib, parallelism.
+     */
+    public static function mintChallenge(string $secret, string $site, string $action, string $path_prefix, array $spec, int $ttl_s, int $now, ?int $counter = null): array
+    {
+        if (!isset(self::CLASS_MULT[$action]) || $action === 'read') throw new TollError('malformed', 'action');
+        if ($ttl_s < 1 || $ttl_s > self::MAX_TTL) throw new TollError('malformed', 'ttl');
+        $alg = $spec['alg'] ?? 'pbkdf2-sha256';
+        if (!isset(self::ENGINE_ALG[$alg])) throw new TollError('unsupported', 'alg');
+        $max = (int) ($spec['counter_max'] ?? 0);
+        if ($max < 1 || $max > 0xffffffff) throw new TollError('malformed', 'counter_max');
+        $id = bin2hex(random_bytes(16));
+        $engine = new \AltchaOrg\Altcha\Altcha(self::engineSecret($secret, 'challenge'), self::engineSecret($secret, 'key'));
+        $argon = $alg === 'argon2id';
+        $opts = new \AltchaOrg\Altcha\CreateChallengeOptions(
+            algorithm: $argon ? new \AltchaOrg\Altcha\Algorithm\Argon2id() : new \AltchaOrg\Altcha\Algorithm\Pbkdf2(),
+            cost: (int) $spec['cost'],
+            counter: $counter ?? random_int(0, $max - 1),
+            memoryCost: $argon ? (int) ($spec['memory_kib'] ?? 19456) : null,
+            parallelism: $argon ? (int) ($spec['parallelism'] ?? 1) : null,
+            data: ['tid' => $id],
+        );
+        $work = $engine->createChallenge($opts)->toArray();
+        return self::signChallenge($secret, [
+            'v' => 1, 'id' => $id, 'site' => $site, 'alg' => $alg, 'work' => $work,
+            'bound' => ['action' => $action, 'path_prefix' => $path_prefix],
+            'iat' => $now, 'exp' => $now + $ttl_s,
+        ]);
+    }
+
+    /** Fresh pass claims (same shape as packages/protocol newPassClaims). */
+    public static function newPassClaims(string $site, string $cls, int $n, int $ttl_s, int $now): array
+    {
+        $jti = bin2hex(random_bytes(16));
+        return ['v' => 1, 'site' => $site, 'sub' => 'pass_' . substr($jti, 0, 16), 'cls' => $cls, 'n' => $n, 'iat' => $now, 'exp' => $now + $ttl_s, 'jti' => $jti];
+    }
+
     private static function passHeader(): string
     {
         return self::b64urlEncode(self::canonicalJson(['alg' => 'HS256', 'typ' => 'JWT']));
@@ -178,5 +219,37 @@ final class Protocol
         if ($site !== null && $claims['site'] !== $site) throw new TollError('wrong_site');
         if ($action !== null && self::CLASS_MULT[$claims['cls']] < self::CLASS_MULT[$action]) throw new TollError('class_too_low');
         return $claims;
+    }
+}
+
+/**
+ * Work policy for PHP hosts (mirror of packages/protocol/src/policy.ts, standard defaults from
+ * docs/policy.md). Velocity and escalation are Node-issuer features for now (docs/policy.md §6).
+ */
+final class Policy
+{
+    public const STANDARD = ['alg' => 'pbkdf2-sha256', 'cost' => 5000, 'unit_tries' => 64];
+    public const HARDENED = ['alg' => 'argon2id', 'cost' => 2, 'memory_kib' => 19456, 'parallelism' => 1, 'unit_tries' => 4];
+    public const MAX_UNITS = 28;
+    public const DEVICE_MULT = ['mobile' => 0.6, 'desktop' => 1.0];
+
+    public static function uaClass(?string $ua): string
+    {
+        return $ua !== null && preg_match('/Mobi|Android|iPhone|iPad/i', $ua) ? 'mobile' : 'desktop';
+    }
+
+    /** Engine spec for a challenge: alg, cost, counter_max (+ memory for Argon2id), expected_tries. */
+    public static function workParams(string $action, string $ua_class, string $mode = 'standard'): array
+    {
+        $cls = Protocol::CLASS_MULT[$action] ?? 0;
+        if ($cls === 0) throw new TollError('malformed', 'read is free');
+        $m = $mode === 'hardened' ? self::HARDENED : self::STANDARD;
+        $expected = $m['unit_tries'] * $cls * (self::DEVICE_MULT[$ua_class] ?? 1.0);
+        $cap = max(1, (int) floor(self::MAX_UNITS * $m['unit_tries']));
+        // JS Math.round == PHP round for positive values.
+        $counter_max = min($cap, max(1, (int) round(2 * $expected)));
+        $out = ['mode' => $mode, 'alg' => $m['alg'], 'cost' => $m['cost'], 'counter_max' => $counter_max, 'expected_tries' => ($counter_max + 1) / 2];
+        if ($m['alg'] === 'argon2id') { $out['memory_kib'] = $m['memory_kib']; $out['parallelism'] = $m['parallelism']; }
+        return $out;
     }
 }
