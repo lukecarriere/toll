@@ -108,76 +108,85 @@ Measured against the §9.3 targets (run above):
 
 ## 5. Pay vs grind
 
-> **Needs a re-run (Amendment 1).** This section was computed for the retired built-in miner
-> (`unit_iterations` 400,000, cost 2,000, the 2026-10-01T00-32-07 bench). The engine now uses
-> PBKDF2 at 5,000 iterations per try × 64 tries per unit (standard), or Argon2id (hardened), and
-> the bench in §3 is new. The conclusion for standard mode is unlikely to change, since it is
-> still PBKDF2-SHA-256. The hardened column is new and has no GPU figure yet. The table below is
-> left as the Data Scientist wrote it until they re-run it.
-
-Filled by the Data Scientist, 2026-09-30 (CT). Question: for an automated client, is it cheaper to pay
-the settlement offer or to grind the PBKDF2 work challenge on rented GPUs? Everything below is
-**derived** from the inputs listed; no GPU run was made on this project.
+Redone by the Data Scientist on 2026-09-30 (CT) for the pinned work engine (Amendment 1; see
+`docs/adapters.md`). It replaces the table for the retired custom miner. The question is whether an
+automated client spends less paying the settlement offer or grinding the work check on rented GPUs.
+All grind figures are **derived** from public benchmarks. No GPU was run on this project.
 
 **Inputs**
-- Work: `unit_iterations` 400,000; class multipliers search 1, write 4, account 8, admin 16; desktop
-  `device_mult` 1.0; velocity x1–x16; `max_iterations` 11M worst case, about 5.5M expected (§2).
+- Work (§2): standard is PBKDF2-SHA-256 at 5,000 iterations per try with 64 tries per unit. Hardened is
+  Argon2id with t = 2, m = 19 MiB, p = 1, and 4 tries per unit. Classes are search 1, write 4,
+  account 8 and admin 16 units, and `max_units` is 28. Expected tries = (`counter_max` + 1) / 2, as in
+  `packages/protocol/src/policy.ts`. Desktop `device_mult` is 1.0. A client claiming a mobile UA gets
+  0.6x the work, since the multiplier comes from the UA only.
 - Prices: `docs/settlement.md` §3, `amount_msat = base_msat × velocity_mult` (search 2,000, write
-  10,000, account 25,000, admin 100,000 msat), converted at about $85,000 per BTC (Sep 30, 2026 spot,
-  findings memo). Real offers use the live rate.
-- GPU: one RTX 4090 does about 8.86 billion PBKDF2-HMAC-SHA256 iterations a second (public hashcat
-  benchmark, mode 10900: 8,865.7 kH/s at 999 iterations). Rented at about $0.34 an hour (RunPod
-  community cloud), which is about $0.000094 per GPU-second. Spot prices go lower, so grind costs here
-  are an upper bound.
-- Desktop browser time is scaled from the measured write p50 (268 ms at 1.6M iterations, §3).
-- "Per write" divides one solve across the 20 uses of a work pass (`pass_uses: 20`, 900 s), which
-  any client that solves the work gets.
+  10,000, account 25,000 and admin 100,000 msat), at about $85,000 per BTC (Sep 30, 2026, findings memo).
+- GPU, standard: an RTX 4090 runs about 8.86 billion PBKDF2-HMAC-SHA256 iterations a second (hashcat
+  mode 10900, 8,865.7 kH/s at 999 iterations).
+- GPU, hardened: an RTX 4090 manages 1,667 Argon2id hashes a second at 64 MB, t = 3, p = 1 (the hashcat
+  pull request that added mode 34000, Netherlands Forensic Institute). Scaling linearly by memory ×
+  passes to 19 MiB × 2 gives about 8,400 a second. That scaling is an assumption, not a measurement.
+- GPU rental is about $0.34 an hour (RunPod community cloud), about $0.000094 per GPU-second. Spot is
+  cheaper, so these grind costs are upper bounds.
+- Each check below is one challenge. A solved challenge mints a 20-use, 900 s pass, so the grind cost
+  per protected write is up to 20x lower again (multiply each pay ÷ grind ratio by up to 20).
 
-| Class | Velocity | Expected work (iterations) | Desktop browser time | One RTX 4090 time | Grind cost per challenge | Grind cost per write (20-use pass) | Pay per write | Pay ÷ grind (per challenge) | Pay ÷ grind (per write) |
-|---|---|---|---|---|---|---|---|---|---|
-| search | x1 | 400,000 | 67 ms | 0.05 ms | $4.3e-9 | $2.1e-10 | $0.0017 | 398,558x | 7,971,151x |
-| search | x2 | 800,000 | 134 ms | 0.09 ms | $8.5e-9 | $4.3e-10 | $0.0034 | 398,558x | 7,971,151x |
-| search | x4 | 1,600,000 | 268 ms | 0.18 ms | $1.7e-8 | $8.5e-10 | $0.0068 | 398,558x | 7,971,151x |
-| search | x8 | 3,200,000 | 536 ms | 0.36 ms | $3.4e-8 | $1.7e-9 | $0.0136 | 398,558x | 7,971,151x |
-| search | x16 | 5,500,000 (cap) | 921 ms | 0.62 ms | $5.9e-8 | $2.9e-9 | $0.0272 | 463,776x | 9,275,521x |
-| write | x1 | 1,600,000 | 268 ms | 0.18 ms | $1.7e-8 | $8.5e-10 | $0.0085 | 498,197x | 9,963,939x |
-| write | x2 | 3,200,000 | 536 ms | 0.36 ms | $3.4e-8 | $1.7e-9 | $0.0170 | 498,197x | 9,963,939x |
-| write | x4 | 5,500,000 (cap) | 921 ms | 0.62 ms | $5.9e-8 | $2.9e-9 | $0.0340 | 579,720x | 11,594,401x |
-| write | x8 | 5,500,000 (cap) | 921 ms | 0.62 ms | $5.9e-8 | $2.9e-9 | $0.0680 | 1,159,440x | 23,188,803x |
-| write | x16 | 5,500,000 (cap) | 921 ms | 0.62 ms | $5.9e-8 | $2.9e-9 | $0.1360 | 2,318,880x | 46,377,605x |
-| account | x1 | 3,200,000 | 536 ms | 0.36 ms | $3.4e-8 | $1.7e-9 | $0.0212 | 622,746x | 12,454,923x |
-| account | x2 | 5,500,000 (cap) | 921 ms | 0.62 ms | $5.9e-8 | $2.9e-9 | $0.0425 | 724,650x | 14,493,002x |
-| account | x4 | 5,500,000 (cap) | 921 ms | 0.62 ms | $5.9e-8 | $2.9e-9 | $0.0850 | 1,449,300x | 28,986,003x |
-| account | x8 | 5,500,000 (cap) | 921 ms | 0.62 ms | $5.9e-8 | $2.9e-9 | $0.1700 | 2,898,600x | 57,972,006x |
-| account | x16 | 5,500,000 (cap) | 921 ms | 0.62 ms | $5.9e-8 | $2.9e-9 | $0.3400 | 5,797,201x | 115,944,013x |
-| admin | x1 | 5,500,000 (cap) | 921 ms | 0.62 ms | $5.9e-8 | $2.9e-9 | $0.0850 | 1,449,300x | 28,986,003x |
-| admin | x2 | 5,500,000 (cap) | 921 ms | 0.62 ms | $5.9e-8 | $2.9e-9 | $0.1700 | 2,898,600x | 57,972,006x |
-| admin | x4 | 5,500,000 (cap) | 921 ms | 0.62 ms | $5.9e-8 | $2.9e-9 | $0.3400 | 5,797,201x | 115,944,013x |
-| admin | x8 | 5,500,000 (cap) | 921 ms | 0.62 ms | $5.9e-8 | $2.9e-9 | $0.6800 | 11,594,401x | 231,888,025x |
-| admin | x16 | 5,500,000 (cap) | 921 ms | 0.62 ms | $5.9e-8 | $2.9e-9 | $1.3600 | 23,188,803x | 463,776,051x |
+| Class | Velocity | Pay per check | Standard: expected tries | Standard: GPU cost per check | Standard: pay ÷ grind | Hardened: expected tries | Hardened: GPU cost per check | Hardened: pay ÷ grind |
+|---|---|---|---|---|---|---|---|---|
+| search | x1 | $0.0017 | 64.5 | $3.4e-9 | 494,335x | 4.5 | $5.0e-8 | 33,691x |
+| search | x2 | $0.0034 | 128.5 | $6.9e-9 | 496,258x | 8.5 | $9.5e-8 | 35,673x |
+| search | x4 | $0.0068 | 256.5 | $1.4e-8 | 497,226x | 16.5 | $1.9e-7 | 36,754x |
+| search | x8 | $0.0136 | 512.5 | $2.7e-8 | 497,711x | 32.5 | $3.6e-7 | 37,319x |
+| search | x16 | $0.0272 | 896.5 (cap) | $4.8e-8 | 569,050x | 56.5 (cap) | $6.3e-7 | 42,934x |
+| write | x1 | $0.0085 | 256.5 | $1.4e-8 | 621,532x | 16.5 | $1.9e-7 | 45,942x |
+| write | x2 | $0.0170 | 512.5 | $2.7e-8 | 622,139x | 32.5 | $3.6e-7 | 46,649x |
+| write | x4 | $0.0340 | 896.5 (cap) | $4.8e-8 | 711,313x | 56.5 (cap) | $6.3e-7 | 53,667x |
+| write | x8 | $0.0680 | 896.5 (cap) | $4.8e-8 | 1,422,626x | 56.5 (cap) | $6.3e-7 | 107,334x |
+| write | x16 | $0.1360 | 896.5 (cap) | $4.8e-8 | 2,845,252x | 56.5 (cap) | $6.3e-7 | 214,668x |
+| account | x1 | $0.0212 | 512.5 | $2.7e-8 | 777,673x | 32.5 | $3.6e-7 | 58,311x |
+| account | x2 | $0.0425 | 896.5 (cap) | $4.8e-8 | 889,141x | 56.5 (cap) | $6.3e-7 | 67,084x |
+| account | x4 | $0.0850 | 896.5 (cap) | $4.8e-8 | 1,778,282x | 56.5 (cap) | $6.3e-7 | 134,167x |
+| account | x8 | $0.1700 | 896.5 (cap) | $4.8e-8 | 3,556,565x | 56.5 (cap) | $6.3e-7 | 268,335x |
+| account | x16 | $0.3400 | 896.5 (cap) | $4.8e-8 | 7,113,130x | 56.5 (cap) | $6.3e-7 | 536,670x |
+| admin | x1 | $0.0850 | 896.5 (cap) | $4.8e-8 | 1,778,282x | 56.5 (cap) | $6.3e-7 | 134,167x |
+| admin | x2 | $0.1700 | 896.5 (cap) | $4.8e-8 | 3,556,565x | 56.5 (cap) | $6.3e-7 | 268,335x |
+| admin | x4 | $0.3400 | 896.5 (cap) | $4.8e-8 | 7,113,130x | 56.5 (cap) | $6.3e-7 | 536,670x |
+| admin | x8 | $0.6800 | 896.5 (cap) | $4.8e-8 | 14,226,259x | 56.5 (cap) | $6.3e-7 | 1,073,340x |
+| admin | x16 | $1.3600 | 896.5 (cap) | $4.8e-8 | 28,452,518x | 56.5 (cap) | $6.3e-7 | 2,146,680x |
 
 **What it says**
-1. On the PBKDF2 rail, paying never wins on cost. Grinding a write is about 500,000x cheaper per
-   challenge at x1, and about 10 million x cheaper per write once the 20-use pass is counted. The
-   findings memo's "at least 200x" assumed a 100M iterations/s browser; at the measured browser speed
-   the real gap is about 2,500 times larger, so read the memo figure as a loose lower bound.
-2. Velocity widens the gap instead of closing it. The price keeps doubling, but work stops at the
-   `max_iterations` cap (reached at write x4, account x2, admin x1), so a GPU's cost per challenge
-   tops out at about $0.00000006 while a write offer climbs to $0.136 at x16. Difficulty and price stop
-   moving together once the cap is hit (spec §6.7).
-3. One 4090 solves about 1,600 capped challenges a second (about 32,000 writes a second on 20-use
-   passes). Throughput is limited by the per-IP challenge rate limit (60 a minute), not by cost, and
-   residential proxies get around per-IP limits (21% of bad-bot attacks used them, Imperva 2025).
-4. So agents pay for convenience, not savings: the agent SDK pays by default (spec §6.3) and needs no
-   GPU setup. Settlement's value against a funded attacker is that its spend lands with the site
-   owner (spec §16), not that it is cheaper than the work.
-5. The only work-side lever that narrows the gap is memory-hard work (argon2id, phase 3). Its GPU
-   throughput has not been measured; add a GPU column for it here in phase 3.
+1. **Paying never wins on cost in either mode.** For a write at x1, paying costs about 620,000x more
+   than grinding in standard mode, and about 46,000x more in hardened mode. Counting the 20-use pass,
+   that's about 12 million x and 900,000x per write.
+2. **Hardened mode narrows the gap by about 13x, not more.** By the measured browser times (§3) and the
+   derived GPU times, a GPU solves a standard write about 1,400x faster than a desktop browser (0.14 ms
+   vs 209 ms p50). In hardened mode it's about 280x faster (about 2 ms vs 549 ms p50). Memory-hard work
+   is the right lever, but at the 19 MiB OWASP minimum it remains far cheaper to grind than to pay.
+3. **Velocity still widens the gap.** Price keeps doubling, but work stops at `max_units` (write x4,
+   account x2, admin x1 in both modes), so grind cost per check tops out at about $0.00000005 (standard)
+   or $0.0000006 (hardened).
+4. **Agents pay for convenience, not savings.** The agent SDK pays by default (spec §6.3) and needs no
+   GPU. Settlement's value against a funded attacker is that its spend lands with the site owner (spec
+   §16), not that it is cheaper than the work.
+5. **Per-IP rate limits, not cost, cap a GPU grinder.** One 4090 can solve about 150 capped hardened
+   challenges a second (about 9,000 a minute) or about 2,000 capped standard ones a second (about
+   120,000 a minute), against 60 challenges a minute per IP.
+   Residential proxies get around per-IP limits (21% of bad-bot attacks used them, Imperva 2025).
+6. **Issuer cost in hardened mode.** Minting a hardened challenge costs the issuer about 52 ms p50 of
+   CPU (§2), so a challenge flood costs the server more than solving costs the attacker. The per-IP
+   challenge limit is the guard.
 
-**For product (not a spec change):** with the current rules, a client over the work cap still gets
-the work option, so it never has to pay. Whether a high-velocity, over-cap client should ever be
-offered payment only is a product call (it touches §9.5 "never hard-block humans"), and it needs
-real traffic data first.
+**Phone weight for hardened mode (Data Scientist recommendation, 2026-09-30):** keep hardened opt-in
+and at its current weight on phones for now. The phone-like run already includes `device_mult` 0.6.
+Reaching the 300–600 ms phone band would need roughly 0.26, which is about 2 to 3 Argon2id tries per
+write, and lowering memory would give up the GPU resistance that is the reason to use hardened at all.
+Because the multiplier comes from the UA, any phone discount is also a discount for a grinder that
+claims a mobile UA. The p95 of 2.3 s is well inside the 8 s cap and never blocks. Revisit with the real
+Android run before launch.
+
+**For product (not a spec change):** a client over the work cap still gets the work option, so it
+never has to pay. Whether a high-velocity, over-cap client should ever be offered payment only is a
+product call (§9.5 "never hard-block humans"), and it needs real traffic first.
 
 ## 6. Open items
 
