@@ -163,31 +163,17 @@ function toll_gate_test_ledger(): array
     return ['net_msat' => $net, 'withdrawn_msat' => $out, 'available_msat' => $net - $out];
 }
 
-/** Amount of a test-mode payout invoice (the local test format only), or null if it isn't one. */
-function toll_gate_test_invoice_msat(string $invoice): ?int
-{
-    if (!preg_match('/^lnstub1([1-9]\d{0,15})m1[0-9a-f]{64}[0-9a-f]{16}$/', $invoice, $m)) return null;
-    return (int) $m[1];
-}
-
 /**
- * Withdraw. Returns ['ok' => true, 'usd' => '$X.XX'] or ['ok' => false, 'error' => 'too_much' | 'failed' | 'down'].
- * The amount is checked against the balance before anything is sent.
+ * Withdraw through the owner's payment server only (POST /v1/owner/withdraw). The invoice is passed
+ * on as an opaque string: this plugin never reads an invoice (Amendment 1 §F); the payment server
+ * checks it and its amount against the balance before anything is sent.
+ * Returns ['ok' => true, 'usd' => '$X.XX'] or ['ok' => false, 'error' => 'too_much' | 'failed' | 'down'].
  */
 function toll_gate_withdraw(string $invoice): array
 {
     $s = toll_gate_settings();
     $invoice = trim($invoice);
-    if (!$s['payouts'] || $invoice === '') return ['ok' => false, 'error' => 'failed'];
-    if ($s['connection'] !== 'server') {
-        $amount = toll_gate_test_invoice_msat($invoice);
-        if ($amount === null) return ['ok' => false, 'error' => 'failed'];
-        $l = toll_gate_test_ledger();
-        if ($amount > $l['available_msat']) return ['ok' => false, 'error' => 'too_much'];
-        update_option('toll_gate_test_ledger', ['net_msat' => $l['net_msat'], 'withdrawn_msat' => $l['withdrawn_msat'] + $amount], false);
-        $now = time();
-        return ['ok' => true, 'usd' => (string) Settlement::usdDisplay($amount, TOLL_GATE_TEST_USD_RATE, $now, $now)];
-    }
+    if (!$s['payouts'] || $invoice === '' || $s['connection'] !== 'server') return ['ok' => false, 'error' => 'failed'];
     if (trim((string) $s['server_url']) === '') return ['ok' => false, 'error' => 'down'];
     $r = toll_gate_server_call('POST', '/v1/owner/withdraw', ['invoice' => $invoice]);
     if ($r === null || $r['status'] === 503) return ['ok' => false, 'error' => 'down'];

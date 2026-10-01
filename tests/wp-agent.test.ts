@@ -258,25 +258,39 @@ test("(a) the plugin relays the server's offers as they are and asks the server 
   assert.deepEqual(await (await redeem(pay)).json(), { error: "unsupported", detail: "paid redeem is not enabled on this issuer" });
 });
 
-test("(a) no payment code in the plugin's PHP: no proof, credential or invoice checks; the one invoice pattern is the Test mode withdraw amount", { skip: false }, () => {
+test("(a) no payment code in the plugin's PHP: no proof or credential checks; no invoice parsing anywhere in packages/wp-toll-gate or packages/server-php (Amendment 1 §F)", { skip: false }, () => {
   const files: string[] = [];
   const walk = (dir: URL) => {
     for (const e of readdirSync(dir, { withFileTypes: true })) {
-      if (e.name === "assets" || e.name === "dev" || e.name === "vendor") continue;
+      if (e.name === "vendor" || e.name === "node_modules" || e.name === "assets") continue;
       const u = new URL(e.name + (e.isDirectory() ? "/" : ""), dir);
       if (e.isDirectory()) walk(u);
       else if (e.name.endsWith(".php")) files.push(u.pathname);
     }
   };
   walk(PLUGIN);
-  assert.ok(files.length >= 8);
-  const forbidden = /preimageMatches|offerAmountMsat|priceMsat|splitFee|hash_hmac|base64_decode|sodium_|openssl_|hash\(\s*['"]sha256/;
-  for (const f of files) assert.doesNotMatch(readFileSync(f, "utf8"), forbidden, f);
-  const all = files.map((f) => readFileSync(f, "utf8")).join("\n");
-  assert.equal((all.match(/lnstub/g) ?? []).length, 1, "only toll_gate_test_invoice_msat (Test mode withdraw)");
+  const pluginCount = files.length;
+  walk(new URL("../packages/server-php/", import.meta.url));
+  assert.ok(pluginCount >= 8 && files.length > pluginCount, "both packages scanned");
+  // Strip comments so prose about invoices doesn't count; only code is checked.
+  const code = (f: string) => readFileSync(f, "utf8").replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:])\/\/.*$/gm, "$1").replace(/^\s*#.*$/gm, "");
+  const credential = /preimageMatches|offerAmountMsat|priceMsat|splitFee|hash_hmac|base64_decode|sodium_|openssl_|hash\(\s*['"]sha256/;
+  // Invoice formats and decoders: human-readable prefixes, bech32, amount multipliers, and any
+  // string function or pattern applied to an invoice value.
+  const invoiceFormat = /lnstub|lnbc|lntb|lnbcrt|lnsb|lntbs|bolt11|bech32|payment_request/i;
+  const invoiceRead = /\b(preg_match(_all)?|preg_replace|preg_split|substr|explode|strlen|strpos|str_starts_with|str_contains|sscanf|unpack|hex2bin|strtolower|ctype_\w+)\s*\([^;]*\$\w*invoice/i;
+  for (const f of files) {
+    const c = code(f);
+    if (f.startsWith(PLUGIN.pathname)) assert.doesNotMatch(c, credential, f);
+    assert.doesNotMatch(c, invoiceFormat, f);
+    assert.doesNotMatch(c, invoiceRead, f);
+  }
+  // The withdraw path only trims the invoice and hands it to the payment server.
+  const payouts = code(new URL("includes/payouts.php", PLUGIN).pathname);
+  assert.doesNotMatch(payouts, /function toll_gate_test_invoice_msat|toll_gate_test_invoice_msat\(/);
+  assert.match(payouts, /toll_gate_server_call\('POST', '\/v1\/owner\/withdraw', \['invoice' => \$invoice\]\)/);
   // The paid path treats invoice and credential as opaque strings: only presence and size checks.
-  const payouts = readFileSync(new URL("includes/payouts.php", PLUGIN), "utf8");
-  const paidPath = payouts.slice(payouts.indexOf("function toll_gate_relay_offers"), payouts.indexOf("/** Test-mode ledger"));
+  const paidPath = payouts.slice(payouts.indexOf("function toll_gate_relay_offers"), payouts.indexOf("function toll_gate_withdraw"));
   assert.doesNotMatch(paidPath, /preg_match\([^)]*\$o\[|explode|json_decode|substr|str_starts_with/, "no parsing of offer fields");
 });
 

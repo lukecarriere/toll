@@ -295,11 +295,8 @@ test("settings test mode: Balance $0.00 with the fee line, never the no-address 
   assert.equal(await A.locator("#toll-invoice").getAttribute("placeholder"), "Paste a payout invoice for up to $0.00");
   assert.equal(await A.isEnabled("#toll-withdraw"), true);
   await shot(A, "wp-settings-test-mode");
+  // Withdrawals go only through a payment server: in Test mode any invoice is refused unread.
   await A.fill("#toll-invoice", "lnstub11000m1" + "a".repeat(64) + "b".repeat(16));
-  await A.click("#toll-withdraw");
-  await A.getByText("That invoice is for more than your available balance.").waitFor();
-  await A.click("details.toll-adv > summary");
-  await A.fill("#toll-invoice", "not an invoice");
   await A.click("#toll-withdraw");
   await A.getByText("That invoice couldn't be paid. Check the amount and try again.").waitFor();
 });
