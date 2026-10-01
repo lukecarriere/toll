@@ -1,7 +1,7 @@
 # Toll
 
 Less traffic. Better road.
-A small check for comments, forms, logins, searches, and write APIs. Page views stay free. People post the usual way. Floods get slow and costly.
+A small check for comments, forms, logins, searches, and write APIs. Page views stay free. People post the usual way. Floods get slower and more expensive.
 
 npm / composer / wp plugin / wrangler
 

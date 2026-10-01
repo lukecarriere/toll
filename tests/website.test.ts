@@ -45,7 +45,7 @@ test("website/*.md are the Creative Director's pages in docs/copy.md, word for w
     assert.ok(lines[0].includes("`website/" + page.file + "`"), page.file);
     const heading = lines.find((l) => l.startsWith("Heading: "))?.slice(9) ?? lines[0].split(" (")[0];
     const items = lines.filter((l) => /^(\d+\.|-) /.test(l) && !/^\d+\. HOLD\b/.test(l))
-      .map((l) => l.replace(/^(\d+\.|-) /, "").replace(/^Closing line \([^)]*\): /, "").replace(/ \[QA:[^\]]*\]$/, ""));
+      .map((l) => l.replace(/^(\d+\.|-) /, "").replace(/^Closing line \([^)]*\): /, "").replace(/ \[QA:[^\]]*\]/g, ""));
     const list = lines.some((l) => l.startsWith("- "));
     const expected = `# ${heading}\n\n` + (list ? items.map((t) => "- " + t).join("\n") : items.join("\n\n"));
     assert.equal(norm(md(page.file)), norm(expected), page.file + ".md");
