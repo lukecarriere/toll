@@ -87,7 +87,11 @@ function b64urlJson(s: string): any {
 async function fetchStats(base: string): Promise<any> {
   try {
     const r = await fetch(base + "/demo/stats", { cache: "no-store" } as RequestInit);
-    return r.status === 200 ? await r.json() : null;
+    if (r.status !== 200) {
+      await r.arrayBuffer(); // read every body: see the note in agentPay
+      return null;
+    }
+    return await r.json();
   } catch {
     return null;
   }
@@ -122,6 +126,12 @@ export async function agentPay(o: AgentPayOptions): Promise<AgentPayReport> {
   for (let i = 1; i <= o.writes; i++) {
     try {
       const r = await agent.fetch(path, request(`agent write ${i} (${run})`));
+      // Read the final response to the end even though only its status is used. A server that closes
+      // the connection after each response (PHP's built-in server, Connection: close) can otherwise
+      // crash Node's fetch: undici pauses on the unread body and then asserts !paused when the socket
+      // ends (Parser.finish, "assert(!this.paused)"). Reading it also means the write's request has
+      // finished on the server (shutdown hooks included) before the next write or the stats call.
+      await r.response.arrayBuffer();
       const row: AgentPayWrite = { i, status: r.response.status, via: r.via, rail: r.redeemed?.rail, cls: r.redeemed?.cls, timings: r.timings };
       if (r.pass) {
         const claims = b64urlJson(r.pass.split(".")[1]);
@@ -156,6 +166,7 @@ export async function agentPay(o: AgentPayOptions): Promise<AgentPayReport> {
     log(`replayed payment (offer ${lastPaid.offer.id}): ${r.status} ${j.error ?? ""} -> ${replay.rejected ? "rejected" : "NOT rejected"}`);
     // The spent one-use pass again: refused (402 with a fresh offer for an agent).
     const p = await fetch(base + path, { ...request(`agent reuse (${run})`, { accept: "application/json", "toll-client": "agent", authorization: "Toll " + lastPaid.pass }), redirect: "manual" });
+    await p.arrayBuffer();
     reuse = { status: p.status, rejected: p.status === 402 || p.status === 403 };
     log(`spent pass reused: ${p.status} -> ${reuse.rejected ? "refused" : "NOT refused"}`);
   } else {
