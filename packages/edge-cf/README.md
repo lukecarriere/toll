@@ -38,7 +38,8 @@ throwaway origin; part of `npm test`).
 | `/toll/v1/toll.js`, `/toll/v1/toll.worker.js` | the widget, same-origin |
 
 Config: `SITE_ID`, `SITE_SECRET` (secret), `ORIGIN`, and JSON arrays `WRITE_PATHS`, `SEARCH_PATHS`,
-`ACCOUNT_PATHS`, `FREE_PATHS`; an optional KV key `toll_routes` (`[{"prefix":"/x","class":"write"}]`)
+`ACCOUNT_PATHS`, `FREE_PATHS`; optional `TOLL_SITE_URL` (Toll's public site root, e.g. `https://example.com`, for the
+manifest's `docs`; unset by default, and wrangler.toml sets none); an optional KV key `toll_routes` (`[{"prefix":"/x","class":"write"}]`)
 overrides the path lists. The default routes start with `{"prefix":"/","class":"read"}`; the worker never gates a GET, whatever the routes say. Metrics go to the console as the same JSON lines as Node
 (`challenge_minted`, `pass_absent`, `pass_reject`, …). Bodies, cookies and Authorization values are
 never logged.

@@ -1,7 +1,7 @@
 // toll.yaml loader (spec §14). Values of the form "env:NAME" are read from the environment.
 import { readFileSync } from "node:fs";
 import { parse } from "yaml";
-import { type ActionClass, type WorkPolicy, DEFAULT_ESCALATE, isActionClass } from "../../protocol/src/index.ts";
+import { type ActionClass, type WorkPolicy, DEFAULT_ESCALATE, isActionClass, siteUrl } from "../../protocol/src/index.ts";
 
 /**
  * One route rule. A rule's class applies to writes (POST, PUT, PATCH, DELETE) under the prefix.
@@ -36,7 +36,11 @@ export interface TollConfig {
   routes: RouteRule[];
   /** The owner confirmed the page-view warning (PAGE_VIEW_WARNING) so a GET route may be gated. */
   confirm_page_view_gating: boolean;
-  /** Agent discovery (Amendment 3): public docs URL for /.well-known/toll.json, or null until there is a public host. */
+  /**
+   * Agent discovery (Amendment 3): the `docs` URL in /.well-known/toll.json. `discovery.docs_url` in the
+   * config wins; otherwise the TOLL_SITE_URL environment variable (packages/protocol site-url.ts); null
+   * when neither is set.
+   */
   discovery: { docs_url: string | null };
   settlement: SettlementConfig;
 }
@@ -142,7 +146,7 @@ export function normalizeConfig(raw: Record<string, any>, env: NodeJS.ProcessEnv
     cookie: { secure: raw.cookie?.secure ?? "auto" },
     routes,
     confirm_page_view_gating,
-    discovery: { docs_url: typeof raw.discovery?.docs_url === "string" && /^https?:\/\//.test(raw.discovery.docs_url) ? raw.discovery.docs_url : null },
+    discovery: { docs_url: typeof raw.discovery?.docs_url === "string" && /^https?:\/\//.test(raw.discovery.docs_url) ? raw.discovery.docs_url : siteUrl(env.TOLL_SITE_URL) },
     settlement,
   };
 }

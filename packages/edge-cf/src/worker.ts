@@ -8,7 +8,7 @@
 //   /toll/v1/toll.js and its worker -> the widget, served same-origin
 // Runs locally only (wrangler dev / miniflare); no deploy, no account. Never logs bodies, cookies or
 // Authorization values. Work-only at the edge: standard mode, no paid offers (see README).
-import { TollError, isActionClass, timingSafeEqual, utf8, type ActionClass } from "../../protocol/src/index.ts";
+import { TollError, isActionClass, timingSafeEqual, utf8, siteUrl, type ActionClass } from "../../protocol/src/index.ts";
 import { createToll } from "../../server-node/src/toll.ts";
 import { normalizeConfig } from "../../server-node/src/config.ts";
 import { Metrics } from "../../server-node/src/metrics.ts";
@@ -28,6 +28,8 @@ export interface Env {
   ACCOUNT_PATHS?: string;
   FREE_PATHS?: string;
   ALLOWED_ORIGINS?: string;
+  /** Toll's public site root for the manifest's `docs` (packages/protocol site-url.ts). Unset by default: docs is null. */
+  TOLL_SITE_URL?: string;
   TOLL_KV?: KVLike;
 }
 
@@ -137,9 +139,9 @@ export default {
     const path = url.pathname;
     const method = req.method.toUpperCase();
     // Agent discovery (Amendment 3): free, served before any config or store is touched. The edge
-    // is work-only, so prices are null with status "stub".
+    // is work-only, so prices are null with status "stub". `docs` is TOLL_SITE_URL, or null when unset.
     if ((path === "/.well-known/toll.json" || path === "/.well-known/agents.json") && (method === "GET" || method === "HEAD")) {
-      const doc = path === "/.well-known/toll.json" ? buildManifest({ api: url.origin + "/v1", docs: null, status: "stub", prices: null }) : agentsPointer(url.origin + "/.well-known/toll.json");
+      const doc = path === "/.well-known/toll.json" ? buildManifest({ api: url.origin + "/v1", docs: siteUrl(env.TOLL_SITE_URL), status: "stub", prices: null }) : agentsPointer(url.origin + "/.well-known/toll.json");
       discoveryMetrics.discovery(path === "/.well-known/toll.json" ? "manifest" : "agents_json");
       return json(doc, 200, { "access-control-allow-origin": "*", "cache-control": "public, max-age=60" });
     }

@@ -116,6 +116,43 @@ function toll_gate_api_base(): string
     return untrailingslashit(rest_url('toll/v1'));
 }
 
+/**
+ * TOLL_SITE_URL: the root URL of Toll's own public site, for the manifest's `docs` field only. The site
+ * owner defines it in wp-config.php: define('TOLL_SITE_URL', 'https://...');. A PHP constant only, no
+ * getenv() fallback: the plugin reads no environment variables anywhere else. Same rules as
+ * packages/protocol/src/site-url.ts (TOLL_GATE_SITE_URL_RE is its SITE_URL_PATTERN; tests compare
+ * them): lowercase https://, a host name whose last label starts with a letter, optional port and
+ * path, no user info, query or fragment, trailing slashes removed. Unset or empty: null, the
+ * manifest is unchanged. Invalid: logged once per request and treated as unset, so the site never
+ * fails on a typo in wp-config.php.
+ */
+const TOLL_GATE_SITE_URL_RE = '#^https://(?:[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?\.)*[A-Za-z](?:[A-Za-z0-9-]*[A-Za-z0-9])?(?::([0-9]{1,5}))?(/[A-Za-z0-9._~!$&\'()*+,;=:@%/-]*)?$#D';
+
+/** [url, null] for an accepted or unset (url null) value, [null, error] for a value that is not accepted. */
+function toll_gate_parse_site_url($raw): array
+{
+    if ($raw === null) return [null, null];
+    if (!is_string($raw)) return [null, 'TOLL_SITE_URL must be a string'];
+    $v = trim($raw, " \t\r\n");
+    if ($v === '') return [null, null];
+    if (!preg_match(TOLL_GATE_SITE_URL_RE, $v, $m)) return [null, 'TOLL_SITE_URL must be an absolute https:// URL with a host name (no user info, query or fragment)'];
+    if (isset($m[1]) && $m[1] !== '' && ((int) $m[1] < 1 || (int) $m[1] > 65535)) return [null, 'TOLL_SITE_URL has a port outside 1-65535'];
+    return [rtrim($v, '/'), null];
+}
+
+/** The Toll site root from the TOLL_SITE_URL constant, or null when it is not defined, empty or invalid. */
+function toll_gate_site_url(): ?string
+{
+    static $warned = false;
+    [$url, $error] = toll_gate_parse_site_url(defined('TOLL_SITE_URL') ? constant('TOLL_SITE_URL') : null);
+    if ($error !== null && !$warned) {
+        $warned = true;
+        // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log
+        error_log('Toll: ' . $error . "; ignored, so the manifest's docs field stays as if it were unset");
+    }
+    return $url;
+}
+
 function toll_gate_manifest(): array
 {
     $t = toll_gate_price_table();
@@ -134,7 +171,7 @@ function toll_gate_manifest(): array
     return [
         'name' => 'Toll',
         'description' => TOLL_GATE_MANIFEST_DESCRIPTION,
-        'docs' => null,
+        'docs' => toll_gate_site_url(),
         'api' => $api,
         'reads_free' => true,
         'not_for' => TOLL_GATE_NOT_FOR,
