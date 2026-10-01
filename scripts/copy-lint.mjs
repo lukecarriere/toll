@@ -5,7 +5,7 @@
 // and in the bundled licence notices. Same surfaces, plus commit titles.
 import { readFileSync, readdirSync, statSync, existsSync } from "node:fs";
 import { execFileSync } from "node:child_process";
-import { ROOT, lintRegexes, lintText, isExempt, vendorRegexes, lintVendor } from "./copy-lib.mjs";
+import { ROOT, lintRegexes, lintText, isExempt, vendorRegexes, lintVendor, lintDiscovery } from "./copy-lib.mjs";
 
 // Commit titles that are already in history and named a vendor before the title lint caught it.
 // Exempt by exact SHA only; any new commit is still linted.
@@ -15,7 +15,7 @@ export const TITLE_EXCEPTIONS = {
 
 // Public surfaces (docs/copy.md "Where these rules apply"). The WordPress plugin joins when it exists.
 // Amendment 2: the mission pages (website/) and docs/positioning.md are linted too and must pass as written.
-export const SURFACES = ["README.md", "packages/widget/src", "packages/widget/dist", "demo", "packages/server-node/src", "packages/wp-toll-gate", "toll.example.yaml", "website", "docs/positioning.md"];
+export const SURFACES = ["README.md", "packages/widget/src", "packages/widget/dist", "demo", "packages/server-node/src", "packages/wp-toll-gate", "toll.example.yaml", "website", "docs/positioning.md", "packages/mcp"];
 const TEXT = /\.(md|ts|mjs|js|html|css|php|json|yaml|yml|txt|sh)$/;
 
 function walk(rel, out = []) {
@@ -29,7 +29,7 @@ function walk(rel, out = []) {
   return out;
 }
 
-export function runLint() {
+export async function runLint() {
   const regexes = lintRegexes();
   const vendors = vendorRegexes();
   const hits = [];
@@ -45,6 +45,18 @@ export function runLint() {
     const pkg = JSON.parse(readFileSync(ROOT + f, "utf8"));
     for (const h of lintText(f + "#name+description", `${pkg.name ?? ""}\n${pkg.description ?? ""}`, regexes)) hits.push({ file: f, ...h });
   }
+  // Discovery documents (Amendment 3): the manifest as served (with and without paid prices) and the
+  // MCP tool list. Only `payment` objects may name the payment method.
+  const { buildManifest, agentsPointer } = await import("../packages/server-node/src/manifest.ts");
+  const { toolList } = await import("../packages/mcp/src/server.ts");
+  const sample = { write: { amount_msat: 10000, usd: "0.0100" }, search: { amount_msat: 2000, usd: "0.0020" }, account: { amount_msat: 25000, usd: "0.0250" }, admin: { amount_msat: 100000, usd: "0.1000" } };
+  const docs = {
+    "toll.json (paid)": buildManifest({ api: "https://example.test/v1", docs: null, status: "test", prices: sample }),
+    "toll.json (work only)": buildManifest({ api: "https://example.test/v1", docs: null, status: "stub", prices: null }),
+    "agents.json": agentsPointer("https://example.test/.well-known/toll.json"),
+    "mcp tools/list": { tools: toolList() },
+  };
+  for (const [name, doc] of Object.entries(docs)) for (const h of lintDiscovery(doc, regexes, vendors)) hits.push({ file: name, line: h.path, term: h.term, text: h.text });
   // Commit titles (spec §1). Skipped outside a git checkout. History is never rewritten to fix a
   // title, so a title that slipped through is recorded in TITLE_EXCEPTIONS by full SHA and reason.
   let subjects = [];
@@ -60,7 +72,7 @@ export function runLint() {
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {
-  const r = runLint();
+  const r = await runLint();
   for (const h of r.hits) console.error(`copy-lint: ${h.file}:${h.line} "${h.text}" (${h.term})`);
   console.log(`copy-lint: ${r.files} files, ${r.subjects} commit titles, ${lintRegexes().length} rules from docs/copy.md, ${vendorRegexes().length} vendor names from docs/adapters.md, ${r.hits.length} hits`);
   if (r.hits.length) process.exit(1);

@@ -173,6 +173,23 @@ what enforces one payment, one pass.
 - **Toll-written offer "macaroon":** reduced to the stub engine's sealed test credential (`stub-engine.ts`). It's not a macaroon and is not used outside stub mode.
 - **Bench results** from the retired engine stay in `bench/results/2026-10-01T00-32-07/` as history only.
 
+## 4. Agent discovery payment: **stub** (x402 not wired), Amendment 3, Oct 1, 2026
+
+**Decision:** the manifest (`/.well-known/toll.json`) and the MCP tools ship with `payment.status: "stub"`. They list the offer an agent can actually complete today: the existing `/v1` 402 offer (`kind: "ln402"`, local test backend, `status: "test"`). They also say `x402: { status: "stub" }`. No x402 offer is advertised and nothing is submitted to the Bazaar.
+
+**Why x402 can't sit on the existing /v1 offer:**
+
+- **Different offer.** An x402 402 carries `accepts[]` entries (`scheme: "exact"`, `network`, `asset`, `payTo`, atomic `amount`) in a `PAYMENT-REQUIRED` header or body. The `/v1` offer is an ln402 invoice plus a sealed credential (docs/settlement.md). One `offers[]` entry can't be both.
+- **Different proof.** The x402 client retries with a signed payment payload header (an EIP-3009 stablecoin authorization for `exact` on EVM). The `/v1` proof is `{offer_id, kind, preimage, macaroon}` at `POST /v1/redeem`. Accepting x402 means a second proof type, a second verifier and a second replay store. That is the second pay protocol Amendment 3 forbids ("Do not invent a second pay protocol").
+- **Different settlement.** x402 verify and settle go through a facilitator (CDP or self-run). `payTo` is a stablecoin address, so even on a test network it needs a wallet and key. The hard rules exclude real wallets, and a test wallet still means a new custody path that Amendment 1 doesn't cover.
+- **The Bazaar can't list a stub anyway.** The CDP facilitator catalogs an endpoint only after a successful settlement through it, with `paymentPayload.resource` set and the bazaar extension declared (docs.x402.org/extensions/bazaar; CDP x402 Bazaar docs, read Oct 1, 2026). Resource URLs must be absolute https with no loopback. A local stub can't meet any of that, and Amendment 3 says a fake price in a public catalog is worse than no listing.
+
+**What would change it:** Luke approves x402 as a second rail. Then a facilitator is chosen, a `payTo` address exists on a test network first, and an x402 adapter mints `accepts[]` from the same `rail.price()` (so the USD and amounts stay identical). It would redeem into the same pass. The manifest's `payment.methods` gains `{ kind: "x402", status: "test" }`, and docs/catalogs.md moves the Bazaar row to "ready".
+
+**Prices are never hard-coded.** The manifest, `GET /v1/price` and the MCP `price_write_action` all take the amount from `offerAmountMsat()` and the USD from `offerUsd()` (rounded up to $0.0001) through `rail.price()`. That is the same call the 402 offer makes. WordPress gets amounts and the rate from its payment server (`GET /v1/owner/price`) and derives the USD with `Settlement::offerUsd`, the PHP twin pinned by the settlement vectors. Every price carries `status` ("test" or "stub") and displays like `$0.0100 (test)`, never as a bare number.
+
+**Lint scope (docs/copy.md, Amendment 3):** in the manifest and MCP documents, only `payment` objects may name the payment method. Every other string (each `description`, the tool names, the price displays) is linted with the full list, the vendor list and the payment-method words (`scripts/copy-lib.mjs` `lintDiscovery`, run by `npm run lint:copy`).
+
 ## Vendor names (copy lint)
 
 Checked on every public surface (README, demo pages and strings, widget source and dist, issuer

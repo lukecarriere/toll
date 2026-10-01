@@ -162,3 +162,27 @@ export function lintVendor(relPath, text, regexes = vendorRegexes()) {
   }
   return hits;
 }
+
+// ---- Discovery documents (Amendment 3) --------------------------------------------------------
+// The manifest (/.well-known/toll.json) and the MCP tool list are for machines. Only their
+// `payment` objects may name the payment method; every other string (every `description`, the
+// tool names, the price displays) stays under the full lint list and the vendor list, and must not
+// name a payment method either.
+export const PAYMENT_METHOD_WORDS = ["ln402", "x402", "l402", "lsat", "lightning", "bolt11", "lnurl", "usdc", "bitcoin", "btc"];
+const PAYMENT_RE = new RegExp(`(?<![A-Za-z0-9_])(${PAYMENT_METHOD_WORDS.join("|")})(?![A-Za-z0-9_])`, "i");
+
+/** Hits for a discovery document: [{ path, term, text }]. Strings under a `payment` key are exempt. */
+export function lintDiscovery(doc, regexes = lintRegexes(), vendors = vendorRegexes()) {
+  const hits = [];
+  const walk = (v, path) => {
+    if (typeof v === "string") {
+      for (const h of lintText("discovery", v, regexes)) hits.push({ path, term: h.term, text: v });
+      for (const h of lintVendor("discovery", v, vendors)) hits.push({ path, term: h.term, text: v });
+      const m = PAYMENT_RE.exec(v);
+      if (m) hits.push({ path, term: "payment method outside payment: " + m[1], text: v });
+    } else if (Array.isArray(v)) v.forEach((x, i) => walk(x, `${path}[${i}]`));
+    else if (v && typeof v === "object") for (const [k, x] of Object.entries(v)) if (k !== "payment") walk(x, path ? `${path}.${k}` : k);
+  };
+  walk(doc, "");
+  return hits;
+}

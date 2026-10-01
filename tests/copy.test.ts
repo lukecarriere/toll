@@ -40,8 +40,8 @@ test("whole words only: no false hits inside other words; phrases and risk-score
   assert.equal(lintText("README.md", "a 10% platform fee").length, 0);
 });
 
-test("copy lint passes on every public surface of this repo", () => {
-  const r = runLint();
+test("copy lint passes on every public surface of this repo", async () => {
+  const r = await runLint();
   assert.deepEqual(r.hits, []);
   assert.ok(r.files > 10);
 });
@@ -180,7 +180,8 @@ test("vendor names (docs/adapters.md list) are caught on public surfaces and all
   // Ordinary English "cap" (the 8 s cap, max_units cap) is not the vendor.
   assert.deepEqual(lintVendor("README.md", "after the 8 s cap; worst-case cap per check; caps; capture"), []);
   // The whole repo's public surfaces are clean.
-  assert.equal(runLint().hits.length, 0, JSON.stringify(runLint().hits));
+  const all = await runLint();
+  assert.equal(all.hits.length, 0, JSON.stringify(all.hits));
 });
 
 test("the widget dist names no captcha or risk-score service and loads nothing from a CDN", () => {

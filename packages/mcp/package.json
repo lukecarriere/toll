@@ -1,0 +1,3 @@
+{ "name": "@toll/mcp", "private": true, "version": "0.1.0", "type": "module",
+  "description": "Local MCP server for the three Toll write tools. Calls a site's existing /v1 API; no network service of its own.",
+  "bin": { "toll-mcp": "./src/server.ts" } }
