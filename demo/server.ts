@@ -3,15 +3,15 @@
 import express from "express";
 import { randomBytes } from "node:crypto";
 import { fileURLToPath } from "node:url";
-import { createToll, loadConfig, protect, tollRouter, type TollConfig, Metrics, MemoryStore } from "../packages/server-node/src/index.ts";
-import { formsPage, hammerPage, type Comment } from "./pages.ts";
+import { createToll, loadConfig, protect, tollRouter, type TollConfig, type TollOptions, Metrics, MemoryStore } from "../packages/server-node/src/index.ts";
+import { formsPage, hammerPage, type Comment, type PaidView } from "./pages.ts";
 import { COPY } from "./strings.ts";
 
 const here = fileURLToPath(new URL(".", import.meta.url));
 
-export function createDemo(o: { config?: TollConfig; metrics?: Metrics; store?: MemoryStore; host?: string; pickCounter?: (counter_max: number) => number } = {}) {
+export function createDemo(o: { config?: TollConfig; metrics?: Metrics; store?: MemoryStore; host?: string; pickCounter?: (counter_max: number) => number; settlement?: TollOptions["settlement"] } = {}) {
   const config = o.config ?? loadConfig(here + "toll.yaml");
-  const toll = createToll(config, { metrics: o.metrics, store: o.store, pickCounter: o.pickCounter });
+  const toll = createToll(config, { metrics: o.metrics, store: o.store, pickCounter: o.pickCounter, settlement: o.settlement });
   const app = express();
   app.disable("x-powered-by");
   const comments: Comment[] = [
@@ -33,12 +33,20 @@ export function createDemo(o: { config?: TollConfig; metrics?: Metrics; store?: 
   const host = () => o.host ?? new URL(config.issuer_public_url).host;
   const wantsJson = (req: express.Request) => String(req.headers.accept ?? "").includes("application/json");
 
-  app.get("/", (req, res) => {
+  /** Owner-facing view of paid requests: USD strings only, null amounts when the rate is unavailable. */
+  async function paidView(): Promise<PaidView | null> {
+    if (!toll.paid) return null;
+    const st = await toll.paid.status();
+    const b = toll.paid.balance();
+    return { mode: st.healthy ? COPY.modePaymentsOn : COPY.modePaymentsPaused, requests: b.paid_requests, collected: b.usd?.collected ?? null, available: b.usd?.available ?? null, agentAccepted: toll.metrics.byTag["settle|write"]?.pass_accept ?? 0 };
+  }
+
+  app.get("/", async (req, res) => {
     const q = typeof req.query.q === "string" ? req.query.q.slice(0, 100) : null;
     const results = q ? [...corpus, ...comments.map((c) => c.text)].filter((t) => t.toLowerCase().includes(q.toLowerCase())) : undefined;
-    res.type("html").send(formsPage({ host: host(), comments, sent: typeof req.query.sent === "string" ? req.query.sent : null, q, results }));
+    res.type("html").send(formsPage({ host: host(), comments, sent: typeof req.query.sent === "string" ? req.query.sent : null, q, results, paid: await paidView() }));
   });
-  app.get("/hammer", (_req, res) => res.type("html").send(hammerPage({ host: host() })));
+  app.get("/hammer", async (_req, res) => res.type("html").send(hammerPage({ host: host(), paid: await paidView() })));
 
   const noJs = { noJsMessage: COPY.noJs };
   app.post("/contact", protect(toll, { action: "write", ...noJs }), (req, res) => {
@@ -58,10 +66,26 @@ export function createDemo(o: { config?: TollConfig; metrics?: Metrics; store?: 
     if (wantsJson(req)) return res.json({ ok: true });
     res.redirect(303, "/?q=" + encodeURIComponent(q) + "#search");
   });
-  app.get("/demo/stats", (_req, res) => {
+  app.get("/demo/stats", async (_req, res) => {
     const s = toll.metrics.snapshot();
-    res.set("cache-control", "no-store").json({ accepted: s.pass_accept, rejected: s.pass_reject, mean_solve_ms: s.avg_took_ms, mode: "work-only" });
+    const pv = await paidView();
+    // `paid.ledger` (integer msat) is for the agent script's summary; the page shows only the USD strings.
+    const paid = pv && toll.paid ? { ...pv, ledger: toll.paid.balance().msat, fee_bps: toll.paid.fee_bps } : null;
+    res.set("cache-control", "no-store").json({ accepted: s.pass_accept, rejected: s.pass_reject, mean_solve_ms: s.avg_took_ms, mode: pv ? pv.mode : COPY.modeWorkOnly, paid });
   });
+
+  // TEST ONLY: the local test backend's payer, standing in for the client's payment app in the demo
+  // and the agent script. Mounted only with the stub backend; it never moves real money.
+  const settler = toll.stubSettler;
+  if (settler) {
+    app.post("/demo/stub-pay", express.json({ limit: "4kb" }), (req, res) => {
+      try {
+        res.set("cache-control", "no-store").json({ preimage: settler.pay(String(req.body?.invoice ?? "")) });
+      } catch {
+        res.status(400).json({ error: "unknown_invoice" });
+      }
+    });
+  }
   return { app, toll, messages: () => messages };
 }
 
@@ -76,7 +100,8 @@ if (import.meta.url === `file://${process.argv[1]}`) {
   // TOLL_WORK_MODE=hardened switches the demo to the memory-hard mode (docs/policy.md).
   if (process.env.TOLL_WORK_MODE === "hardened" || process.env.TOLL_WORK_MODE === "standard") config.work.mode = process.env.TOLL_WORK_MODE;
   const { app, toll } = createDemo({ config });
-  app.listen(port, bind, () => console.error(`[demo] Toll demo on http://localhost:${port}  (issuer + widget, work-only, ${config.work.mode} mode)`));
+  const mode = config.settlement.enabled ? `paid requests on the local test backend, fixed test rate ${config.settlement.fx.source === "fixed" ? config.settlement.fx.usd_per_btc : "none"}` : "work-only";
+  app.listen(port, bind, () => console.error(`[demo] Toll demo on http://localhost:${port}  (issuer + widget, ${mode}, ${config.work.mode} mode)`));
   const t = setInterval(() => toll.metrics.flush(), 60_000);
   t.unref();
   for (const sig of ["SIGINT", "SIGTERM"] as const) process.on(sig, () => { toll.metrics.flush(); process.exit(0); });

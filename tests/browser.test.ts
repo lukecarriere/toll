@@ -454,3 +454,54 @@ test("vendor names never reach the visitor: rendered text, shadow markup and acc
   // The list really is non-empty and catches a vendor name if one leaked.
   assert.ok(res.length >= 5 && res.some(({ re }) => { re.lastIndex = 0; return re.test("Protected by ALTCHA"); }));
 });
+
+// ---- Phase 2: paid requests on (local test backend, fixed test rate) ------------------------------
+test("phase 2 demo: USD-only stats and owner block, live after 5 paid agent writes; no msat, coin or vendor words; '—' + Rate unavailable when the rate is down; widget flow unchanged", async () => {
+  const { FixedTestRate } = await import("../packages/settlement-ln/src/index.ts");
+  const { agentPay } = await import("../packages/agent/src/agent-pay.ts");
+  const { PAID_ON } = await import("./helpers.ts");
+  // @ts-ignore plain JS helper
+  const { lintRegexes, vendorRegexes } = await import("../scripts/copy-lib.mjs");
+  const fx = new FixedTestRate(100000);
+  const paid = await startDemo({ work: { standard: { unit_tries: 2 } }, ...PAID_ON }, { settlement: { fx } });
+  const { page, ctx, errors } = await newPage();
+  try {
+    const run = await agentPay({ base: paid.url, writes: 5 });
+    assert.equal(run.ok, true);
+    await page.goto(paid.url + "/hammer");
+    await page.waitForFunction(() => document.getElementById("ag-cells")?.getAttribute("aria-label") === "5 of 20 accepted", null, { timeout: 5000 });
+    // The widget's challenges carry no offers (the widget is never an agent).
+    const offers: unknown[] = [];
+    page.on("response", async (r) => { if (r.url().includes("/v1/challenge")) offers.push(((await r.json().catch(() => ({}))) as any).offers); });
+    await page.goto(paid.url + "/");
+    await page.waitForFunction(() => document.getElementById("st-paid")?.textContent === "5", null, { timeout: 5000 });
+    const text = await page.evaluate(() => document.body.innerText);
+    assert.match(text, /test payments on/);
+    assert.match(text, /Paid requests\s+5/);
+    assert.match(text, /Usage value collected\s+\$0\.05/);
+    assert.match(text, /Collect usage payouts/);
+    assert.match(text, /\$0\.04\s+available to withdraw · after the 10% platform fee/);
+    const scanText = text + "\n" + (await page.content()).replace(/<script[\s\S]*?<\/script>/g, "").replace(/<[^>]+>/g, " ");
+    for (const { re, term } of [...lintRegexes(), ...vendorRegexes()]) { re.lastIndex = 0; assert.ok(!re.test(scanText), term); }
+    assert.doesNotMatch(text, /msat|invoice|preimage|stub/i);
+    // The widget still protects the visitor's form.
+    await page.click("#contact button[type=submit]");
+    await page.waitForURL(/sent=contact/, { timeout: 15000 });
+    assert.ok(offers.length > 0 && offers.every((o) => Array.isArray(o) && o.length === 0), JSON.stringify(offers));
+    // Rate down: amounts hide, the ledger does not change.
+    fx.setDown(true);
+    await page.goto(paid.url + "/");
+    assert.equal(await page.textContent("#bal-amt"), "—");
+    assert.equal(await page.textContent("#st-coll"), "—");
+    assert.equal(await page.isVisible("#bal-rate"), true);
+    assert.equal(await page.textContent("#bal-rate"), "Rate unavailable");
+    fx.setDown(false);
+    await page.waitForFunction(() => document.getElementById("bal-amt")?.textContent === "$0.04", null, { timeout: 5000 });
+    assert.equal(await page.isVisible("#bal-rate"), false);
+    assert.deepEqual(await page.evaluate(() => (window as any).__csp), []);
+    assert.deepEqual(errors, []);
+  } finally {
+    await ctx.close();
+    await paid.close();
+  }
+});

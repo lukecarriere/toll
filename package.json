@@ -13,6 +13,7 @@
     "packages/settlement-ln",
     "packages/widget",
     "packages/server-node",
+    "packages/agent",
     "demo"
   ],
   "scripts": {
@@ -24,7 +25,8 @@
     "test:unit": "node --test tests/*.test.ts",
     "test:php": "php tests/php/run-vectors.php",
     "demo": "npm run build && node demo/server.ts",
-    "bench": "npm run build && node bench/run-bench.ts"
+    "bench": "npm run build && node bench/run-bench.ts",
+    "agent-pay": "node packages/agent/src/agent-pay.ts"
   },
   "devDependencies": {
     "@types/express": "^5.0.6",

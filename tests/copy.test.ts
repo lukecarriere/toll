@@ -70,9 +70,10 @@ test("every demo string is backed by docs/copy.md (Demo strings section; noJs fr
   assert.deepEqual(Object.keys(demoStrings).sort(), ["COPY", "resultsFor"]);
   const demo = section(md, "Demo strings");
   const widget = section(md, "Widget strings");
+  const money = section(md, "Money");
   assert.ok(demo.length > 200, "Demo strings section found");
   for (const [k, v] of Object.entries(COPY)) {
-    const where = k === "noJs" ? widget : demo;
+    const where = k === "noJs" ? widget : k === "rateUnavailable" ? money : demo;
     assert.ok(where.includes(v), `${k}: "${v}" is not in docs/copy.md`);
   }
   // Results line: copy.md pattern `N result(s) for "query"`, singular at 1.
@@ -92,6 +93,26 @@ test("demo pages: the action class in each card description is in code style, li
   for (const v of [COPY.commentsSub, COPY.searchSub, COPY.introLede, COPY.noPassSub]) assert.ok(text.includes(v), v);
   const hammer = hammerPage({ host: "localhost:8787" }).replace(/<[^>]+>/g, "");
   for (const v of [COPY.hammerTitle, COPY.hammerLede, COPY.runWithoutSub, COPY.runWithSub, COPY.agentSub, COPY.phase2, COPY.legendPending]) assert.ok(hammer.includes(v), v);
+});
+
+test("demo pages, paid requests on: phase 2 stats and owner block use copy.md strings, USD only, '—' + 'Rate unavailable' when the rate is down", () => {
+  const paid = { mode: COPY.modePaymentsOn, requests: 5, collected: "$0.05", available: "$0.04", agentAccepted: 5 };
+  const strip = (h: string) => h.replace(/<[^>]+>/g, " ");
+  const forms = strip(formsPage({ host: "localhost:8787", comments: [], paid }));
+  for (const v of [COPY.modePaymentsOn, COPY.statPaid, COPY.statCollected, COPY.payoutsLabel, COPY.payoutsHelp, COPY.balanceCaption, "$0.05", "$0.04"]) assert.ok(forms.includes(v), v);
+  assert.doesNotMatch(forms, /msat|invoice|preimage|offer|stub|\bsat\b/i);
+  assert.ok(!forms.includes(COPY.modeWorkOnly));
+  const down = formsPage({ host: "localhost:8787", comments: [], paid: { ...paid, mode: COPY.modePaymentsPaused, collected: null, available: null } });
+  assert.match(down, /id="bal-amt">—</);
+  assert.match(down, /id="st-coll">—</);
+  assert.match(down, new RegExp(`id="bal-rate">${COPY.rateUnavailable}<`));
+  assert.ok(down.includes(COPY.modePaymentsPaused));
+  const hammer = hammerPage({ host: "localhost:8787", paid });
+  assert.ok(!hammer.includes('class="card locked" id="agent"'));
+  assert.match(hammer, /aria-label="5 of 20 accepted"/);
+  // Paid requests off: phase 1 page, no phase 2 block.
+  const off = formsPage({ host: "localhost:8787", comments: [] });
+  assert.ok(!off.includes(COPY.payoutsLabel) && off.includes(COPY.modeWorkOnly));
 });
 
 test("vendor names (docs/adapters.md list) are caught on public surfaces and allowed only in adapters.md, package.json and licence notices", async () => {

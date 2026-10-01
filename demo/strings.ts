@@ -9,6 +9,8 @@ export const COPY = {
   navHammer: "Bot hammer",
   navAgent: "Agent hammer",
   modeWorkOnly: "work-only",
+  modePaymentsOn: "test payments on",
+  modePaymentsPaused: "test payments paused",
   // Forms page
   introTitle: "Every form on this page is protected",
   introLede: "Use them like a normal visitor. Each one runs an invisible check in the background, and the counts on the right update as you go. Then try the same endpoint without a pass.",
@@ -34,6 +36,14 @@ export const COPY = {
   statAccepted: "Accepted",
   statRejected: "Rejected",
   statMeanSolve: "Mean solve time",
+  // Stats and owner block (phase 2)
+  statPaid: "Paid requests",
+  statCollected: "Usage value collected",
+  payoutsLabel: "Collect usage payouts",
+  payoutsHelp: "High-volume clients can pay per request. You withdraw from the dashboard.",
+  balanceCaption: "available to withdraw · after the 10% platform fee",
+  // From copy.md "Money": what the demo shows when the USD rate is unavailable
+  rateUnavailable: "Rate unavailable",
   // Hammer page
   hammerTitle: "Bot hammer",
   hammerLede: "Fire 50 writes at the contact endpoint, first as a script that skips the check, then through the widget's background worker. Each square is one request.",

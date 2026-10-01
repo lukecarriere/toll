@@ -19,5 +19,18 @@ routes:
   - { prefix: "/contact", class: write }
   - { prefix: "/comments", class: write }
   - { prefix: "/search", class: search }
+# Paid requests (phase 2) on the local test backend: no network, no real money. Agents that send
+# `Toll-Client: agent` (or ?client=agent) get a 402 with an offer; everyone else keeps the
+# invisible check. Settle passes are one use, 60 seconds (docs/settlement.md Q6).
 settlement:
-  enabled: false
+  enabled: true
+  backend: stub          # local test backend only in this build
+  fee_bps: 1000          # 10% platform fee, rounded down per payment, held until phase 4
+  pass_uses: 1
+  pass_ttl_s: 60
+  offer_ttl_s: 120
+  fx:
+    # FIXED TEST RATE for the demo, not a market price: 100000 USD per unit makes a write
+    # (10,000 msat) show as $0.01. A live, free, commercial-use rate source is still to be chosen.
+    source: fixed
+    usd_per_btc: 100000

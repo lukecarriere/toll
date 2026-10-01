@@ -4,11 +4,23 @@ const esc = (s: string) => s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&
 
 export interface Comment { name: string; text: string; at: number }
 
-function header(host: string, current: "forms" | "hammer") {
+/** Paid-request view for the stats panel and owner block (null when paid requests are off). USD only. */
+export interface PaidView {
+  /** Mode tag text: COPY.modePaymentsOn or COPY.modePaymentsPaused. */
+  mode: string;
+  requests: number;
+  /** "$X.XX" or "less than $0.01"; null when the rate is unavailable (shown as "—"). */
+  collected: string | null;
+  available: string | null;
+  /** Writes accepted with a paid pass (agent hammer squares). */
+  agentAccepted: number;
+}
+
+function header(host: string, current: "forms" | "hammer", paid: PaidView | null) {
   const cur = (k: string) => (k === current ? ' aria-current="page"' : "");
   return `<header class="top"><div class="in"><a class="brand" href="/"><span class="mark"><i></i></span>${COPY.brand}</a>
 <ul class="nav"><li><a href="/"${cur("forms")}>${COPY.navForms}</a></li><li><a href="/hammer"${cur("hammer")}>${COPY.navHammer}</a></li><li><a href="/hammer#agent">${COPY.navAgent}</a></li></ul>
-<span class="tag">${esc(host)} · ${COPY.modeWorkOnly}</span></div></header>`;
+<span class="tag">${esc(host)} · <span id="mode-tag">${esc(paid ? paid.mode : COPY.modeWorkOnly)}</span></span></div></header>`;
 }
 
 function head(title: string) {
@@ -34,12 +46,12 @@ function initials(name: string) {
   return name.split(/\s+/).map((p) => p[0] ?? "").join("").slice(0, 2).toUpperCase() || "?";
 }
 
-export function formsPage(o: { host: string; comments: Comment[]; sent?: string | null; q?: string | null; results?: string[] }) {
+export function formsPage(o: { host: string; comments: Comment[]; sent?: string | null; q?: string | null; results?: string[]; paid?: PaidView | null }) {
   const comments = o.comments.map((c) => `<li><span class="av">${esc(initials(c.name))}</span><div><b>${esc(c.name)}</b><time>${ago(c.at)}</time><p>${esc(c.text)}</p></div></li>`).join("");
   const results = o.q != null ? `<ul class="results"><li>${esc(resultsFor(o.results?.length ?? 0, o.q))}</li>${(o.results ?? []).map((r) => `<li>${esc(r)}</li>`).join("")}</ul>` : "";
   const noscript = `<noscript><p class="nojs">${COPY.noJs}</p></noscript>`;
   return `${head(COPY.brand)}
-${header(o.host, "forms")}
+${header(o.host, "forms", o.paid ?? null)}
 <main class="wrap">
 <div class="intro"><h1>${COPY.introTitle}</h1><p class="lede">${COPY.introLede}</p></div>
 <div class="col">
@@ -62,28 +74,52 @@ ${results}</section>
 <span class="r">403</span> {"error":"toll_required"}</pre>
 <div class="res"><button class="b sec" type="button" id="nopass-btn">${COPY.noPassButton}</button><span class="pill bad" role="status" id="nopass-out" hidden>${COPY.rejected403}</span></div></section>
 </div>
-${statsAside()}
+${statsAside(o.paid ?? null)}
 </main><script src="/assets/demo.js" defer></script></body></html>`;
 }
 
-function statsAside() {
+function statsAside(paid: PaidView | null) {
+  // Phase 2 block (designer's prototype). The payouts checkbox reflects the demo config and is
+  // read-only here: the setting itself lives in toll.yaml (and, later, the WordPress settings screen).
+  const phase2 = paid
+    ? `<div class="phase2"><div class="hr"></div>
+<dl class="kv"><dt>${COPY.statPaid}</dt><dd id="st-paid">${paid.requests}</dd><dt>${COPY.statCollected}</dt><dd id="st-coll">${esc(paid.collected ?? "—")}</dd></dl></div>
+<div class="hr"></div>
+<div class="owner">
+<label class="chk"><input type="checkbox" checked disabled>${COPY.payoutsLabel}</label>
+<p class="help">${COPY.payoutsHelp}</p>
+<div class="bal"><div class="amt" id="bal-amt">${esc(paid.available ?? "—")}</div><div class="cap">${COPY.balanceCaption}</div><div class="cap" id="bal-rate"${paid.available === null ? "" : " hidden"}>${COPY.rateUnavailable}</div></div>
+</div>`
+    : "";
   return `<aside class="stats" aria-labelledby="st-h"><div class="card">
 <h2 id="st-h"><span class="live" aria-hidden="true"></span>${COPY.liveStats}</h2>
 <dl class="kv"><dt>${COPY.statAccepted}</dt><dd id="st-acc">0</dd><dt>${COPY.statRejected}</dt><dd id="st-rej">0</dd><dt>${COPY.statMeanSolve}</dt><dd id="st-mean">—</dd></dl>
-</div></aside>`;
+${phase2}</div></aside>`;
 }
 
 function cells(n: number) {
   return Array.from({ length: n }, () => `<span class="cell p" title="${COPY.legendPending}">·</span>`).join("");
 }
 
-export function hammerPage(o: { host: string }) {
+/** Agent hammer card. Phase 1 (paid requests off): locked with an empty row. Phase 2: live from /demo/stats. */
+function agentCard(paid: PaidView | null) {
+  const n = paid ? Math.min(20, paid.agentAccepted) : 0;
+  const row = Array.from({ length: 20 }, (_, i) => (i < n ? `<span class="cell a" title="${COPY.legendAccepted}">✓</span>` : `<span class="cell p" title="${COPY.legendPending}">·</span>`)).join("");
+  const sum = paid
+    ? `<div class="sum sum2"><div><b id="ag-paid">${paid.requests}</b><span>${COPY.statPaid}</span></div><div><b id="ag-coll">${esc(paid.collected ?? "—")}</b><span>${COPY.statCollected}</span></div></div>`
+    : "";
+  return `<section class="card${paid ? "" : " locked"}" id="agent" aria-labelledby="r3"><h2 id="r3">${COPY.navAgent} <span class="badge">${COPY.phase2}</span></h2><p class="sub">${COPY.agentSub}</p>
+<pre class="term"><span class="g">$</span> node demo/agent-pay.mjs --writes 20</pre>
+<div class="cells cells20" id="ag-cells" role="img" aria-label="${n} of 20 accepted">${row}</div>${sum}</section>`;
+}
+
+export function hammerPage(o: { host: string; paid?: PaidView | null }) {
   const run = (id: string, title: string, sub: string) => `<section class="card" aria-labelledby="${id}-h"><h2 id="${id}-h">${title}</h2><p class="sub">${sub}</p>
 <button class="b" type="button" id="${id}-btn">${COPY.run50}</button>
 <div class="cells" id="${id}-cells" role="img" aria-label="0 of 50 accepted">${cells(50)}</div>
 <div class="sum"><div><b id="${id}-acc">0</b><span>${COPY.accepted}</span></div><div><b id="${id}-rej">0</b><span>${COPY.rejected}</span></div><div><b id="${id}-mean">n/a</b><span>${COPY.meanSolve}</span></div></div></section>`;
   return `${head(COPY.brand + " · " + COPY.navHammer)}
-${header(o.host, "hammer")}
+${header(o.host, "hammer", o.paid ?? null)}
 <main class="wrap one">
 <div class="intro"><h1>${COPY.hammerTitle}</h1><p class="lede">${COPY.hammerLede}</p></div>
 <div class="runs">
@@ -91,9 +127,7 @@ ${run("r1", COPY.runWithout, COPY.runWithoutSub)}
 ${run("r2", COPY.runWith, COPY.runWithSub)}
 </div>
 <div class="legend"><span>${COPY.legendAccepted}</span><span>${COPY.legendRejected}</span><span class="legend-p"><span class="cell p">·</span> ${COPY.legendPending}</span></div>
-<section class="card locked" id="agent" aria-labelledby="r3"><h2 id="r3">${COPY.navAgent} <span class="badge">${COPY.phase2}</span></h2><p class="sub">${COPY.agentSub}</p>
-<pre class="term"><span class="g">$</span> node demo/agent-pay.mjs --writes 20</pre>
-<div class="cells cells20" role="img" aria-label="0 of 20 accepted">${cells(20)}</div></section>
-${statsAside()}
+${agentCard(o.paid ?? null)}
+${statsAside(o.paid ?? null)}
 </main><script src="/assets/demo.js" defer></script><script src="/assets/hammer.js" defer></script></body></html>`;
 }
