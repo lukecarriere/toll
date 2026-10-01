@@ -63,7 +63,7 @@ Retired (Oct 1): the SPEC §1 "allowed public framing" list. Of its lines, these
 ```
 Toll
 Less traffic. Better road.
-A small check for comments, forms, logins, searches, and write APIs. Page views stay free. People post the usual way. Floods get slow and costly.
+A small check for comments, forms, logins, searches, and write APIs. Page views stay free. People post the usual way. Floods get slower and more expensive.
 ```
 Optional last line only: "Paid requests for heavy clients are in testing."
 Then install lines (npm / composer / wp plugin / wrangler), a ten-line how it works (background work, a pass, optional usage payouts for operators), privacy, and a protocol link.
@@ -115,7 +115,7 @@ Then install lines (npm / composer / wp plugin / wrangler), a ten-line how it wo
 - Notices: "Settings saved." · "Withdrawal sent: $X.XX." · "That invoice couldn't be paid. Check the amount and try again." · "That invoice is for more than your available balance." · "Paid requests are paused. Visitors and clients can still get through with the background check." · "The payment server isn't responding. Visitors and clients can still get through with the background check."
 
 ## Naming
-Product: Toll. WordPress plugin: `toll-gate`. Widget file: `toll.js`, element `<toll-gate>`, form attribute `data-toll`, pass cookie `toll_pass`, header `Authorization: Toll`. Never name a public file or package after a coin or payment network (`bitcoin.js` is out); the internal rail lives in `packages/settlement-ln/`.
+Product: Toll. WordPress plugin: display name "Toll for WordPress" (Plugins list and WordPress.org listing only; agreed Oct 1), slug `toll-gate`. The admin menu and settings page stay "Toll". Widget file: `toll.js`, element `<toll-gate>`, form attribute `data-toll`, pass cookie `toll_pass`, header `Authorization: Toll`. Never name a public file or package after a coin or payment network (`bitcoin.js` is out); the internal rail lives in `packages/settlement-ln/`.
 
 ## Amendment 2: reads stay free (Oct 1, 2026; wording unlocked by Luke the same day)
 The meaning stays: page views stay free, Toll checks writes, and gating page views needs a warning and an explicit confirm. The Creative Director may reword every line below in the brief's voice; search is covered as described under Brand lines.
@@ -150,13 +150,13 @@ Numbered lines are paragraphs. Lines tagged [QA] ship only after QA confirms the
 Heading: Mission
 1. Less traffic. Better road.
 2. The web should stay open to read, and cost something to flood.
-3. Toll is a small check on the lane where things change: comments, forms, logins, searches, and write APIs. A person posting a comment does a little background work and goes on their way. A program firing thousands of writes does that work on every one, so a flood gets slow and costly. Spam takes another road.
+3. Toll is a small check on the lane where things change: comments, forms, logins, searches, and write APIs. A person posting a comment does a little background work and goes on their way. A program firing thousands of writes does that work on every one, so a flood gets slower and more expensive. Spam takes another road.
 4. Page views and articles stay free. Reading is how new sites get found.
 
 ### Vision (`website/vision`)
 Heading: Vision
 1. A site owner should not have to choose between closing the site and cleaning up after a flood.
-2. Toll is the quieter road for comments and forms. Public pages stay open. Writes carry a small cost. A person meets it once and keeps going. A flood meets it on every car.
+2. Toll is the quieter road for comments and forms. Public pages stay open. Writes carry a small cost. A person does a little background work and keeps posting. [QA: "once per post" only if each post gets its own check; the demo says one pass covers about 20 comments for 15 minutes] A flood meets it on every car.
 3. The sites that last are the ones people and agents can still read. When one of them has a comment box worth keeping, Toll keeps it quiet.
 
 ### Values (`website/values`), list
