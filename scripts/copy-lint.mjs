@@ -13,22 +13,21 @@ export const TITLE_EXCEPTIONS = {
   d37c9827e2b18b7f20d0e2fc5e2870f24d9b91b7: "2026-09-30 policy §5 commit names the work engine in its title; fixing it would rewrite main",
 };
 
-// Commit titles are linted from this commit on, inclusive (TITLE_LINT_FROM^..HEAD): the PM's
-// docs/copy.md with the brand brief's banned list. Older titles were written under the old list and
-// history is never rewritten, so they are not re-linted. If the cutoff is not in this checkout's
-// history, every title is linted.
-export const TITLE_LINT_FROM = "c1ffd0317404b2a7f606d45d8bcc53d870323bba";
+// Commit titles are linted for every commit after this one (TITLE_LINT_AFTER..HEAD). fa12195 is the
+// last title written under the old banned list, before the PM's docs/copy.md with the brand brief's
+// banned list. It is on main, so the cutoff keeps working when a branch is rebased or squashed.
+// Older titles are not re-linted because history is never rewritten. If the cutoff is not in this
+// checkout's history, every title is linted.
+export const TITLE_LINT_AFTER = "fa12195d6bccf634616b7c56e1da8a5305f489c1";
 
 /** Commit titles to lint in the git checkout at `dir`, newest first, as { sha, s }. */
-export function commitTitles(dir = ROOT, from = TITLE_LINT_FROM) {
+export function commitTitles(dir = ROOT, after = TITLE_LINT_AFTER) {
   const git = (...a) => execFileSync("git", ["-C", dir, ...a], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] });
   let range = [];
   try {
-    git("merge-base", "--is-ancestor", from, "HEAD");
-    range = [`${from}^..HEAD`];
+    git("merge-base", "--is-ancestor", after, "HEAD");
+    range = [`${after}..HEAD`];
   } catch { /* cutoff not in this history: lint every title */ }
-  // A root-commit cutoff has no parent: lint every title up to it, which is all of them.
-  try { git("rev-parse", "--verify", "--quiet", `${from}^`); } catch { range = []; }
   try {
     return git("log", "--format=%H %s", ...range).split("\n").filter(Boolean).map((l) => ({ sha: l.slice(0, 40), s: l.slice(41) }));
   } catch {
@@ -90,7 +89,7 @@ export async function runLint() {
     "mcp tools/list": { tools: toolList() },
   };
   for (const [name, doc] of Object.entries(docs)) for (const h of lintDiscovery(doc, regexes, vendors)) hits.push({ file: name, line: h.path, term: h.term, text: h.text });
-  // Commit titles (spec §1), from TITLE_LINT_FROM on. Skipped outside a git checkout. History is
+  // Commit titles (spec §1), after TITLE_LINT_AFTER. Skipped outside a git checkout. History is
   // never rewritten to fix a title, so a title that slipped through is recorded in TITLE_EXCEPTIONS.
   const subjects = commitTitles();
   hits.push(...lintTitles(subjects, regexes, vendors));

@@ -5,7 +5,7 @@ import { readFileSync } from "node:fs";
 // @ts-ignore plain JS helper
 import { lintList, lintRegexes, lintText, readmeTop, widgetStrings, readCopy, isExempt, section } from "../scripts/copy-lib.mjs";
 // @ts-ignore plain JS helper
-import { runLint, commitTitles, lintTitles, TITLE_LINT_FROM } from "../scripts/copy-lint.mjs";
+import { runLint, commitTitles, lintTitles, TITLE_LINT_AFTER } from "../scripts/copy-lint.mjs";
 import { execFileSync } from "node:child_process";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -194,15 +194,15 @@ test("the widget dist names no captcha or risk-score service and loads nothing f
   assert.doesNotMatch(js, /https?:\/\/(?!www\.w3\.org)/);
 });
 
-test("commit titles are linted from TITLE_LINT_FROM on: an old title with a banned word is skipped, a new one still fails", () => {
+test("commit titles are linted after TITLE_LINT_AFTER: an old title with a banned word is skipped, a new one still fails", () => {
   const dir = mkdtempSync(join(tmpdir(), "toll-title-lint-"));
   try {
     const git = (...a: string[]) => execFileSync("git", ["-C", dir, "-c", "user.name=t", "-c", "user.email=t@localhost", "-c", "commit.gpgsign=false", ...a], { encoding: "utf8" }).trim();
     git("init", "-q");
     git("commit", "-q", "--allow-empty", "-m", "first commit");
     git("commit", "-q", "--allow-empty", "-m", "copy: no puzzles here");
-    git("commit", "-q", "--allow-empty", "-m", "copy: new banned list");
     const cutoff = git("rev-parse", "HEAD");
+    git("commit", "-q", "--allow-empty", "-m", "copy: new banned list");
     git("commit", "-q", "--allow-empty", "-m", "widget: a quick puzzle for visitors");
     const titles = commitTitles(dir, cutoff);
     assert.deepEqual(titles.map((t: any) => t.s), ["widget: a quick puzzle for visitors", "copy: new banned list"]);
@@ -215,9 +215,9 @@ test("commit titles are linted from TITLE_LINT_FROM on: an old title with a bann
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
-  // This repo: the cutoff is the PM's brand-brief copy.md commit; titles before it are not linted.
-  assert.equal(TITLE_LINT_FROM, "c1ffd0317404b2a7f606d45d8bcc53d870323bba");
+  // This repo: the cutoff is fa12195 on main; the PM's brand-brief copy.md commit after it is linted.
+  assert.equal(TITLE_LINT_AFTER, "fa12195d6bccf634616b7c56e1da8a5305f489c1");
   const repo = commitTitles();
-  assert.ok(repo.some((t: any) => t.sha === TITLE_LINT_FROM), "the cutoff commit itself is linted");
-  assert.ok(!repo.some((t: any) => t.sha.startsWith("fa12195")), "fa12195 is before the cutoff");
+  assert.ok(repo.some((t: any) => t.s.startsWith("copy: brand brief ruling")), "the PM's brand-brief commit is linted");
+  assert.ok(!repo.some((t: any) => t.sha.startsWith("fa12195")), "fa12195 is the cutoff and is not linted");
 });
