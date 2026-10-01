@@ -1,27 +1,48 @@
 # Toll: words we will and will not say (`docs/copy.md`)
 
-Owner: Product Manager. Sources: SPEC.md §1, §10, §13, §18, §20; PRD §2; design/HANDOFF.md §1–3. SPEC.md wins on any conflict.
-Engineering: copy this file to `docs/copy.md` in the repo. The copy lint reads the "Lint list" below.
+Owner: Product Manager. Sources, newest wins: `brand/BRAND_BRIEF.md` (Luke, Oct 1, 2026; overrides everything below and every earlier spec line for public copy), then SPEC.md §10, §13, §18, §20; PRD §2; design/HANDOFF.md §1–3.
+Luke's ruling (Oct 1, 2026, ~12:50 PM CT): no existing copy is locked anymore, including the Amendment 2 pages and this file. The Creative Director owns the words and uses the brief's own lines where they fit. Every public claim must match what the product actually does today; QA checks each one against the code.
+Engineering: copy this file to `docs/copy.md` in the repo. The copy lint reads the "Lint list" below. This file is exempt from the lint because it holds the list.
 
 ## Where these rules apply
-Public surfaces: `README.md`, widget strings, demo pages, WordPress plugin screens and notices (including Advanced settlement), package names, the public repo description, and commit titles for user-facing files.
-Exempt (may use protocol words): `docs/settlement.md`, `docs/settlement-vectors.json`, `packages/settlement-ln/`, code identifiers, and the JSON wire format (for example `amount_msat`, `ln402`, `rail`).
+Public surfaces: `README.md`, `website/` pages, readme.txt, widget strings, demo pages, WordPress plugin screens and notices (including Advanced settlement), `docs/` pages meant for readers (not this file), package names, the public repo description, and commit titles for user-facing files.
+Exempt (may use protocol words): `docs/settlement.md`, `docs/settlement-vectors.json`, `packages/settlement-ln/`, code identifiers, the JSON wire format (for example `amount_msat`, `ln402`, `rail`), the `payment` objects in the manifest and MCP files, and standard licence text (the GPL's own wording).
 
 ## Lint list (case-insensitive, whole words, CI fails on any hit in a public surface)
-From §19.12: bitcoin, btc, satoshi, lightning, l402, wallet.
-Added from §1 (PRD §6 testing bar): sats, sat, on-chain, onchain, seed phrase, orange pill, softwar, energy money, proof-of-compute, geopolitics, ai slop, we detect ai.
+From the brand brief (Oct 1): clear, clearlane, tsa, precheck, skip the line, skip-the-line, tax, taxes, taxed, taxing, surcharge, surcharges, paywall, paywalls, on-ramp, on-ramps, make ai pay, bitcoin, lightning, wallet, wallets, sats, detect ai, detects ai, human score, captcha, captchas, puzzle, puzzles.
+From §19.12: btc, satoshi, l402.
+From §1 (PRD §6 testing bar): sat, on-chain, onchain, seed phrase, orange pill, softwar, energy money, proof-of-compute, geopolitics, ai slop, we detect ai.
 Also fail on any percentage next to "human", "bot" or "AI" (a risk score as identity, for example "12% human").
 
-## Avoid on default screens (review, not lint)
-bot score, human, AI, crypto, token (except the code name `toll-pass`), mining, hash, "I am not a robot" (except the exact checkbox-mode string below), monetary theory of any kind.
+## Avoid (review, not lint)
+Any claim that Toll detects bots or AI, or says who a visitor is. Coins, robots, shields, closed highways, airports, security lines, or a free-road-versus-paid-ramp explanation, in words or pictures. Bot score, human, crypto, token (except the code name `toll-pass`), mining, hash, "I am not a robot", monetary theory of any kind. No numbers for spam reduction, speed, or time saved until we have measured them.
 
-## Allowed public framing (§1)
-- Stop form spam and automated abuse
-- High-volume clients pay more; a person pays once
-- Invisible check for real visitors
-- No puzzles, no tracking pixels (ON HOLD Oct 1: "puzzle" is banned by brand/BRAND_BRIEF.md; do not use on new surfaces until Luke rules)
-- Collected usage value is paid out to you
-- Agents can pay per request instead of grinding
+## Brand lines (brief, verbatim where cleared)
+Cleared for public use (true of the product today):
+- Less traffic. Better road. (primary subtitle)
+- The nicest drives are the ones with less traffic.
+- The quieter road for comments and forms.
+- Spam takes another road.
+- Fewer cars in the comment lane.
+- A toll road, for forms. The site stays open.
+- Kept up, because not everyone gets on.
+- Stop form spam without closing the site.
+- Your homepage stays open. Your forms stay quiet.
+- Less traffic where it counts.
+- Built for the road with fewer cars.
+- Spam is just too much traffic.
+
+Held until the Creative Director rewords them (the claim is not true today, or uses a banned word). The lint has no exemption for the brief's own two lines that use the banned word; they get reworded instead.
+- "Less junk. Less waiting. Same website." Visitors don't wait less; the check adds a little work before a post.
+- "You get there faster when the road is quiet." Same reason. "Time saved" may only mean the owner's moderation time, with no number.
+- "People pass through. Floods do not." / "Time saved, because the junk never merges." / "One small booth. Then the road is empty." The check makes floods costly, it doesn't stop them outright, so no "never", "empty", or "do not".
+- "Beautiful drive. Almost no junk." We have no measured spam figure behind "almost no".
+- "A quieter comment box. No puzzle." Banned word.
+- Plugin one-liner "Toll keeps comment forms, logins, and write APIs quiet. Visitors read for free and post without a puzzle. Floods take another road." Banned word; "logins" stays only if QA confirms each adapter gates logins out of the box.
+
+Search (PM call, Oct 1): search keeps its Amendment 2 default, a check at the write price that the owner can set to 0. So "Toll only checks writes" and "Visitors read for free" must not imply search is free. Say page views and articles are free, and name search alongside writes where the line lists what Toll checks.
+
+Retired (Oct 1): the SPEC §1 "allowed public framing" list. Of its lines, these are also not true today: "High-volume clients pay more; a person pays once" and "Agents can pay per request instead of grinding" (payment is a test backend, so any payment claim says test), and "Collected usage value is paid out to you" (payouts need a payment server; none is live).
 
 ## Money
 - Always USD from the live FX rate (cached ≤ 15 min). Never hardcode "0.004".
@@ -31,7 +52,8 @@ bot score, human, AI, crypto, token (except the code name `toll-pass`), mining, 
 - FX down: hide the amount. Demo shows "—" with "Rate unavailable"; WordPress shows "Balance will show again shortly".
 - Never show msat, coin units, invoices or rail names on a default surface.
 
-## README (§20, exact top)
+## README (top; Creative Director rewrites it from the brief)
+The old §20 top below is retired. "High-volume clients pay more" is a payment claim (test only today) and "People don't notice" is unmeasured until the phone run.
 ```
 Toll
 Invisible checks for forms, logins, and write APIs.
@@ -88,19 +110,21 @@ Then install lines (npm / composer / wp plugin / wrangler), a ten-line how it wo
 ## Naming
 Product: Toll. WordPress plugin: `toll-gate`. Widget file: `toll.js`, element `<toll-gate>`, form attribute `data-toll`, pass cookie `toll_pass`, header `Authorization: Toll`. Never name a public file or package after a coin or payment network (`bitcoin.js` is out); the internal rail lives in `packages/settlement-ln/`.
 
-## Amendment 2: reads stay free (Oct 1, 2026, Luke, verbatim, do not edit)
+## Amendment 2: reads stay free (Oct 1, 2026; wording unlocked by Luke the same day)
+The meaning stays: page views stay free, Toll checks writes, and gating page views needs a warning and an explicit confirm. The Creative Director may reword every line below in the brief's voice; search is covered as described under Brand lines.
 - First screen after install (README and WordPress helper text), exact: "Toll checks writes, not page views. Leave public pages open so people and answer engines can read you. Turn Toll on for comments, forms, logins, and APIs."
 - Dashboard warning when an owner gates ordinary page views, exact, with an explicit confirm (default stays off): "This hides the site from answer engines and new readers. Toll is for writes."
-- Website pages `website/mission.md`, `vision.md`, `values.md`, `ecosystem.md`: Amendment 2 §E as written. Nobody edits the wording. The copy lint still runs on them and they pass. Their one use of "human" ("We do not score visitors as human or not.") is Luke's wording and is allowed there; it stays off the default product screens.
+- Website pages `website/mission.md`, `vision.md`, `values.md`, `ecosystem.md`: Amendment 2 §E, now being rewritten in the brief's voice (Luke, Oct 1). The full lint list, including the brief's words, runs on them. Their one use of "human" ("We do not score visitors as human or not.") is Luke's wording and is allowed there; it stays off the default product screens.
 - `docs/positioning.md`: Amendment 2 §B, for contributors, not a public screen.
 - Never on any public surface: crawler allow, charge, or block features, or "block training bots".
 - No page-view switch in WordPress (PM call, Oct 1): nothing there can gate a page view, so the warning has nothing to attach to.
 - Routes editor confirm (when deleting `/` or raising a GET path above read): body is the §A warning above. Buttons: "Keep pages open" (focused, default) and "Gate page views" (destructive).
 
 ## Amendment 3: agent discovery (Oct 1, 2026)
-Luke's wording, verbatim, do not edit:
+Luke's wording, unlocked Oct 1; the Creative Director may reword it:
 - `website/ecosystem.md`, new section added after the existing text: "Agents that need a write-gate can find Toll in public tool catalogs. The article stays free. The tool call is priced. Being quoted in an answer is not the same as being chosen as the tool."
 - Manifest and MCP `description` (147 characters): "Invisible check for writes. A person does not notice. A program that fires thousands of writes pays for each one, or stops. Public pages stay free."
+  - Accuracy flag (Oct 1): a heavy client can also do the work instead of paying, payment is a test backend, and "does not notice" is unmeasured on phones. Rewording goes to the Creative Director; keep it under 160 characters, with no banned words.
 
 Tool names and descriptions (PM copy; the description is the ranking signal, so it must state each tool's job and what it does not do):
 - `price_write_action`: "Returns the current USD price, and the work alternative, for one write on a Toll-protected site: a comment, signup, login, form post, or state-changing API call. Use it before a write to choose between paying and doing the work. Not for page views, which are free and need no call. Does not identify the caller."
