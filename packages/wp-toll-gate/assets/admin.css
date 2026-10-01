@@ -23,3 +23,6 @@ details.toll-adv .toll-in{padding:0 16px 8px;border-top:1px solid #f0f0f1}
 .toll-root.noaddr .has-addr{display:none}
 .toll-root:not(.down) .needs-down{display:none}
 .toll-root.down .not-down{display:none}
+/* Monospace fields: with WordPress's default line-height the underscore in "site_…" falls just below
+   the text box and is clipped at 1x. A taller line keeps descenders inside the 40 px field. */
+.toll-root input.code { line-height: 2; }

@@ -261,6 +261,9 @@ test("site key field is a text input styled like the other fields, so the unders
   assert.match(await key.inputValue(), /^site_[0-9a-f]+$/);
   const box = (sel: string) => A.locator(sel).evaluate((el) => { const s = getComputedStyle(el); return { minHeight: s.minHeight, lineHeight: s.lineHeight, padding: s.padding }; });
   assert.deepEqual(await box("#toll-site-key"), await box("#toll-server-url"), "same box as the Payment server address field");
+  // The underscore sits below the baseline: a line box of 'normal' height clips it at 1x.
+  const lh = await key.evaluate((el) => { const s = getComputedStyle(el); return parseFloat(s.lineHeight) / parseFloat(s.fontSize); });
+  assert.ok(lh >= 1.75, `line-height ${lh}x leaves room for the underscore`);
 });
 
 // ---- Settings → Toll states (design/proto/wp-settings.html) ----------------------------------
