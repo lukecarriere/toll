@@ -1,7 +1,7 @@
 # Toll: words we will and will not say (`docs/copy.md`)
 
-Owner: Product Manager. Sources, newest wins: `brand/BRAND_BRIEF.md` (Luke, Oct 1, 2026; overrides everything below and every earlier spec line for public copy), then SPEC.md §10, §13, §18, §20; PRD §2; design/HANDOFF.md §1–3.
-Luke's ruling (Oct 1, 2026, ~12:50 PM CT): no existing copy is locked anymore, including the Amendment 2 pages and this file. The Creative Director owns the words and uses the brief's own lines where they fit. Every public claim must match what the product actually does today; QA checks each one against the code.
+Owner: Product Manager. Sources, newest wins: the Creative Director's brand calls; `brand/BRAND_BRIEF.md` (Luke, Oct 1, 2026) is a starting idea, not a rule, and the Creative Director may override it when they have something better (Luke, Oct 1, ~4:38 PM CT); then SPEC.md §10, §13, §18, §20; PRD §2; design/HANDOFF.md §1–3.
+Luke's ruling (Oct 1, 2026, ~12:50 PM CT): no existing copy is locked anymore, including the Amendment 2 pages and this file. Luke-approved items stay as approved and are not reopened: the merged hero (direction D) and "Spam takes another road." The lint list below stays in force until the Creative Director changes it here. The Creative Director owns the words and uses the brief's own lines where they fit. Every public claim must match what the product actually does today; QA checks each one against the code.
 Engineering: copy this file to `docs/copy.md` in the repo. The copy lint reads the "Lint list" below. This file is exempt from the lint because it holds the list.
 
 ## Where these rules apply
