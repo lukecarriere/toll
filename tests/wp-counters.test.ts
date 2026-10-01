@@ -5,12 +5,16 @@
 //   - the 30-day CSV keeps its exact shape.
 // A test-only must-use plugin is dropped into the local site for the duration of this file: it counts
 // the INSERT/UPDATE/DELETE statements that touch counter rows, per HTTP request, and appends one JSON
-// line per request to a log. It is removed in after(). Needs the local site from
+// line per request to a log. It is removed in after(). Every response body in this file is read to the
+// end: PHP's built-in server closes the connection after each response, and an unread body there can
+// crash Node's fetch (undici "assert(!this.paused)"); reading it also means the request, shutdown hooks
+// included, has finished on the server before the test looks at the log or the counters. Needs the local site from
 // packages/wp-toll-gate/dev/setup-local-wp.sh; skipped when it isn't running.
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { existsSync, readFileSync, writeFileSync, rmSync, mkdirSync } from "node:fs";
 import { execFile, execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { promisify } from "node:util";
 import { agentPay } from "../packages/agent/src/agent-pay.ts";
 
@@ -20,11 +24,15 @@ const WPPATH = process.env.WP_PATH ?? "/workspace/wp-local/site";
 const DEMO = process.env.TOLL_DEMO_URL ?? "http://127.0.0.1:8787";
 const ISSUER = WP + "/wp-json/toll";
 const MU = WPPATH + "/wp-content/mu-plugins/zz-toll-test-counter-writes.php";
-const LOG = "/tmp/toll-counter-writes-" + process.pid + ".jsonl";
+// One log per site, not per run, so the must-use plugin's source is the same on every run. PHP's built-in
+// server caches compiled scripts (opcache) and rechecks a file only every opcache.revalidate_freq
+// seconds (2 s by default): a plugin with this process's pid baked in kept running in its previous version,
+// writing to the previous run's log, for up to 2 s after before() rewrote it (M10: 43 of 60 reads).
+const LOG = "/tmp/toll-counter-writes-" + createHash("sha256").update(WPPATH).digest("hex").slice(0, 12) + ".jsonl";
 const run = promisify(execFile);
 
 async function up(url: string) {
-  try { return (await fetch(url, { signal: AbortSignal.timeout(2000) })).ok; } catch { return false; }
+  try { const r = await fetch(url, { signal: AbortSignal.timeout(2000) }); await r.arrayBuffer(); return r.ok; } catch { return false; }
 }
 const skip = (await up(WP + "/wp-json/toll/v1/health")) && existsSync(WPCLI) ? false : `local WordPress not running at ${WP}`;
 
@@ -122,7 +130,7 @@ test("M10 reads: 0 counter writes and no counter moves on /, a post, the feed, s
     }
   }
   const l = lines();
-  assert.equal(l.length, paths.length * 10, "every read was logged");
+  assert.equal(l.length, paths.length * 10, "every read was logged: " + JSON.stringify(l.reduce((m, x) => ({ ...m, [x.uri]: (m[x.uri] ?? 0) + 1 }), {} as Record<string, number>)));
   assert.deepEqual(l.filter((x) => x.writes !== 0), [], "reads write no counter rows");
   assert.deepEqual(counts(), c0, "no counter moved");
   console.log(`  M10 reads: ${l.length} GETs, ${l.reduce((a, x) => a + x.writes, 0)} counter writes`);
@@ -131,7 +139,11 @@ test("M10 reads: 0 counter writes and no counter moves on /, a post, the feed, s
 test("discovery GETs keep their existing counts (manifest_fetch, agents_json_fetch) with exactly 1 write each", { skip }, async () => {
   const c0 = counts();
   resetLog();
-  for (let i = 0; i < 5; i++) for (const p of ["/.well-known/toll.json", "/.well-known/agents.json"]) assert.equal((await fetch(WP + p)).status, 200);
+  for (let i = 0; i < 5; i++) for (const p of ["/.well-known/toll.json", "/.well-known/agents.json"]) {
+    const r = await fetch(WP + p);
+    await r.arrayBuffer();
+    assert.equal(r.status, 200);
+  }
   const c1 = counts();
   assert.equal(c1.manifest_fetch - c0.manifest_fetch, 5);
   assert.equal(c1.agents_json_fetch - c0.agents_json_fetch, 5);
