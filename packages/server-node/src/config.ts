@@ -42,6 +42,11 @@ export interface SettlementConfig {
   offer_ttl_s: number;
   /** USD display rate. "fixed" is a test value, not a market price; "none" hides USD. */
   fx: { source: "fixed" | "none"; usd_per_btc?: number };
+  /**
+   * Bearer key for the owner API (GET /v1/owner/balance, POST /v1/owner/withdraw) that a
+   * WordPress site with "Payment server" uses for its balance and withdrawals. Unset: owner API off.
+   */
+  owner_key?: string;
 }
 
 // Policy defaults. Calibration and the measured runs behind them: docs/policy.md.
@@ -92,7 +97,7 @@ export function normalizeConfig(raw: Record<string, any>, env: NodeJS.ProcessEnv
     if (!(m.unit_tries > 0)) throw new Error("toll config: work unit_tries must be positive");
   }
   if (!(Number.isInteger(work.hardened.memory_kib) && work.hardened.memory_kib! >= 8192 && work.hardened.memory_kib! <= 262144)) throw new Error("toll config: work.hardened.memory_kib must be 8192..262144");
-  const settlement = normalizeSettlement(raw.settlement ?? {});
+  const settlement = normalizeSettlement(raw.settlement ?? {}, env);
   return {
     site_id,
     secret,
@@ -114,7 +119,7 @@ export function normalizeConfig(raw: Record<string, any>, env: NodeJS.ProcessEnv
   };
 }
 
-function normalizeSettlement(s: Record<string, any>): SettlementConfig {
+function normalizeSettlement(s: Record<string, any>, env: NodeJS.ProcessEnv): SettlementConfig {
   const enabled = Boolean(s.enabled ?? false);
   const backend = String(s.backend ?? "stub");
   if (enabled && backend !== "stub") throw new Error(`toll config: settlement.backend "${backend}" is not available in this build (only "stub", the local test backend)`);
@@ -136,7 +141,10 @@ function normalizeSettlement(s: Record<string, any>): SettlementConfig {
     usd_per_btc = Number(fxRaw.usd_per_btc);
     if (!(usd_per_btc > 0 && Number.isFinite(usd_per_btc))) throw new Error("toll config: settlement.fx.usd_per_btc must be a positive number when source is fixed");
   }
-  return { enabled, backend: "stub", fee_bps, pass_uses, pass_ttl_s, offer_ttl_s, fx: { source, usd_per_btc } };
+  const ok = resolveEnv(s.owner_key, env);
+  if (ok !== undefined && ok !== null && (typeof ok !== "string" || ok.length < 16)) throw new Error("toll config: settlement.owner_key must be at least 16 characters (or env:NAME)");
+  const owner_key = typeof ok === "string" ? ok : undefined;
+  return { enabled, backend: "stub", fee_bps, pass_uses, pass_ttl_s, offer_ttl_s, fx: { source, usd_per_btc }, ...(owner_key ? { owner_key } : {}) };
 }
 
 export function loadConfig(path: string, env: NodeJS.ProcessEnv = process.env): TollConfig {

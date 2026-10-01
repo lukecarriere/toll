@@ -29,6 +29,9 @@ settlement:
   pass_uses: 1
   pass_ttl_s: 60
   offer_ttl_s: 120
+  # Owner API for a local WordPress site with "Payment server" (http://127.0.0.1:8787). The demo
+  # keeps the key in demo/.owner-key (gitignored) unless TOLL_OWNER_KEY is set.
+  owner_key: env:TOLL_OWNER_KEY
   fx:
     # FIXED TEST RATE for the demo, not a market price: 100000 USD per unit makes a write
     # (10,000 msat) show as $0.01. A live, free, commercial-use rate source is still to be chosen.

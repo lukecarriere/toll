@@ -53,6 +53,25 @@ export class StubSettler implements Settler {
     return { invoice, payment_hash, amount_msat: o.amount_msat, expires_at: o.now + o.expiry_s };
   }
 
+  /**
+   * Stub payout for the owner API's withdrawals: "pay" a stub invoice someone else issued. No
+   * network, no money. Throws while the stub is switched down or the invoice isn't a stub invoice.
+   */
+  payOut(invoice: string): { amount_msat: number; payment_hash: string } {
+    if (this.down) throw new Error("settler unavailable");
+    const m = /^lnstub1([1-9]\d{0,15})m1([0-9a-f]{64})[0-9a-f]{16}$/.exec(invoice);
+    if (!m) throw new TypeError("not a stub invoice");
+    const amount_msat = Number(m[1]);
+    if (!Number.isSafeInteger(amount_msat)) throw new TypeError("bad amount");
+    return { amount_msat, payment_hash: m[2] };
+  }
+
+  /** Amount of a stub invoice, or null (checked against the balance before paying). */
+  static amountOf(invoice: string): number | null {
+    const m = /^lnstub1([1-9]\d{0,15})m1[0-9a-f]{64}[0-9a-f]{16}$/.exec(invoice);
+    return m && Number.isSafeInteger(Number(m[1])) ? Number(m[1]) : null;
+  }
+
   /** Stub payer for tests and the demo's test payment endpoint: "pay" a stub invoice and get its preimage. */
   pay(invoice: string): string {
     const m = /^lnstub1\d+m1([0-9a-f]{64})/.exec(invoice);

@@ -2,6 +2,7 @@
 //   npm run demo   ->   http://localhost:8787
 import express from "express";
 import { randomBytes } from "node:crypto";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { createToll, loadConfig, protect, tollRouter, type TollConfig, type TollOptions, Metrics, MemoryStore } from "../packages/server-node/src/index.ts";
 import { formsPage, hammerPage, type Comment, type PaidView } from "./pages.ts";
@@ -120,6 +121,13 @@ if (import.meta.url === `file://${process.argv[1]}`) {
   if (!process.env.TOLL_SECRET) {
     process.env.TOLL_SECRET = randomBytes(32).toString("hex");
     console.error("[demo] TOLL_SECRET not set; using a random secret for this run.");
+  }
+  // Owner API key for a local WordPress site set to "Payment server" (test backend only). Kept in a
+  // gitignored file so it stays the same across restarts; never printed.
+  if (!process.env.TOLL_OWNER_KEY) {
+    const f = here + ".owner-key";
+    if (!existsSync(f)) writeFileSync(f, randomBytes(24).toString("hex") + "\n", { mode: 0o600 });
+    process.env.TOLL_OWNER_KEY = readFileSync(f, "utf8").trim();
   }
   const port = Number(process.env.PORT ?? 8787);
   const bind = process.env.HOST ?? "127.0.0.1";

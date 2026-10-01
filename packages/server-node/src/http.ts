@@ -5,7 +5,7 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 import { readFileSync, existsSync, statSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { type ActionClass, TollError, isActionClass, timingSafeEqual, utf8, verifyPassToken, classCovers } from "../../protocol/src/index.ts";
-import { paymentRequired } from "../../settlement-ln/src/index.ts";
+import { paymentRequired, StubSettler } from "../../settlement-ln/src/index.ts";
 import type { Toll } from "./toll.ts";
 
 export const VERSION = "1.0.0";
@@ -214,6 +214,42 @@ export function tollRouter(toll: Toll) {
         } catch {
           return send(res, 200, { ok: false });
         }
+      }
+
+      // Owner API (option A, docs/settlement.md §9): a WordPress site set to "Payment server" reads its
+      // balance and sends withdrawals here, server to server, with the owner key. Off unless
+      // settlement.owner_key is set. Amounts are integer msat plus the owner's USD string.
+      if (path === "/v1/owner/balance" || path === "/v1/owner/withdraw") {
+        const key = toll.config.settlement.owner_key;
+        if (!key || !toll.paid) return send(res, 404, { error: "not_found" });
+        const auth = /^Bearer\s+(\S+)$/i.exec(String(req.headers.authorization ?? ""));
+        if (!auth || !timingSafeEqual(utf8(auth[1]), utf8(key))) return send(res, 401, { error: "unauthorized" });
+        const paid = toll.paid;
+        if (path === "/v1/owner/balance" && req.method === "GET") {
+          const st = await paid.status();
+          const b = paid.balance();
+          return send(res, 200, { available_msat: b.msat.available_msat, available_usd: b.usd?.available ?? null, fee_bps: paid.fee_bps, paid_requests: b.paid_requests, degraded: !st.healthy, collecting: st.collecting });
+        }
+        if (path === "/v1/owner/withdraw" && req.method === "POST") {
+          const body = await readBody(req);
+          const invoice = typeof body?.invoice === "string" ? body.invoice.trim() : "";
+          const amount = StubSettler.amountOf(invoice);
+          if (amount === null) return send(res, 400, { error: "bad_invoice" });
+          // Checked against the balance before anything is sent.
+          if (amount > paid.balance().msat.available_msat) return send(res, 400, { error: "too_much" });
+          const settler = toll.stubSettler;
+          if (!settler) return send(res, 503, { error: "unavailable" });
+          let paidOut: { amount_msat: number; payment_hash: string };
+          try {
+            paidOut = settler.payOut(invoice);
+          } catch (e) {
+            return e instanceof TypeError ? send(res, 400, { error: "bad_invoice" }) : send(res, 503, { error: "unavailable" });
+          }
+          paid.ledger.withdraw({ site: toll.config.site_id, ref: paidOut.payment_hash, amount_msat: paidOut.amount_msat, at: toll.now() });
+          toll.metrics.emit("owner_withdrawal", { amount_msat: paidOut.amount_msat });
+          return send(res, 200, { ok: true, amount_msat: paidOut.amount_msat, amount_usd: paid.usd(paidOut.amount_msat) });
+        }
+        return send(res, 405, { error: "method_not_allowed" });
       }
 
       if (path === "/v1/siteverify" && req.method === "POST") {

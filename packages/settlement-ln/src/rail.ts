@@ -132,7 +132,13 @@ export function createSettlementRail(o: RailOptions) {
     collecting = on;
   }
 
-  return { offers, redeemPaid, status, balance, setCollecting, isCollecting: () => collecting, replayRejected: () => replayRejected, ledger, recent: () => [...recent], isDegraded: () => degraded, fee_bps: o.fee_bps };
+  /** USD string for an owner amount (null when the rate is unavailable). */
+  function usd(msat: number): string | null {
+    const now = o.now();
+    return usdDisplay(msat, o.fx.quote(now), now);
+  }
+
+  return { offers, redeemPaid, status, balance, usd, setCollecting, isCollecting: () => collecting, replayRejected: () => replayRejected, ledger, recent: () => [...recent], isDegraded: () => degraded, fee_bps: o.fee_bps };
 }
 
 export type SettlementRail = ReturnType<typeof createSettlementRail>;

@@ -138,11 +138,22 @@ Built: the issuer keeps a `MemoryLedger` per process (it resets on restart; the 
 
 The owner pastes a payout invoice under **Advanced settlement** and presses **Withdraw** (never "Send sats"). The amount is checked against `available_msat` before anything is sent ("That invoice is for more than your available balance."). On success, a `withdrawal` row is written. Real payouts need a real node and real funds, which need Luke's approval; until then only the stub and regtest backends exist.
 
-Status: `MemoryLedger.withdraw()` (balance check, withdrawal row) exists and is unit-tested. **No withdrawal screen or endpoint is built**: the owner screen for it is WordPress Advanced settlement, which waits for the payouts decision below.
+Status (phase 3): built for the test backend.
 
-### WordPress "Collect usage payouts": TODO, blocked on Luke's A/B payouts decision
+- **Owner API** on the Node issuer, off unless `settlement.owner_key` is set (16+ characters, `env:NAME` allowed). Server to server, `Authorization: Bearer <owner_key>`; wrong or missing key → 401; owner API off → 404.
+  - `GET /v1/owner/balance` → `{available_msat, available_usd, fee_bps, paid_requests, degraded, collecting}`. `available_usd` is the owner string ("$0.02", "less than $0.01") or `null` when the rate is unavailable (hide the amount).
+  - `POST /v1/owner/withdraw {invoice}` → `{ok: true, amount_msat, amount_usd}`. The invoice amount is checked against `available_msat` **before** anything is paid (`400 too_much`); an invoice the backend can't read is `400 bad_invoice`; backend down → `503 unavailable` and nothing is booked. On success a `withdrawal` row is written (ref = the invoice's payment hash) and `owner_withdrawal {amount_msat}` is logged.
+  - The stub backend "pays" with `StubSettler.payOut()` (no network, no money). Real payouts need a real node and real funds, which need Luke's approval.
+  - The demo sets `owner_key: env:TOLL_OWNER_KEY` and, when the variable is unset, keeps a random key in `demo/.owner-key` (gitignored, mode 600) so a local WordPress can connect to `http://127.0.0.1:8787`.
+- Tests: `tests/owner-api.test.ts` (off without a key, 401s, balance after fee, too_much before paying, bad invoice, single row, backend down).
 
-Spec §18 puts a WP settings checkbox "Collect usage payouts" (helper "High-volume clients can pay per request. You withdraw from the dashboard.") in phase 2. **Not built** on purpose: Luke's choice between payout options A and B is still pending, and it decides what the checkbox turns on and where withdrawals go. Nothing was added to the WordPress plugin. When the decision lands: add the checkbox (off by default) and the balance block per `design/proto/wp-settings.html` and docs/copy.md "WordPress strings", backed by the issuer's `settlement.enabled` and `toll.paid.balance()`. The demo's owner block shows the same checkbox read-only, reflecting `demo/toll.yaml`.
+### WordPress "Collect usage payouts" (option A, Luke, Oct 1, 2026): built
+
+WordPress takes no payments itself, so the plugin has no payment backend code. Advanced settlement → Payment connection is **Test mode (no real money)** (default) or **Payment server**:
+
+- **Test mode:** a local test ledger in the `toll_gate_test_ledger` option (integer msat, starts at $0.00, fixed test rate 100000 for display, 10% fee). Withdraw accepts only the local test invoice format and checks the amount against the balance. No request leaves the site. The WordPress issuer is work-only (offers are always `[]`), so nothing credits this ledger yet: agent 402 offers on a WordPress issuer are deferred.
+- **Payment server:** the address of a Toll issuer the owner runs, plus its owner key (stored in the non-autoloaded `toll_gate_server_key` option, never printed). The settings page calls `GET {address}/v1/owner/balance` on load (3 s timeout); withdrawals go to `POST {address}/v1/owner/withdraw`. No answer → the "isn't responding" notice, "—" over "Balance will show again shortly", and Withdraw disabled. `degraded: true` → the "Paid requests are paused" notice.
+- Nothing payout-related runs unless "Collect usage payouts" is ticked. Tested against the local Node demo in stub mode (`tests/wp.test.ts`).
 
 ## 10. Backends
 
