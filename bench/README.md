@@ -57,3 +57,12 @@ The phone-like profiles need passwordless `sudo` and cgroup v2. The bench create
 
 History: `results/2026-10-01T00-32-07/` was measured on the **retired** built-in PBKDF2 miner
 (before Amendment 1). Its CSV columns differ, and it is kept for comparison only.
+
+## Server time per paid write
+
+`node bench/paid-write.ts --label before|after [--n 40] [--out <dir>]` runs the demo in-process
+behind a timing `node:http` server and pays 40 writes (after 5 warm-up) per work mode with the agent
+client (`work: false`). Server time per paid write = gate (402) + redeem + retry (+ any challenge
+fetch); the test payer is reported apart. It also counts `challenge_minted` per write.
+`results/paid-write-2026-09-30/` holds the before/after of the lazy work challenge (the 402 links
+`challenge_url` instead of minting a challenge): see its `summary.md`.

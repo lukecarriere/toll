@@ -1,0 +1,94 @@
+{
+  "label": "after",
+  "sha": "0302215",
+  "dirty": true,
+  "at": "2026-10-01T02:44:39.521Z",
+  "node": "v22.23.3",
+  "n": 40,
+  "modes": [
+    {
+      "mode": "standard",
+      "n": 40,
+      "warmup": 5,
+      "server_per_paid_write_ms": {
+        "n": 40,
+        "median": 2.14,
+        "p95": 2.84,
+        "mean": 2.22
+      },
+      "gate_402_ms": {
+        "n": 40,
+        "median": 0.75,
+        "p95": 1.06,
+        "mean": 0.78
+      },
+      "redeem_ms": {
+        "n": 40,
+        "median": 0.73,
+        "p95": 1.17,
+        "mean": 0.81
+      },
+      "retry_ms": {
+        "n": 40,
+        "median": 0.57,
+        "p95": 0.9,
+        "mean": 0.63
+      },
+      "challenge_fetch_ms": {
+        "n": 40,
+        "median": 0,
+        "p95": 0,
+        "mean": 0
+      },
+      "test_payer_ms": {
+        "n": 40,
+        "median": 0.41,
+        "p95": 0.63,
+        "mean": 0.46
+      },
+      "challenge_minted_per_write": 0
+    },
+    {
+      "mode": "hardened",
+      "n": 40,
+      "warmup": 5,
+      "server_per_paid_write_ms": {
+        "n": 40,
+        "median": 1.83,
+        "p95": 2.18,
+        "mean": 1.89
+      },
+      "gate_402_ms": {
+        "n": 40,
+        "median": 0.65,
+        "p95": 0.86,
+        "mean": 0.68
+      },
+      "redeem_ms": {
+        "n": 40,
+        "median": 0.62,
+        "p95": 0.85,
+        "mean": 0.66
+      },
+      "retry_ms": {
+        "n": 40,
+        "median": 0.51,
+        "p95": 0.79,
+        "mean": 0.55
+      },
+      "challenge_fetch_ms": {
+        "n": 40,
+        "median": 0,
+        "p95": 0,
+        "mean": 0
+      },
+      "test_payer_ms": {
+        "n": 40,
+        "median": 0.38,
+        "p95": 0.46,
+        "mean": 0.39
+      },
+      "challenge_minted_per_write": 0
+    }
+  ]
+}
