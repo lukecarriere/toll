@@ -5,7 +5,7 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 import { readFileSync, existsSync, statSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { type ActionClass, TollError, isActionClass, timingSafeEqual, utf8, verifyPassToken, classCovers } from "../../protocol/src/index.ts";
-import { paymentRequired, StubSettler } from "../../settlement-ln/src/index.ts";
+import { l402Challenge, paymentRequired, StubSettler } from "../../settlement-ln/src/index.ts";
 import type { Toll } from "./toll.ts";
 
 export const VERSION = "1.0.0";
@@ -219,7 +219,7 @@ export function tollRouter(toll: Toll) {
       // Owner API (option A, docs/settlement.md §9): a WordPress site set to "Payment server" reads its
       // balance and sends withdrawals here, server to server, with the owner key. Off unless
       // settlement.owner_key is set. Amounts are integer msat plus the owner's USD string.
-      if (path === "/v1/owner/balance" || path === "/v1/owner/withdraw") {
+      if (path === "/v1/owner/balance" || path === "/v1/owner/withdraw" || path === "/v1/owner/offers" || path === "/v1/owner/redeem") {
         const key = toll.config.settlement.owner_key;
         if (!key || !toll.paid) return send(res, 404, { error: "not_found" });
         const auth = /^Bearer\s+(\S+)$/i.exec(String(req.headers.authorization ?? ""));
@@ -248,6 +248,29 @@ export function tollRouter(toll: Toll) {
           paid.ledger.withdraw({ site: toll.config.site_id, ref: paidOut.payment_hash, amount_msat: paidOut.amount_msat, at: toll.now() });
           toll.metrics.emit("owner_withdrawal", { amount_msat: paidOut.amount_msat });
           return send(res, 200, { ok: true, amount_msat: paidOut.amount_msat, amount_usd: paid.usd(paidOut.amount_msat) });
+        }
+        // Paid requests for a WordPress site set to Payment server (option A). The site relays offers
+        // minted here into its own 402 (with the ready-made WWW-Authenticate value, so the site holds
+        // no credential or invoice code), and forwards each paid redeem here: the settlement engine
+        // checks the proof (single use) and the payment is booked in this issuer's ledger. The site
+        // then mints its own one-use, 60-second pass. offers [] when paid requests are off or paused.
+        if (path === "/v1/owner/offers" && req.method === "POST") {
+          const body = await readBody(req);
+          const action = body?.action;
+          if (!isActionClass(action) || action === "read") return send(res, 400, { error: "malformed" });
+          const offers = await paid.offers(action).catch(() => []);
+          return send(res, 200, offers.length ? { offers, www_authenticate: l402Challenge(offers[0]) } : { offers: [] });
+        }
+        if (path === "/v1/owner/redeem" && req.method === "POST") {
+          const body = await readBody(req);
+          try {
+            const r = await paid.redeemPaid(body);
+            toll.metrics.emit("owner_redeem", { cls: r.cls, amount_msat: r.amount_msat });
+            return send(res, 200, { ok: true, cls: r.cls, amount_msat: r.amount_msat, fee_msat: r.fee_msat, net_msat: r.net_msat });
+          } catch (e) {
+            if (e instanceof TollError && e.code === "store_unavailable") return send(res, 503, { error: "unavailable" });
+            return e instanceof TollError ? send(res, statusFor(e), { error: e.code }) : send(res, 400, { error: "malformed" });
+          }
         }
         return send(res, 405, { error: "method_not_allowed" });
       }

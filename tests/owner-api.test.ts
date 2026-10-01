@@ -75,3 +75,32 @@ test("payment backend down: balance says degraded, withdraw is 503 and nothing i
     settler.setDown(false);
   }
 });
+
+test("owner offers + redeem (WordPress Payment server): offers relayed with a ready WWW-Authenticate value; redeem books the payment once", async () => {
+  const before: any = await (await owner("balance")).json();
+  const r: any = await (await owner("offers", { method: "POST", body: JSON.stringify({ action: "write" }) })).json();
+  assert.equal(r.offers.length, 1);
+  const offer = r.offers[0];
+  assert.equal(offer.amount_msat, 10000);
+  assert.equal(r.www_authenticate, `L402 macaroon="${offer.macaroon}", invoice="${offer.invoice}"`);
+  assert.equal((await owner("offers", { method: "POST", body: JSON.stringify({ action: "read" }) })).status, 400);
+  const { preimage } = await (await fetch(`${S.url}/demo/stub-pay`, { method: "POST", headers: json, body: JSON.stringify({ invoice: offer.invoice }) })).json() as any;
+  const body = JSON.stringify({ offer_id: offer.id, kind: "ln402", preimage, macaroon: offer.macaroon });
+  const ok = await owner("redeem", { method: "POST", body });
+  assert.equal(ok.status, 200);
+  assert.deepEqual(await ok.json(), { ok: true, cls: "write", amount_msat: 10000, fee_msat: 1000, net_msat: 9000 });
+  const again = await owner("redeem", { method: "POST", body });
+  assert.deepEqual([again.status, await again.json()], [401, { error: "replay" }]);
+  const bad = await owner("redeem", { method: "POST", body: JSON.stringify({ offer_id: offer.id, kind: "ln402", preimage: "0".repeat(64), macaroon: offer.macaroon }) });
+  assert.equal(bad.status, 401);
+  assert.equal((await owner("redeem", { method: "POST", body: "{}" })).status, 400);
+  assert.equal((await owner("redeem", { method: "POST", body }, KEY + "x")).status, 401);
+  const after: any = await (await owner("balance")).json();
+  assert.equal(after.available_msat - before.available_msat, 9000, "one credit, after the fee");
+  settler.setDown(true);
+  try {
+    assert.deepEqual(await (await owner("offers", { method: "POST", body: JSON.stringify({ action: "write" }) })).json(), { offers: [] }, "backend down: no offers");
+  } finally {
+    settler.setDown(false);
+  }
+});
