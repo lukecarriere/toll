@@ -5,7 +5,7 @@ High-volume clients pay more. People don't notice.
 
 npm / composer / wp plugin / wrangler
 
-> Not published yet. Today Toll runs from a clone (see [Run it locally](#run-it-locally)). The WordPress plugin and the edge worker are not built yet.
+> Not published yet. Today Toll runs from a clone (see [Run it locally](#run-it-locally)). The WordPress plugin and the edge worker run locally only (packages/wp-toll-gate, packages/edge-cf).
 
 ## How it works
 
@@ -60,6 +60,8 @@ npm run demo        # http://localhost:8787  (TOLL_WORK_MODE=hardened for the me
 npm test            # build, typecheck, copy lint, all tests, PHP vectors
 npm run bench       # solve times, standard and hardened, desktop and phone-like
 npm run agent-pay -- --writes 5   # with the demo running: an automated client pays per request (test backend, no real money)
+packages/wp-toll-gate/dev/setup-local-wp.sh   # local WordPress with the plugin: http://127.0.0.1:8888 (see packages/wp-toll-gate/README.md)
+npm run dev -w packages/edge-cf   # the edge worker under wrangler dev, local only (see packages/edge-cf/README.md)
 ```
 
 ## Internal notes
@@ -67,6 +69,6 @@ npm run agent-pay -- --writes 5   # with the demo running: an automated client p
 For the team; review before any public release.
 
 - **Engines (Amendment 1, 2026-09-30).** Toll keeps the `/v1` API, the signed envelope, policy, passes, `<toll-gate>` and the agent SDK. The proof-of-work puzzle comes from a pinned, MIT-licensed, self-hosted engine, which runs only as a headless solver in workers behind `<toll-gate>`. It never renders UI and never calls a network service. Payments, when they arrive, go through an MIT-licensed reverse proxy, and this build has only a stub of it. The picks, pinned versions, licences, measured sizes and the reasoning are in [docs/adapters.md](docs/adapters.md). The copy lint keeps vendor names out of this README and every visitor-facing surface.
-- **Paid requests (phase 2, test backend only).** Automated clients that identify themselves get a per-request offer and a one-use, 60-second pass after paying; everyone else keeps the invisible check. The demo runs this on a local test backend with a fixed test rate for USD (not a market price). No real money moves, and operator withdrawals are not built yet. Details: [docs/settlement.md](docs/settlement.md).
+- **Paid requests (phase 2, test backend only).** Automated clients that identify themselves get a per-request offer and a one-use, 60-second pass after paying; everyone else keeps the invisible check. The demo runs this on a local test backend with a fixed test rate for USD (not a market price). No real money moves. Operator withdrawals work against the test backend only (owner API, used by the WordPress plugin's Payment server setting). Details: [docs/settlement.md](docs/settlement.md).
 - **Modes.** `work.mode: standard` (PBKDF2, the default) or `hardened` (Argon2id, memory-hard). Measured solve times for both modes are in [docs/policy.md](docs/policy.md) §3.
 - **Widget size.** The default path is 7.5 KB gzipped (`toll.js` plus one worker). Hardened mode adds a 14.5 KB gzipped worker, loaded only in that mode. Third-party notices ship as `/toll/v1/LICENSES.txt`.

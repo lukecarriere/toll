@@ -1,0 +1,25 @@
+/* Settings → Toll. Only the balance box, the Advanced panel and the show/hide rules
+   (design/proto/wp-settings.html); everything else is core WordPress admin styling. */
+.toll-root .toll-stat{color:#50575e;margin:0 0 8px}
+.toll-root .toll-stat a{margin-left:4px}
+.toll-root .toll-export-help{margin-top:-4px}
+.toll-root .toll-muted{color:#646970}
+.toll-root .toll-top{margin:12px 0}
+.toll-root .toll-top p{margin:.5em 0}
+.toll-root .notice.inline p{margin:.25em 0}
+.toll-root .notice.inline{display:inline-block;margin:8px 0 0;padding:6px 12px}
+.toll-bal{display:inline-block;background:#fff;border:1px solid #c3c4c7;border-radius:4px;padding:12px 16px;min-width:260px}
+.toll-bal strong{display:block;font-size:24px;line-height:1.2;font-weight:600}
+.toll-bal span{color:#50575e;font-size:13px}
+details.toll-adv{margin-top:28px;background:#fff;border:1px solid #c3c4c7;border-radius:4px;max-width:900px}
+details.toll-adv>summary{cursor:pointer;padding:12px 16px;font-size:14px;font-weight:600;list-style:revert}
+details.toll-adv>summary .toll-muted{font-weight:400;margin-left:6px}
+details.toll-adv .toll-in{padding:0 16px 8px;border-top:1px solid #f0f0f1}
+.toll-root textarea.large-text{max-width:32em}
+.toll-root:not(.payouts) .needs-payouts{display:none}
+.toll-root:not(.server) .needs-server{display:none}
+.toll-root.server .test-only{display:none}
+.toll-root:not(.noaddr) .needs-noaddr{display:none}
+.toll-root.noaddr .has-addr{display:none}
+.toll-root:not(.down) .needs-down{display:none}
+.toll-root.down .not-down{display:none}
