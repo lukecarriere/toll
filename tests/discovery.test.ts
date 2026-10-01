@@ -4,6 +4,7 @@
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
 import { startDemo, PAID_ON, TEST_SECRET, type Running } from "./helpers.ts";
 import { McpClient } from "./mcp-client.ts";
 import { MCP_COUNTERS } from "../packages/mcp/src/server.ts";
@@ -40,6 +41,54 @@ test("copy: tool names and descriptions, the 135-character description and not_f
   assert.ok(COPY.includes('`not_for`, exact: ["page views", "crawler blocking", "citation licensing"]'));
   assert.deepEqual([...NOT_FOR], ["page views", "crawler blocking", "citation licensing"]);
   assert.ok(WP_DISCOVERY.includes(MANIFEST_DESCRIPTION));
+});
+
+/**
+ * Runs the plugin's own discovery.php under a few WordPress stubs and returns [manifest, /price?action=search]
+ * as JSON. The payment server's price answer still carries search (it serves Node too), so this checks the
+ * plugin drops it rather than relying on the server to leave it out.
+ */
+function wpDiscoveryInPhp(): { manifest: any; searchPrice: any } {
+  const php = `<?php
+declare(strict_types=1);
+const ABSPATH = '/';
+require ${JSON.stringify(ROOT + "packages/server-php/vendor/autoload.php")};
+class WP_REST_Response { public function __construct(public array $body, public int $status) {} }
+class WP_REST_Request { public function __construct(private array $p) {} public function get_param(string $k) { return $this->p[$k] ?? null; } }
+function rest_url(string $p = ''): string { return 'https://wp.test/wp-json/' . $p; }
+function untrailingslashit(string $s): string { return rtrim($s, '/'); }
+function toll_gate_lib_ok(): bool { return true; }
+function toll_gate_offers_configured(): bool { return true; }
+function toll_gate_challenge_url(string $a, string $p): string { return '/wp-json/toll/v1/challenge?action=' . $a; }
+function toll_gate_json(array $b, int $s = 200): WP_REST_Response { return new WP_REST_Response($b, $s); }
+function get_transient(string $k) {
+  if ($k !== 'toll_gate_price_cache') return false;
+  $p = ['search' => 2000, 'write' => 10000, 'account' => 25000, 'admin' => 100000];
+  return ['status' => 'test', 'prices' => array_map(fn($m) => ['amount_msat' => $m], $p), 'load_pricing' => array_map(fn() => false, $p), 'fx' => ['usd_per_btc' => 100000, 'fetched_at' => time()]];
+}
+function set_transient(...$a): bool { return true; }
+require ${JSON.stringify(ROOT + "packages/wp-toll-gate/includes/discovery.php")};
+$r = toll_gate_rest_price(new WP_REST_Request(['action' => 'search']));
+echo json_encode(['manifest' => toll_gate_manifest(), 'searchPrice' => ['status' => $r->status, 'body' => $r->body]], JSON_UNESCAPED_SLASHES);
+`;
+  return JSON.parse(execFileSync("php", [], { input: php, encoding: "utf8" }));
+}
+
+test("WordPress manifest lists no search class or search price (search is a free read on WordPress); Node keeps it", () => {
+  // Static: the constant every WordPress discovery output is built from.
+  const m = /const TOLL_GATE_PAID_CLASSES = \[([^\]]*)\];/.exec(WP_DISCOVERY);
+  assert.ok(m, "TOLL_GATE_PAID_CLASSES is defined in discovery.php");
+  assert.deepEqual(m![1].split(",").map((s) => s.trim().replace(/^'|'$/g, "")), ["write", "account", "admin"]);
+  // In PHP, with a payment server whose price answer still includes search.
+  const { manifest, searchPrice } = wpDiscoveryInPhp();
+  const gate = manifest.tools.find((t: any) => t.name === "gate_form_write");
+  assert.deepEqual(Object.keys(gate.price.by_action), ["write", "account", "admin"], "no search price in by_action");
+  assert.equal(gate.price.display, "$0.0100 (test)", "priced from the payment server, write headline");
+  for (const t of manifest.tools) assert.deepEqual(t.input_schema.properties.action.enum, ["write", "account", "admin"], t.name + ": no search action");
+  assert.ok(!/search/i.test(JSON.stringify(manifest)), "the WordPress manifest never says search");
+  assert.deepEqual(searchPrice, { status: 400, body: { error: "bad_action" } }, "/wp-json/toll/v1/price?action=search is not a priced action");
+  // Node and the edge are unchanged: a search sent as a form post is still a priced class there.
+  assert.ok((INPUT_SCHEMAS.gate_form_write as any).properties.action.enum.includes("search"));
 });
 
 test("GET /.well-known/toll.json and agents.json: 200, no pass, no challenge, challenges_minted unchanged, counted", async () => {

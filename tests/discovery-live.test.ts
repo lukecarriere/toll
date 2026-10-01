@@ -47,7 +47,11 @@ const settle = () => new Promise((r) => setTimeout(r, 300));
 const agentPost = (url: string, form: Record<string, string> = { x: "1" }) => fetch(url, { method: "POST", redirect: "manual", headers: { accept: "application/json", "toll-client": "agent", "content-type": "application/x-www-form-urlencoded" }, body: new URLSearchParams(form) });
 const pay = async (offer: any) => (await (await fetch(DEMO + "/demo/stub-pay", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ invoice: offer.invoice }) })).json()).preimage as string;
 
-async function fetchDiscovery(base: string) {
+// WordPress lists no search class: search there is a page load (/?s=) and a free read, so its tool
+// schemas are Node's with search taken out of the action enum (discovery.php TOLL_GATE_PAID_CLASSES).
+const WP_INPUT_SCHEMAS = JSON.parse(JSON.stringify(INPUT_SCHEMAS, (k, v) => (k === "enum" ? v.filter((c: string) => c !== "search") : v)));
+
+async function fetchDiscovery(base: string, schemas: Record<string, unknown> = INPUT_SCHEMAS) {
   const m = await fetch(base + "/.well-known/toll.json");
   const p = await fetch(base + "/.well-known/agents.json");
   assert.equal(m.status, 200);
@@ -56,7 +60,7 @@ async function fetchDiscovery(base: string) {
   const doc: any = await m.json();
   assert.deepEqual(await p.json(), { manifest: base + "/.well-known/toll.json" });
   assert.deepEqual(doc.tools.map((t: any) => [t.name, t.description]), TOOLS.map((t) => [t.name, t.description]));
-  for (const t of doc.tools) assert.deepEqual(t.input_schema, INPUT_SCHEMAS[t.name as keyof typeof INPUT_SCHEMAS], t.name);
+  for (const t of doc.tools) assert.deepEqual(t.input_schema, schemas[t.name], t.name);
   assert.equal(doc.reads_free, true);
   assert.deepEqual(doc.not_for, ["page views", "crawler blocking", "citation licensing"]);
   return doc;
@@ -121,12 +125,15 @@ test("A3 WordPress (Payment server = demo, test backend): manifest free, prices 
   wpMode(true);
   try {
     const c0 = wpCounters();
-    const doc = await fetchDiscovery(WP);
+    const doc = await fetchDiscovery(WP, WP_INPUT_SCHEMAS);
     const c1 = wpCounters();
     assert.equal(c1.challenges_minted, c0.challenges_minted, "manifest mints no challenge");
     assert.equal(c1.manifest_fetch, c0.manifest_fetch + 1);
     assert.equal(c1.agents_json_fetch, c0.agents_json_fetch + 1);
     assert.equal(doc.api, WP + "/wp-json/toll/v1");
+    assert.deepEqual(Object.keys(doc.tools[1].price.by_action), ["write", "account", "admin"], "WordPress lists no search price");
+    assert.ok(!/search/i.test(JSON.stringify(doc)), "the WordPress manifest never says search");
+    assert.equal((await fetch(WP + "/wp-json/toll/v1/price?action=search")).status, 400, "search is not a priced action on WordPress");
     const post = await (await fetch(WP + "/wp-json/wp/v2/posts?per_page=1")).json();
     const shown: Record<string, string> = {};
     const w = await agentPost(WP + "/wp-comments-post.php", { comment_post_ID: String(post[0]?.id ?? 1), author: "Agent", email: "agent@example.test", comment: "price check" });
@@ -147,20 +154,20 @@ test("A3 WordPress (Payment server = demo, test backend): manifest free, prices 
     // Mock: the payment server reports load pricing (a future relay that applies the multiplier). The
     // cached price answer is replaced with the real one plus load_pricing true; the note comes back on its own.
     wpEval(`$r = toll_gate_server_call('GET', '/v1/owner/price', null, 5)['body']; $r['load_pricing'] = array_fill_keys(TOLL_GATE_PAID_CLASSES, true); set_transient('toll_gate_price_cache', $r, 30); echo 'ok';`);
-    const mocked = await fetchDiscovery(WP);
+    const mocked = await fetchDiscovery(WP, WP_INPUT_SCHEMAS);
     assert.equal(mocked.tools[1].price.note, BASE_PRICE_NOTE, "payment server reports load pricing: note present");
     assert.equal(mocked.tools[1].price.basis, "base");
     assert.equal(mocked.tools[0].price.note, undefined);
     const wpNow: any = await (await fetch(WP + "/wp-json/toll/v1/price?action=write")).json();
     assert.equal(wpNow.load_multiplier, null, "the site cannot see the server's multiplier yet: unknown, not 1");
     wpEval("delete_transient('toll_gate_price_cache'); echo 'ok';");
-    const real = await fetchDiscovery(WP);
+    const real = await fetchDiscovery(WP, WP_INPUT_SCHEMAS);
     assert.equal(real.tools[1].price.note, undefined, "real server answer again: no note");
     results.wp = { manifest: 200, agents_json: 200, challenges_minted: [c0.challenges_minted, c1.challenges_minted], manifest_fetch: [c0.manifest_fetch, c1.manifest_fetch], prices: shown, mcp_verify: "valid once" };
   } finally {
     wpMode(false);
   }
-  const doc = await fetchDiscovery(WP);
+  const doc = await fetchDiscovery(WP, WP_INPUT_SCHEMAS);
   assert.equal(doc.tools[1].price.status, "stub", "Test mode: no paid offer, status stub");
 });
 

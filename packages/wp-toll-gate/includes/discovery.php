@@ -1,10 +1,11 @@
 <?php
 // Agent discovery (Amendment 3): /.well-known/toll.json, the /.well-known/agents.json pointer and
 // GET /wp-json/toll/v1/price. Same document as the Node issuer (packages/server-node/src/manifest.ts;
-// tests/discovery.test.ts compares them). Copy is docs/copy.md "Amendment 3", verbatim. Prices are
-// never hard-coded: amounts and the rate come from the owner's payment server, and the USD is
-// derived here with Settlement::offerUsd, the same function and round-up as the 402 offer. Without
-// a payment server (Test mode, payouts off, server down) the site makes no paid offer: prices are
+// tests/discovery.test.ts compares them), except that WordPress lists no search class (see
+// TOLL_GATE_PAID_CLASSES). Copy is docs/copy.md "Amendment 3", verbatim. Prices are never
+// hard-coded: amounts and the rate come from the owner's payment server, and the USD is derived
+// here with Settlement::offerUsd, the same function and round-up as the 402 offer. Without a
+// payment server (Test mode, payouts off, server down) the site makes no paid offer: prices are
 // null with status "stub". Free: no pass, no challenge, no payment.
 declare(strict_types=1);
 
@@ -14,7 +15,10 @@ use Toll\Settlement;
 
 const TOLL_GATE_MANIFEST_DESCRIPTION = 'A small check for writes. Heavy clients do work on each write, or pay in test mode. Page views stay free. Does not identify the caller.';
 const TOLL_GATE_NOT_FOR = ['page views', 'crawler blocking', 'citation licensing'];
-const TOLL_GATE_PAID_CLASSES = ['write', 'search', 'account', 'admin'];
+// No search: on WordPress search is a page load (/?s=) and stays a free read (Amendment 2 / M10), so
+// the manifest, its tool schemas and /price list no search price or action (docs/copy.md, PM Oct 1).
+// Node and the edge check a search sent as a form post and keep it (packages/server-node manifest.ts).
+const TOLL_GATE_PAID_CLASSES = ['write', 'account', 'admin'];
 const TOLL_GATE_TOOLS = [
     'price_write_action' => 'Returns the current USD price, and the work alternative, for one write on a Toll-protected site: a comment, signup, login, form post, or state-changing API call. Use it before a write to choose between paying and doing the work. Not for page views, which are free and need no call. Does not identify the caller.',
     'gate_form_write' => 'Gets a one-use pass for one write on a Toll-protected site. With no payment it returns the payment offer and a work challenge. With proof of payment it returns the pass. Use only for writes. Does not block public reads, does not detect who the caller is, and does not license or price content.',
@@ -23,7 +27,7 @@ const TOLL_GATE_TOOLS = [
 // Price amounts and rate from the payment server are reused for this long.
 const TOLL_GATE_PRICE_CACHE_S = 30;
 
-/** JSON Schemas for the tool inputs (same as manifest.ts INPUT_SCHEMAS). */
+/** JSON Schemas for the tool inputs (same as manifest.ts INPUT_SCHEMAS, minus search in the action enum). */
 function toll_gate_input_schemas(): array
 {
     $site = ['type' => 'string', 'description' => 'Origin of the Toll-protected site, e.g. https://example.com'];
