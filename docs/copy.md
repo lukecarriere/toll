@@ -47,7 +47,7 @@ Plugin one-liner (readme.txt), exact. QA's login check picks one:
 - Otherwise: "Toll keeps comment forms and write APIs quiet. Visitors read for free and post without solving anything. Floods take another road."
 The same check governs "logins" in the Mission page and the README top: if it fails, drop "logins," from those lines too.
 
-Search (PM call, Oct 1): search keeps its Amendment 2 default, a check at the write price that the owner can set to 0. So "Toll only checks writes" and "Visitors read for free" must not imply search is free. Say page views and articles are free, and name search alongside writes where the line lists what Toll checks.
+Search (PM call, revised Oct 1 after QA's claim check): on WordPress, search is a page load (`/?s=`) and stays free. On Node and the edge, only a search sent as a form post (POST) is checked; a GET search is a free read. So public copy does not list "searches" as something Toll checks: "writes" and "forms" already cover a search sent as a form post. Only the demo and developer docs name posted search. The WordPress manifest must not list a search price.
 
 Retired (Oct 1): the SPEC §1 "allowed public framing" list. Of its lines, these are also not true today: "High-volume clients pay more; a person pays once" and "Agents can pay per request instead of grinding" (payment is a test backend, so any payment claim says test), and "Collected usage value is paid out to you" (payouts need a payment server; none is live).
 
@@ -63,7 +63,7 @@ Retired (Oct 1): the SPEC §1 "allowed public framing" list. Of its lines, these
 ```
 Toll
 Less traffic. Better road.
-A small check for comments, forms, logins, searches, and write APIs. Page views stay free. People post the usual way. Floods get slower and more expensive.
+A small check for comments, forms, logins, and write APIs. Page views stay free. People post the usual way. Floods get slower and more expensive.
 ```
 Optional last line only: "Paid requests for heavy clients are in testing."
 Then install lines (npm / composer / wp plugin / wrangler), a ten-line how it works (background work, a pass, optional usage payouts for operators), privacy, and a protocol link.
@@ -119,7 +119,7 @@ Product: Toll. WordPress plugin: display name "Toll for WordPress" (Plugins list
 
 ## Amendment 2: reads stay free (Oct 1, 2026; wording unlocked by Luke the same day)
 The meaning stays: page views stay free, Toll checks writes, and gating page views needs a warning and an explicit confirm. The Creative Director may reword every line below in the brief's voice; search is covered as described under Brand lines.
-- First screen after install (README and WordPress helper text), exact (Oct 1, names search): "Toll checks writes and searches, not page views. Leave public pages open so people and answer engines can read you. Turn Toll on for comments, forms, logins, and APIs."
+- First screen after install (README and WordPress helper text), exact (Oct 1, revised after QA): "Toll checks writes, not page views. Leave public pages open so people and answer engines can read you. Turn Toll on for comments, forms, logins, and APIs."
 - Dashboard warning when an owner gates ordinary page views, exact, with an explicit confirm (default stays off): "This hides the site from answer engines and new readers. Toll is for writes."
 - Website pages `website/mission.md`, `vision.md`, `values.md`, `ecosystem.md`: replaced by the Creative Director's words under "Website pages" below (Oct 1). The full lint list runs on them. Values keeps Luke's one use of "human".
 - `docs/positioning.md`: Amendment 2 §B, for contributors, not a public screen.
@@ -150,7 +150,7 @@ Numbered lines are paragraphs. Lines tagged [QA] ship only after QA confirms the
 Heading: Mission
 1. Less traffic. Better road.
 2. The web should stay open to read, and cost something to flood.
-3. Toll is a small check on the lane where things change: comments, forms, logins, searches, and write APIs. A person posting a comment does a little background work and goes on their way. A program firing thousands of writes does that work on every one, so a flood gets slower and more expensive. Spam takes another road.
+3. Toll is a small check on the lane where things change: comments, forms, logins, and write APIs. A person posting a comment does a little background work and goes on their way. A program firing thousands of writes does that work on every one, so a flood gets slower and more expensive. Spam takes another road.
 4. Page views and articles stay free. Reading is how new sites get found.
 
 ### Vision (`website/vision`)
@@ -174,6 +174,6 @@ Heading: Where Toll fits
 2. Some of it only reads. Some of it copies pages into a model. Some of it answers a question and may cite the page. Some of it calls an API. Some of it fills a form a thousand times.
 3. Those should not share one switch.
 4. Tools that sit in front of the whole site can allow a known crawler, charge it for the fetch, or block it. Some pay publishers later, when a page is actually used in an answer. Some let an identified agent pay per API call. Those products serve sites that already have an audience, and buyers that will say who they are.
-5. Toll looks after the writes, and searches unless the owner turns that off. It does not ask the caller to identify itself. It does not charge for a public article. It does not replace a crawler deal, a license, or a pay-per-citation program. A publisher can use those and still put Toll on the comment box.
+5. Toll looks after the writes. It does not ask the caller to identify itself. It does not charge for a public article. It does not replace a crawler deal, a license, or a pay-per-citation program. A publisher can use those and still put Toll on the comment box.
 6. HOLD, add only on the day of the first catalog listing: "Agents that need a write check can find Toll in public tool catalogs. The article stays free. The tool call has a cost. Being quoted in an answer is not the same as being chosen as the tool."
 7. Closing line (replaces "Leave the front door open. Lock the counter."): The site stays open. Spam takes another road.
