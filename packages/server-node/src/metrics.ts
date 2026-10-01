@@ -21,11 +21,13 @@ export interface Counters {
   offer_shown: number;
   /** Successful paid redeems (rail = settle). */
   paid: number;
+  /** Work challenges fetched through a 402's challenge_url (offers=0): the agent did the work instead of paying. */
+  work_after_402: number;
   settlement_degraded: number;
 }
 
 export class Metrics {
-  c = { challenges_minted: 0, redeems_ok: 0, redeems_fail: 0, pass_accept: 0, pass_reject: 0, pass_absent: 0, turned_away: 0, settled_msat: 0, offer_shown: 0, paid: 0, settlement_degraded: 0 };
+  c = { challenges_minted: 0, redeems_ok: 0, redeems_fail: 0, pass_accept: 0, pass_reject: 0, pass_absent: 0, turned_away: 0, settled_msat: 0, offer_shown: 0, paid: 0, work_after_402: 0, settlement_degraded: 0 };
   /** Per "rail|cls" tag counts for redeems_ok and pass_accept. */
   byTag: Record<string, { redeems_ok: number; pass_accept: number }> = {};
   private tookSum = 0;
@@ -99,6 +101,15 @@ export class Metrics {
   offerShown(f: { cls: string; amount_msat: number; offers: number }): void {
     this.c.offer_shown++;
     this.emit("offer_shown", f);
+  }
+
+  /**
+   * GET /v1/challenge?offers=0, i.e. an agent fetched a 402's challenge_url to do the work instead of
+   * paying. Abandoned 402s = offer_shown - paid - work_after_402.
+   */
+  workAfter402(f: { action: string; site: string; cls: string }): void {
+    this.c.work_after_402++;
+    this.emit("work_after_402", f);
   }
 
   settlementDegraded(f: { reason: string }): void {

@@ -355,6 +355,34 @@ test("agent work fallback fetches challenge_url on demand: no payer, payment dec
   await assert.rejects(createAgent({ base: S.url, pay: async () => { throw new Error("declined"); }, work: false }).fetch("/contact", body), /declined/);
 });
 
+test("work_after_402: +1 when an agent that can't pay fetches challenge_url; the paid path leaves it at 0; counters line and /demo/stats", async () => {
+  const body = { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ message: "w402" }) };
+  const count = () => S.demo.toll.metrics.snapshot().work_after_402;
+  const st0: any = await (await fetch(`${S.url}/demo/stats`)).json();
+  const c0 = count();
+  const m0 = S.events.filter((e) => e.event === "challenge_minted").length;
+  const paid = await createAgent({ base: S.url, pay: testBackendPayer(S.url), work: false }).fetch("/contact", body);
+  assert.equal(paid.via, "paid");
+  assert.equal(count() - c0, 0, "the paid path leaves it at 0");
+  // Plain /v1/challenge fetches (widget, or agent asking for offers) are not work after a 402.
+  await fetch(`${S.url}/v1/challenge?action=write`);
+  await fetch(`${S.url}/v1/challenge?action=write&client=agent`);
+  assert.equal(count() - c0, 0);
+  const n0 = S.events.length;
+  const w = await createAgent({ base: S.url }).fetch("/contact", body); // no payer
+  assert.deepEqual([w.gate, w.via, w.response.status], [402, "work", 200]);
+  assert.equal(count() - c0, 1);
+  const ev = S.events.slice(n0).filter((e) => e.event === "work_after_402");
+  assert.equal(ev.length, 1);
+  assert.deepEqual({ action: ev[0].action, site: ev[0].site, cls: ev[0].cls }, { action: "write", site: "site_test", cls: "write" });
+  assert.equal(S.events.filter((e) => e.event === "challenge_minted").length - m0, 3, "challenge_minted unchanged: the two plain fetches plus the fallback's");
+  const st1: any = await (await fetch(`${S.url}/demo/stats`)).json();
+  assert.equal(st1.paid.work_after_402 - st0.paid.work_after_402, 1);
+  S.demo.toll.metrics.flush();
+  const line = JSON.parse(S.lines.filter((l) => l.includes('"event":"counters"')).pop()!);
+  assert.equal(line.work_after_402, count());
+});
+
 test("pass_absent: a first contact with no pass is not a rejection; real rejections keep their reason", async () => {
   const c0 = S.demo.toll.metrics.snapshot();
   const n0 = S.events.length;

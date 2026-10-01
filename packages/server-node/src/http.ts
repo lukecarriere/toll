@@ -182,6 +182,8 @@ export function tollRouter(toll: Toll) {
           source: "challenge_endpoint" as const,
         };
         const { challenge, offers } = workOnly ? { challenge: await toll.issueChallenge(input), offers: [] } : await toll.issueWithOffers(input);
+        // The agent chose work after a 402 (it fetched challenge_url). challenge_minted still fires as usual.
+        if (workOnly) toll.metrics.workAfter402({ action, site: challenge.site, cls: challenge.bound.action });
         return send(res, 200, { challenge, offers });
       }
 
