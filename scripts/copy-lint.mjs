@@ -11,6 +11,7 @@ import { ROOT, lintRegexes, lintText, isExempt, vendorRegexes, lintVendor, lintD
 // Exempt by exact SHA only; any new commit is still linted.
 export const TITLE_EXCEPTIONS = {
   d37c9827e2b18b7f20d0e2fc5e2870f24d9b91b7: "2026-09-30 policy §5 commit names the work engine in its title; fixing it would rewrite main",
+  "2bd47f60e4b664ea7cfaaeaadcc113317c51fe29": "2026-10-01 commit that added 'redwood' to the lint list quotes the banned word in its title; fixing it would rewrite main",
 };
 
 // Commit titles are linted for every commit after this one (TITLE_LINT_AFTER..HEAD). fa12195 is the

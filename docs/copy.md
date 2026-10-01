@@ -178,3 +178,7 @@ Heading: Where Toll fits
 5. Toll looks after the writes. It does not ask the caller to identify itself. It does not charge for a public article. It does not replace a crawler deal, a license, or a pay-per-citation program. A publisher can use those and still put Toll on the comment box.
 6. HOLD, add only on the day of the first catalog listing: "Agents that need a write check can find Toll in public tool catalogs. The article stays free. The tool call has a cost. Being quoted in an answer is not the same as being chosen as the tool."
 7. Closing line (replaces "Leave the front door open. Lock the counter."): The site stays open. Spam takes another road.
+
+## Image alt text (exact; PM cleared Oct 1, 2026)
+- Homepage hero photo (merged direction D): "An empty two-lane road through a tall forest."
+- Never name the tree species in alt text, captions, or file names that ship. The hero file ships as `forest-road-*.jpg`.
