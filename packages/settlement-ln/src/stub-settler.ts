@@ -22,9 +22,15 @@ export class StubSettler implements Settler {
   private down = false;
   private shared?: string;
 
-  /** `sharedPreimage`: every invoice uses this test preimage (spec: "fake settler that accepts a shared test preimage"). */
-  constructor(o: { sharedPreimage?: string } = {}) {
+  private deterministic: boolean;
+
+  /**
+   * `sharedPreimage`: every invoice uses this test preimage (spec: "fake settler that accepts a shared test preimage").
+   * `deterministic`: the invoice nonce comes from the memo only (for generated vectors).
+   */
+  constructor(o: { sharedPreimage?: string; deterministic?: boolean } = {}) {
     this.shared = o.sharedPreimage;
+    this.deterministic = o.deterministic ?? false;
   }
 
   setDown(down: boolean) {
@@ -41,13 +47,13 @@ export class StubSettler implements Settler {
     const preimage = this.shared ?? toHex(randomBytes(32));
     const payment_hash = toHex(await sha256(fromHex(preimage)));
     // Unique per invoice even with a shared preimage: the memo nonce is part of the fake string.
-    const nonce = toHex(await sha256(concat(utf8(o.memo), randomBytes(8)))).slice(0, 16);
+    const nonce = toHex(await sha256(concat(utf8(o.memo), this.deterministic ? new Uint8Array(0) : randomBytes(8)))).slice(0, 16);
     const invoice = `lnstub1${o.amount_msat}m1${payment_hash}${nonce}`;
     this.preimages.set(payment_hash, preimage);
     return { invoice, payment_hash, amount_msat: o.amount_msat, expires_at: o.now + o.expiry_s };
   }
 
-  /** Test wallet: "pay" a stub invoice and get its preimage. */
+  /** Stub payer for tests and the demo's test payment endpoint: "pay" a stub invoice and get its preimage. */
   pay(invoice: string): string {
     const m = /^lnstub1\d+m1([0-9a-f]{64})/.exec(invoice);
     const pre = m && this.preimages.get(m[1]);

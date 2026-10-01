@@ -19,15 +19,24 @@ export function priceMsat(cls: Exclude<ActionClass, "read">, velocity_mult = 1, 
   return Math.round(BASE_MSAT[cls] * velocity_mult * suspicion_mult);
 }
 
+/**
+ * Offer amount (settlement.md §3 and Q3): the policy price, rounded to an integer msat first (so
+ * float noise such as 11000.000000000002 cannot add a unit), then UP to a whole 1,000 msat.
+ */
+export function offerAmountMsat(cls: Exclude<ActionClass, "read">, velocity_mult = 1, suspicion_mult = 1): number {
+  return Math.ceil(priceMsat(cls, velocity_mult, suspicion_mult) / 1000) * 1000;
+}
+
 async function sealCaveats(secret: string, c: Caveats): Promise<string> {
   const payload = toB64url(utf8(canonicalJson(c)));
   const mac = await hmacSha256(secret, utf8("toll-offer-v1." + payload));
   return payload + "." + toB64url(mac);
 }
 
-export async function mintOffer(o: { secret: string; site: string; cls: Exclude<ActionClass, "read">; amount_msat: number; settler: Settler; now: number; ttl_s?: number }): Promise<Offer> {
+export async function mintOffer(o: { secret: string; site: string; cls: Exclude<ActionClass, "read">; amount_msat: number; settler: Settler; now: number; ttl_s?: number; fixed?: { id?: string } }): Promise<Offer> {
+  if (!Number.isSafeInteger(o.amount_msat) || o.amount_msat <= 0 || o.amount_msat % 1000 !== 0) throw new Error("offer amount must be a positive whole number of 1,000 msat (Q3)");
   const ttl = Math.min(o.ttl_s ?? MAX_OFFER_TTL_S, MAX_OFFER_TTL_S);
-  const id = "off_" + randomHex(12);
+  const id = o.fixed?.id ?? "off_" + randomHex(12);
   const inv = await o.settler.mintInvoice({ amount_msat: o.amount_msat, memo: id, expiry_s: ttl, now: o.now });
   const exp = o.now + ttl;
   const macaroon = await sealCaveats(o.secret, { v: 1, offer_id: id, site: o.site, cls: o.cls, amount_msat: o.amount_msat, payment_hash: inv.payment_hash, exp });
@@ -72,7 +81,7 @@ export class StubEngine implements SettlementEngine {
     this.settler = o.settler ?? new StubSettler();
   }
 
-  offer(o: { site: string; cls: PaidClass; amount_msat: number; now: number; ttl_s?: number }): Promise<Offer> {
+  offer(o: { site: string; cls: PaidClass; amount_msat: number; now: number; ttl_s?: number; fixed?: { id?: string } }): Promise<Offer> {
     return mintOffer({ ...o, secret: this.secret, settler: this.settler });
   }
 

@@ -12,7 +12,7 @@
 //     end to end with no node and no funds. Any other mode throws: there is no live path in this build.
 import { StubEngine } from "./stub-engine.ts";
 import type { Offer, Paid, PaidClass, PaidProof, SettlementEngine } from "./engine.ts";
-import { priceMsat } from "./stub-engine.ts";
+import { offerAmountMsat } from "./stub-engine.ts";
 
 export interface ProxyEngineOptions {
   mode: "stub" | "live";
@@ -23,9 +23,8 @@ export interface ProxyEngineOptions {
 
 /** Price source for the proxy's dynamic-price hook: msat for the class, rounded UP to whole 1000 msat. */
 export function priceForPath(o: { cls: PaidClass; velocity_mult?: number; suspicion_mult?: number }): { amount_msat: number; price_base_units: number } {
-  const msat = priceMsat(o.cls, o.velocity_mult ?? 1, o.suspicion_mult ?? 1);
-  const units = Math.ceil(msat / 1000);
-  return { amount_msat: units * 1000, price_base_units: units };
+  const amount_msat = offerAmountMsat(o.cls, o.velocity_mult ?? 1, o.suspicion_mult ?? 1);
+  return { amount_msat, price_base_units: amount_msat / 1000 };
 }
 
 export class ProxySettlementEngine implements SettlementEngine {
