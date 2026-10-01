@@ -1,0 +1,201 @@
+{
+  "environment": {
+    "started_at": "2026-10-01T00:32:07.881Z",
+    "started_ct": "9/30/2026, 7:32:07 PM CT",
+    "cpu": {
+      "model": "Intel(R) Xeon(R) Processor",
+      "vcpus": 8,
+      "mhz": 0,
+      "sha_ni": true,
+      "kernel": "6.12.94+",
+      "mem_gb": 16
+    },
+    "loadavg_before": [
+      1.6,
+      1.2,
+      1
+    ],
+    "node": "v22.23.3",
+    "policy": {
+      "cost": 2000,
+      "n": 4,
+      "bits": 32,
+      "unit_iterations": 400000,
+      "max_iterations": 11000000,
+      "device_mult": {
+        "mobile": 0.6,
+        "desktop": 1
+      },
+      "velocity_steps": [
+        [
+          20,
+          2
+        ],
+        [
+          40,
+          4
+        ],
+        [
+          80,
+          8
+        ],
+        [
+          160,
+          16
+        ]
+      ],
+      "velocity_window_s": 60
+    },
+    "counted_per_profile": 210,
+    "warmup_per_profile": 10,
+    "percentile_method": "nearest-rank",
+    "worker_cpu_throttle_probe": "rejected by Chromium: Operation is only supported for pages, not workers",
+    "cgroup_quota_pct_of_one_core": 45,
+    "loadavg_after": [
+      1,
+      1,
+      1.1
+    ],
+    "finished_at": "2026-10-01T00:45:22.735Z"
+  },
+  "summary": [
+    {
+      "id": "desktop",
+      "label": "Desktop Chromium (box)",
+      "browser": "153.0.8010.12",
+      "ua": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/153.0.0.0 Safari/537.36",
+      "throttle": "none",
+      "main_thread_js_probe_ms": null,
+      "counted": 210,
+      "redeemed_ok": 210,
+      "span": 399,
+      "cost": 2000,
+      "n": 4,
+      "took_ms": {
+        "n": 210,
+        "min": 107,
+        "p50": 268,
+        "p95": 396.3,
+        "max": 524,
+        "mean": 271.4
+      },
+      "e2e_ms": {
+        "n": 210,
+        "min": 121,
+        "p50": 282.5,
+        "p95": 411.3,
+        "max": 539,
+        "mean": 286
+      },
+      "solve_iterations_per_s": 5972670,
+      "kdf_ips_cost2000_median": 5017561,
+      "kdf_ips_cost2000_runs": [
+        4975124,
+        5128205,
+        4405286,
+        5211047,
+        5017561
+      ],
+      "kdf_ips_cost100000_median": 5366246,
+      "kdf_ips_cost100000_runs": [
+        5366246,
+        5031447,
+        6351223
+      ],
+      "share_solves_ge_500ms": 0.5,
+      "kdf_slowdown_vs_desktop": 1
+    },
+    {
+      "id": "lh-mobile-devtools",
+      "label": "Lighthouse mobile preset, devtools throttling (CPU x4 on page)",
+      "browser": "153.0.8010.12",
+      "ua": "Mozilla/5.0 (Linux; Android 11; moto g power (2022)) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Mobile Safari/537.36",
+      "throttle": "CDP Emulation.setCPUThrottlingRate=4 on the page target + Lighthouse mobile network/screen/UA",
+      "main_thread_js_probe_ms": 461.6,
+      "counted": 210,
+      "redeemed_ok": 210,
+      "span": 239,
+      "cost": 2000,
+      "n": 4,
+      "took_ms": {
+        "n": 210,
+        "min": 69.2,
+        "p50": 163,
+        "p95": 253.1,
+        "max": 326.6,
+        "mean": 167.8
+      },
+      "e2e_ms": {
+        "n": 210,
+        "min": 1231.4,
+        "p50": 1320.4,
+        "p95": 1415.7,
+        "max": 1478.7,
+        "mean": 1328.9
+      },
+      "solve_iterations_per_s": 5853120,
+      "kdf_ips_cost2000_median": 4904365,
+      "kdf_ips_cost2000_runs": [
+        4786979,
+        5165289,
+        4904365,
+        4868549,
+        5350455
+      ],
+      "kdf_ips_cost100000_median": 6339144,
+      "kdf_ips_cost100000_runs": [
+        6339144,
+        6369427,
+        6333122
+      ],
+      "share_solves_ge_500ms": 0,
+      "kdf_slowdown_vs_desktop": 1.02
+    },
+    {
+      "id": "lh-mobile-os4x",
+      "label": "Lighthouse mobile preset + OS CPU quota (cgroup cpu.max 45% of one core)",
+      "browser": "153.0.8010.12",
+      "ua": "Mozilla/5.0 (Linux; Android 11; moto g power (2022)) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Mobile Safari/537.36",
+      "throttle": "As lh-mobile-devtools, plus all Chromium processes in a cgroup v2 with cpu.max=45000/100000, so the worker thread is slowed too",
+      "main_thread_js_probe_ms": 1326.3,
+      "counted": 210,
+      "redeemed_ok": 210,
+      "span": 239,
+      "cost": 2000,
+      "n": 4,
+      "took_ms": {
+        "n": 210,
+        "min": 203,
+        "p50": 707.8,
+        "p95": 995.5,
+        "max": 1399.6,
+        "mean": 693.7
+      },
+      "e2e_ms": {
+        "n": 210,
+        "min": 1395.4,
+        "p50": 1904,
+        "p95": 2199.6,
+        "max": 2599.3,
+        "mean": 1908
+      },
+      "solve_iterations_per_s": 1397734,
+      "kdf_ips_cost2000_median": 1233198,
+      "kdf_ips_cost2000_runs": [
+        1131734,
+        1249375,
+        1246727,
+        1227144,
+        1233198
+      ],
+      "kdf_ips_cost100000_median": 1256281,
+      "kdf_ips_cost100000_runs": [
+        1177440,
+        1256281,
+        1537279
+      ],
+      "share_solves_ge_500ms": 88.1,
+      "kdf_slowdown_vs_desktop": 4.07
+    }
+  ]
+}

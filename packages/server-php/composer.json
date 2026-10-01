@@ -1,0 +1,8 @@
+{
+  "name": "toll/server",
+  "description": "Toll verifier for PHP: challenges, work, passes.",
+  "type": "library",
+  "license": "proprietary",
+  "require": { "php": ">=8.1" },
+  "autoload": { "files": ["src/Toll.php"] }
+}

@@ -1,0 +1,96 @@
+// JSON-line metrics on stdout (spec §14 plus the PM/Data Scientist additions).
+// Every redeem logs its raw took_ms with rail and cls tags so p50/p95 can be computed offline.
+// Never logged: form bodies, cookies, Authorization values, pass tokens, IP addresses, invoices.
+
+export type Sink = (line: string) => void;
+
+export interface Counters {
+  challenges_minted: number;
+  redeems_ok: number;
+  redeems_fail: number;
+  pass_accept: number;
+  pass_reject: number;
+  avg_took_ms: number | null;
+  settled_msat: number;
+  settlement_degraded: number;
+}
+
+export class Metrics {
+  c = { challenges_minted: 0, redeems_ok: 0, redeems_fail: 0, pass_accept: 0, pass_reject: 0, settled_msat: 0, settlement_degraded: 0 };
+  /** Per "rail|cls" tag counts for redeems_ok and pass_accept. */
+  byTag: Record<string, { redeems_ok: number; pass_accept: number }> = {};
+  private tookSum = 0;
+  private tookN = 0;
+  /** Bounded reservoir of recent took_ms values for the convenience p50/p95 in the counters line. */
+  private recent: number[] = [];
+  private sink: Sink;
+
+  constructor(sink: Sink = (l) => process.stdout.write(l + "\n")) {
+    this.sink = sink;
+  }
+
+  emit(event: string, fields: Record<string, unknown> = {}): void {
+    this.sink(JSON.stringify({ ts: new Date().toISOString(), event, ...fields }));
+  }
+
+  private tag(rail: string, cls: string) {
+    const k = `${rail}|${cls}`;
+    return (this.byTag[k] ??= { redeems_ok: 0, pass_accept: 0 });
+  }
+
+  challengeMinted(f: { cls: string; client: string; ua_class: string; span: number; expected_iterations: number; velocity_mult: number; source: string }): void {
+    this.c.challenges_minted++;
+    this.emit("challenge_minted", f);
+  }
+
+  redeemOk(f: { rail: "work" | "settle"; cls: string; took_ms: number | null; ua_class: string | null; client: string; verify_ms: number }): void {
+    this.c.redeems_ok++;
+    this.tag(f.rail, f.cls).redeems_ok++;
+    if (f.took_ms !== null && f.rail === "work") {
+      this.tookSum += f.took_ms;
+      this.tookN++;
+      this.recent.push(f.took_ms);
+      if (this.recent.length > 2000) this.recent.shift();
+    }
+    this.emit("redeem_ok", f);
+  }
+
+  redeemFail(f: { reason: string; cls?: string; rail?: string }): void {
+    this.c.redeems_fail++;
+    this.emit("redeem_fail", f);
+  }
+
+  passAccept(f: { rail: string; cls: string; action: string; remaining: number }): void {
+    this.c.pass_accept++;
+    this.tag(f.rail, f.cls).pass_accept++;
+    this.emit("pass_accept", f);
+  }
+
+  passReject(f: { reason: string; action: string }): void {
+    this.c.pass_reject++;
+    this.emit("pass_reject", f);
+  }
+
+  settlementDegraded(f: { reason: string }): void {
+    this.c.settlement_degraded++;
+    this.emit("settlement_degraded", f);
+  }
+
+  settled(amount_msat: number): void {
+    this.c.settled_msat += amount_msat;
+  }
+
+  avgTookMs(): number | null {
+    return this.tookN ? Math.round(this.tookSum / this.tookN) : null;
+  }
+
+  snapshot(): Counters & { took_ms_p50: number | null; took_ms_p95: number | null; took_ms_n: number; by_tag: Metrics["byTag"] } {
+    const s = [...this.recent].sort((a, b) => a - b);
+    const q = (p: number) => (s.length ? s[Math.min(s.length - 1, Math.ceil(p * s.length) - 1)] : null);
+    return { ...this.c, avg_took_ms: this.avgTookMs(), took_ms_p50: q(0.5), took_ms_p95: q(0.95), took_ms_n: this.tookN, by_tag: this.byTag };
+  }
+
+  flush(): void {
+    this.emit("counters", { ...this.snapshot() } as Record<string, unknown>);
+  }
+}

@@ -1,0 +1,35 @@
+{
+  "name": "toll",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Invisible checks for forms, logins, and write APIs.",
+  "type": "module",
+  "engines": {
+    "node": ">=22.18"
+  },
+  "workspaces": [
+    "packages/protocol",
+    "packages/settlement-ln",
+    "packages/widget",
+    "packages/server-node",
+    "demo"
+  ],
+  "scripts": {
+    "build": "node scripts/gen-strings.mjs && node packages/widget/build.mjs && node scripts/check-dist.mjs",
+    "typecheck": "tsc -p tsconfig.json",
+    "vectors": "node scripts/gen-vectors.ts",
+    "lint:copy": "node scripts/copy-lint.mjs",
+    "test": "npm run build && npm run typecheck && npm run lint:copy && node --test --test-concurrency=1 tests/*.test.ts && php tests/php/run-vectors.php",
+    "test:unit": "node --test tests/*.test.ts",
+    "test:php": "php tests/php/run-vectors.php",
+    "demo": "npm run build && node demo/server.ts",
+    "bench": "npm run build && node bench/run-bench.ts"
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.6",
+    "@types/node": "^22.20.4",
+    "esbuild": "^0.25.12",
+    "playwright": "^1.63.0",
+    "typescript": "^5.9.3"
+  }
+}

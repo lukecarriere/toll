@@ -1,0 +1,781 @@
+{
+  "version": 1,
+  "about": "Toll protocol v1 test vectors. See docs/protocol.md. Every implementation must pass all of them. The secret is for tests only.",
+  "secret": "toll-test-vector-secret-do-not-use",
+  "site": "site_abc123",
+  "work": [
+    {
+      "name": "default-shape write (n=4, bits=32, cost=2000)",
+      "challenge": {
+        "v": 1,
+        "id": "8f3c0000000000000000000000000001",
+        "site": "site_abc123",
+        "algo": "pbkdf2-sha256",
+        "cost": 2000,
+        "n": 4,
+        "bits": 32,
+        "counter_start": 3000000000,
+        "counter_end": 3000000064,
+        "targets": [
+          "fa0f2fdb",
+          "a0174c6d",
+          "19596181",
+          "add3d808"
+        ],
+        "mem_kib": 0,
+        "parallelism": 1,
+        "salt": "AAECAwQFBgcICQoLDA0ODw==",
+        "bound": {
+          "action": "write",
+          "path_prefix": "/contact"
+        },
+        "iat": 1790000000,
+        "exp": 1790000120,
+        "sig": "C4BphBD+YoZR8ZtHUeQKVp2XGRpUPanHhJdmt9fPXlI="
+      },
+      "signing_input": "{\"algo\":\"pbkdf2-sha256\",\"bits\":32,\"bound\":{\"action\":\"write\",\"path_prefix\":\"/contact\"},\"cost\":2000,\"counter_end\":3000000064,\"counter_start\":3000000000,\"exp\":1790000120,\"iat\":1790000000,\"id\":\"8f3c0000000000000000000000000001\",\"mem_kib\":0,\"n\":4,\"parallelism\":1,\"salt\":\"AAECAwQFBgcICQoLDA0ODw==\",\"site\":\"site_abc123\",\"targets\":[\"fa0f2fdb\",\"a0174c6d\",\"19596181\",\"add3d808\"],\"v\":1}",
+      "secret_counters": [
+        3000000005,
+        3000000031,
+        3000000049,
+        3000000062
+      ],
+      "now": 1790000001,
+      "sub_salt_hex": [
+        "855d3b82555ea5b90c7f50936e97413aaf21d250473a02e769bca0ef283669a2",
+        "b08645421176609dbfe79f23110202082215bd7dedb15bd07f3b8395d99144a8",
+        "af919355b302db56d5141b202dacb613c787713f6bd52ea091af4ab6ecb792f9",
+        "ef9b1d0c156af621f59c9e59481e2e42dda29e164fa4300f3093d95be8b1ac21"
+      ],
+      "solution": {
+        "nonces": [
+          "00000000b2d05e05",
+          "00000000b2d05e1f",
+          "00000000b2d05e31",
+          "00000000b2d05e3e"
+        ]
+      },
+      "dk_hex": [
+        "fa0f2fdb77efa5708dcc8fb854e7e2b2b58d5266847267ff258ed682db5e0373",
+        "a0174c6da790f5c45b3aabc97309060b17beb935cb78dbca5bb3624bd0ce3235",
+        "195961816970618eb0d9e30c0685ee52d7057f8ca86020569ff9130a775dd5bd",
+        "add3d808b2fb9f4fe4d4e290264d6c63291a1101fd55d9d8e54ae3e71a2e8ba9"
+      ],
+      "tries": 151,
+      "pass": {
+        "claims": {
+          "v": 1,
+          "site": "site_abc123",
+          "sub": "pass_00000000000000a0",
+          "cls": "write",
+          "n": 20,
+          "iat": 1790000001,
+          "exp": 1790000901,
+          "jti": "00000000000000000000000000000000"
+        },
+        "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJjbHMiOiJ3cml0ZSIsImV4cCI6MTc5MDAwMDkwMSwiaWF0IjoxNzkwMDAwMDAxLCJqdGkiOiIwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMCIsIm4iOjIwLCJzaXRlIjoic2l0ZV9hYmMxMjMiLCJzdWIiOiJwYXNzXzAwMDAwMDAwMDAwMDAwYTAiLCJ2IjoxfQ.258JOzYv58LYztf7IrMDAX9jXavg2wewz02F4ncghBY"
+      }
+    },
+    {
+      "name": "single sub-puzzle search (n=1, bits=16, cost=1000)",
+      "challenge": {
+        "v": 1,
+        "id": "8f3c0000000000000000000000000002",
+        "site": "site_abc123",
+        "algo": "pbkdf2-sha256",
+        "cost": 1000,
+        "n": 1,
+        "bits": 16,
+        "counter_start": 0,
+        "counter_end": 300,
+        "targets": [
+          "45a1"
+        ],
+        "mem_kib": 0,
+        "parallelism": 1,
+        "salt": "8J+YgCB0b2xsIHNhbHQgIQ==",
+        "bound": {
+          "action": "search",
+          "path_prefix": "/search"
+        },
+        "iat": 1790000000,
+        "exp": 1790000120,
+        "sig": "jSDL4WyTLOipPKyeKrghAsJyfMZ2NLSSw6LOusWPAkE="
+      },
+      "signing_input": "{\"algo\":\"pbkdf2-sha256\",\"bits\":16,\"bound\":{\"action\":\"search\",\"path_prefix\":\"/search\"},\"cost\":1000,\"counter_end\":300,\"counter_start\":0,\"exp\":1790000120,\"iat\":1790000000,\"id\":\"8f3c0000000000000000000000000002\",\"mem_kib\":0,\"n\":1,\"parallelism\":1,\"salt\":\"8J+YgCB0b2xsIHNhbHQgIQ==\",\"site\":\"site_abc123\",\"targets\":[\"45a1\"],\"v\":1}",
+      "secret_counters": [
+        217
+      ],
+      "now": 1790000001,
+      "sub_salt_hex": [
+        "e5ced3bce1e74a99ff31ea55f9d9975d00b417523711fc551562ae6c18ad3176"
+      ],
+      "solution": {
+        "nonces": [
+          "00000000000000d9"
+        ]
+      },
+      "dk_hex": [
+        "45a1c588b2ea4f9f59c3e6f29ea4b969bf35cd4e76d987654aaf40fa2f6b4d07"
+      ],
+      "tries": 218,
+      "pass": {
+        "claims": {
+          "v": 1,
+          "site": "site_abc123",
+          "sub": "pass_00000000000000a1",
+          "cls": "search",
+          "n": 20,
+          "iat": 1790000001,
+          "exp": 1790000901,
+          "jti": "00000000000000000000000000000001"
+        },
+        "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJjbHMiOiJzZWFyY2giLCJleHAiOjE3OTAwMDA5MDEsImlhdCI6MTc5MDAwMDAwMSwianRpIjoiMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDEiLCJuIjoyMCwic2l0ZSI6InNpdGVfYWJjMTIzIiwic3ViIjoicGFzc18wMDAwMDAwMDAwMDAwMGExIiwidiI6MX0.-TQ0hhfcjAFu_J8-00oIKIhhbCsfZfw_Tmi4QDywYT4"
+      }
+    },
+    {
+      "name": "counter above 2^32 account (n=2, bits=24, cost=1500)",
+      "challenge": {
+        "v": 1,
+        "id": "8f3c0000000000000000000000000003",
+        "site": "site_abc123",
+        "algo": "pbkdf2-sha256",
+        "cost": 1500,
+        "n": 2,
+        "bits": 24,
+        "counter_start": 1099511627776,
+        "counter_end": 1099511627816,
+        "targets": [
+          "b62cee",
+          "2b6d5a"
+        ],
+        "mem_kib": 0,
+        "parallelism": 1,
+        "salt": "c2FsdHNhbHRzYWx0c2FsdA==",
+        "bound": {
+          "action": "account",
+          "path_prefix": "/wp-login.php"
+        },
+        "iat": 1790000000,
+        "exp": 1790000120,
+        "sig": "qX5RHsPTaBGeLUMKI+clRTeJbjzU3BmnHd6msPmrCjg="
+      },
+      "signing_input": "{\"algo\":\"pbkdf2-sha256\",\"bits\":24,\"bound\":{\"action\":\"account\",\"path_prefix\":\"/wp-login.php\"},\"cost\":1500,\"counter_end\":1099511627816,\"counter_start\":1099511627776,\"exp\":1790000120,\"iat\":1790000000,\"id\":\"8f3c0000000000000000000000000003\",\"mem_kib\":0,\"n\":2,\"parallelism\":1,\"salt\":\"c2FsdHNhbHRzYWx0c2FsdA==\",\"site\":\"site_abc123\",\"targets\":[\"b62cee\",\"2b6d5a\"],\"v\":1}",
+      "secret_counters": [
+        1099511627790,
+        1099511627801
+      ],
+      "now": 1790000001,
+      "sub_salt_hex": [
+        "a888bdef58cc604d62d6af24f2c215937823c5c21374c6157388963a9fb45b6c",
+        "72a63f0629e24861d023a8abf05cb32d73a5aba49bf97d37a06a621338ff8aec"
+      ],
+      "solution": {
+        "nonces": [
+          "000001000000000e",
+          "0000010000000019"
+        ]
+      },
+      "dk_hex": [
+        "b62cee3d9eac37adcfaa62e66ffe43977899101191c919205b47549b3e839845",
+        "2b6d5ab9415726c630a5d14805421a96cfed3d8e89299a9c615778dc2dad495d"
+      ],
+      "tries": 41,
+      "pass": {
+        "claims": {
+          "v": 1,
+          "site": "site_abc123",
+          "sub": "pass_00000000000000a2",
+          "cls": "account",
+          "n": 20,
+          "iat": 1790000001,
+          "exp": 1790000901,
+          "jti": "00000000000000000000000000000002"
+        },
+        "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJjbHMiOiJhY2NvdW50IiwiZXhwIjoxNzkwMDAwOTAxLCJpYXQiOjE3OTAwMDAwMDEsImp0aSI6IjAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAyIiwibiI6MjAsInNpdGUiOiJzaXRlX2FiYzEyMyIsInN1YiI6InBhc3NfMDAwMDAwMDAwMDAwMDBhMiIsInYiOjF9.uPn-b5Ra1NArS79-zW4UQe43rl9oHadqvN7KhvEhc3c"
+      }
+    }
+  ],
+  "work_invalid": [
+    {
+      "name": "bad signature",
+      "challenge": {
+        "v": 1,
+        "id": "8f3c0000000000000000000000000001",
+        "site": "site_abc123",
+        "algo": "pbkdf2-sha256",
+        "cost": 2000,
+        "n": 4,
+        "bits": 32,
+        "counter_start": 3000000000,
+        "counter_end": 3000000064,
+        "targets": [
+          "fa0f2fdb",
+          "a0174c6d",
+          "19596181",
+          "add3d808"
+        ],
+        "mem_kib": 0,
+        "parallelism": 1,
+        "salt": "AAECAwQFBgcICQoLDA0ODw==",
+        "bound": {
+          "action": "write",
+          "path_prefix": "/contact"
+        },
+        "iat": 1790000000,
+        "exp": 1790000120,
+        "sig": "AAAAhBD+YoZR8ZtHUeQKVp2XGRpUPanHhJdmt9fPXlI="
+      },
+      "nonces": [
+        "00000000b2d05e05",
+        "00000000b2d05e1f",
+        "00000000b2d05e31",
+        "00000000b2d05e3e"
+      ],
+      "now": 1790000001,
+      "expect": "bad_sig"
+    },
+    {
+      "name": "field changed after signing (cost)",
+      "challenge": {
+        "v": 1,
+        "id": "8f3c0000000000000000000000000001",
+        "site": "site_abc123",
+        "algo": "pbkdf2-sha256",
+        "cost": 1,
+        "n": 4,
+        "bits": 32,
+        "counter_start": 3000000000,
+        "counter_end": 3000000064,
+        "targets": [
+          "fa0f2fdb",
+          "a0174c6d",
+          "19596181",
+          "add3d808"
+        ],
+        "mem_kib": 0,
+        "parallelism": 1,
+        "salt": "AAECAwQFBgcICQoLDA0ODw==",
+        "bound": {
+          "action": "write",
+          "path_prefix": "/contact"
+        },
+        "iat": 1790000000,
+        "exp": 1790000120,
+        "sig": "C4BphBD+YoZR8ZtHUeQKVp2XGRpUPanHhJdmt9fPXlI="
+      },
+      "nonces": [
+        "00000000b2d05e05",
+        "00000000b2d05e1f",
+        "00000000b2d05e31",
+        "00000000b2d05e3e"
+      ],
+      "now": 1790000001,
+      "expect": "bad_sig"
+    },
+    {
+      "name": "field changed after signing (bound.action)",
+      "challenge": {
+        "v": 1,
+        "id": "8f3c0000000000000000000000000001",
+        "site": "site_abc123",
+        "algo": "pbkdf2-sha256",
+        "cost": 2000,
+        "n": 4,
+        "bits": 32,
+        "counter_start": 3000000000,
+        "counter_end": 3000000064,
+        "targets": [
+          "fa0f2fdb",
+          "a0174c6d",
+          "19596181",
+          "add3d808"
+        ],
+        "mem_kib": 0,
+        "parallelism": 1,
+        "salt": "AAECAwQFBgcICQoLDA0ODw==",
+        "bound": {
+          "action": "search",
+          "path_prefix": "/contact"
+        },
+        "iat": 1790000000,
+        "exp": 1790000120,
+        "sig": "C4BphBD+YoZR8ZtHUeQKVp2XGRpUPanHhJdmt9fPXlI="
+      },
+      "nonces": [
+        "00000000b2d05e05",
+        "00000000b2d05e1f",
+        "00000000b2d05e31",
+        "00000000b2d05e3e"
+      ],
+      "now": 1790000001,
+      "expect": "bad_sig"
+    },
+    {
+      "name": "unsigned challenge",
+      "challenge": {
+        "v": 1,
+        "id": "8f3c0000000000000000000000000001",
+        "site": "site_abc123",
+        "algo": "pbkdf2-sha256",
+        "cost": 2000,
+        "n": 4,
+        "bits": 32,
+        "counter_start": 3000000000,
+        "counter_end": 3000000064,
+        "targets": [
+          "fa0f2fdb",
+          "a0174c6d",
+          "19596181",
+          "add3d808"
+        ],
+        "mem_kib": 0,
+        "parallelism": 1,
+        "salt": "AAECAwQFBgcICQoLDA0ODw==",
+        "bound": {
+          "action": "write",
+          "path_prefix": "/contact"
+        },
+        "iat": 1790000000,
+        "exp": 1790000120
+      },
+      "nonces": [
+        "00000000b2d05e05",
+        "00000000b2d05e1f",
+        "00000000b2d05e31",
+        "00000000b2d05e3e"
+      ],
+      "now": 1790000001,
+      "expect": "bad_sig"
+    },
+    {
+      "name": "signed with another secret",
+      "challenge": {
+        "v": 1,
+        "id": "8f3c0000000000000000000000000001",
+        "site": "site_abc123",
+        "algo": "pbkdf2-sha256",
+        "cost": 2000,
+        "n": 4,
+        "bits": 32,
+        "counter_start": 3000000000,
+        "counter_end": 3000000064,
+        "targets": [
+          "fa0f2fdb",
+          "a0174c6d",
+          "19596181",
+          "add3d808"
+        ],
+        "mem_kib": 0,
+        "parallelism": 1,
+        "salt": "AAECAwQFBgcICQoLDA0ODw==",
+        "bound": {
+          "action": "write",
+          "path_prefix": "/contact"
+        },
+        "iat": 1790000000,
+        "exp": 1790000120,
+        "sig": "Kwc4RToOnpBFrYqQU6WuOvkLptmYSq7/pGCPePPAIRM="
+      },
+      "nonces": [
+        "00000000b2d05e05",
+        "00000000b2d05e1f",
+        "00000000b2d05e31",
+        "00000000b2d05e3e"
+      ],
+      "now": 1790000001,
+      "expect": "bad_sig"
+    },
+    {
+      "name": "expired",
+      "challenge": {
+        "v": 1,
+        "id": "8f3c0000000000000000000000000001",
+        "site": "site_abc123",
+        "algo": "pbkdf2-sha256",
+        "cost": 2000,
+        "n": 4,
+        "bits": 32,
+        "counter_start": 3000000000,
+        "counter_end": 3000000064,
+        "targets": [
+          "fa0f2fdb",
+          "a0174c6d",
+          "19596181",
+          "add3d808"
+        ],
+        "mem_kib": 0,
+        "parallelism": 1,
+        "salt": "AAECAwQFBgcICQoLDA0ODw==",
+        "bound": {
+          "action": "write",
+          "path_prefix": "/contact"
+        },
+        "iat": 1790000000,
+        "exp": 1790000120,
+        "sig": "C4BphBD+YoZR8ZtHUeQKVp2XGRpUPanHhJdmt9fPXlI="
+      },
+      "nonces": [
+        "00000000b2d05e05",
+        "00000000b2d05e1f",
+        "00000000b2d05e31",
+        "00000000b2d05e3e"
+      ],
+      "now": 1790000121,
+      "expect": "expired"
+    },
+    {
+      "name": "issued in the future",
+      "challenge": {
+        "v": 1,
+        "id": "8f3c0000000000000000000000000001",
+        "site": "site_abc123",
+        "algo": "pbkdf2-sha256",
+        "cost": 2000,
+        "n": 4,
+        "bits": 32,
+        "counter_start": 3000000000,
+        "counter_end": 3000000064,
+        "targets": [
+          "fa0f2fdb",
+          "a0174c6d",
+          "19596181",
+          "add3d808"
+        ],
+        "mem_kib": 0,
+        "parallelism": 1,
+        "salt": "AAECAwQFBgcICQoLDA0ODw==",
+        "bound": {
+          "action": "write",
+          "path_prefix": "/contact"
+        },
+        "iat": 1790000000,
+        "exp": 1790000120,
+        "sig": "C4BphBD+YoZR8ZtHUeQKVp2XGRpUPanHhJdmt9fPXlI="
+      },
+      "nonces": [
+        "00000000b2d05e05",
+        "00000000b2d05e1f",
+        "00000000b2d05e31",
+        "00000000b2d05e3e"
+      ],
+      "now": 1789999940,
+      "expect": "not_yet_valid"
+    },
+    {
+      "name": "wrong nonce",
+      "challenge": {
+        "v": 1,
+        "id": "8f3c0000000000000000000000000001",
+        "site": "site_abc123",
+        "algo": "pbkdf2-sha256",
+        "cost": 2000,
+        "n": 4,
+        "bits": 32,
+        "counter_start": 3000000000,
+        "counter_end": 3000000064,
+        "targets": [
+          "fa0f2fdb",
+          "a0174c6d",
+          "19596181",
+          "add3d808"
+        ],
+        "mem_kib": 0,
+        "parallelism": 1,
+        "salt": "AAECAwQFBgcICQoLDA0ODw==",
+        "bound": {
+          "action": "write",
+          "path_prefix": "/contact"
+        },
+        "iat": 1790000000,
+        "exp": 1790000120,
+        "sig": "C4BphBD+YoZR8ZtHUeQKVp2XGRpUPanHhJdmt9fPXlI="
+      },
+      "nonces": [
+        "00000000b2d05e00",
+        "00000000b2d05e1f",
+        "00000000b2d05e31",
+        "00000000b2d05e3e"
+      ],
+      "now": 1790000001,
+      "expect": "bad_solution"
+    },
+    {
+      "name": "nonce outside counter range",
+      "challenge": {
+        "v": 1,
+        "id": "8f3c0000000000000000000000000001",
+        "site": "site_abc123",
+        "algo": "pbkdf2-sha256",
+        "cost": 2000,
+        "n": 4,
+        "bits": 32,
+        "counter_start": 3000000000,
+        "counter_end": 3000000064,
+        "targets": [
+          "fa0f2fdb",
+          "a0174c6d",
+          "19596181",
+          "add3d808"
+        ],
+        "mem_kib": 0,
+        "parallelism": 1,
+        "salt": "AAECAwQFBgcICQoLDA0ODw==",
+        "bound": {
+          "action": "write",
+          "path_prefix": "/contact"
+        },
+        "iat": 1790000000,
+        "exp": 1790000120,
+        "sig": "C4BphBD+YoZR8ZtHUeQKVp2XGRpUPanHhJdmt9fPXlI="
+      },
+      "nonces": [
+        "00000000b2d05e40",
+        "00000000b2d05e1f",
+        "00000000b2d05e31",
+        "00000000b2d05e3e"
+      ],
+      "now": 1790000001,
+      "expect": "bad_solution"
+    },
+    {
+      "name": "too few nonces",
+      "challenge": {
+        "v": 1,
+        "id": "8f3c0000000000000000000000000001",
+        "site": "site_abc123",
+        "algo": "pbkdf2-sha256",
+        "cost": 2000,
+        "n": 4,
+        "bits": 32,
+        "counter_start": 3000000000,
+        "counter_end": 3000000064,
+        "targets": [
+          "fa0f2fdb",
+          "a0174c6d",
+          "19596181",
+          "add3d808"
+        ],
+        "mem_kib": 0,
+        "parallelism": 1,
+        "salt": "AAECAwQFBgcICQoLDA0ODw==",
+        "bound": {
+          "action": "write",
+          "path_prefix": "/contact"
+        },
+        "iat": 1790000000,
+        "exp": 1790000120,
+        "sig": "C4BphBD+YoZR8ZtHUeQKVp2XGRpUPanHhJdmt9fPXlI="
+      },
+      "nonces": [
+        "00000000b2d05e05",
+        "00000000b2d05e1f",
+        "00000000b2d05e31"
+      ],
+      "now": 1790000001,
+      "expect": "bad_solution"
+    },
+    {
+      "name": "nonce not 16 hex chars",
+      "challenge": {
+        "v": 1,
+        "id": "8f3c0000000000000000000000000001",
+        "site": "site_abc123",
+        "algo": "pbkdf2-sha256",
+        "cost": 2000,
+        "n": 4,
+        "bits": 32,
+        "counter_start": 3000000000,
+        "counter_end": 3000000064,
+        "targets": [
+          "fa0f2fdb",
+          "a0174c6d",
+          "19596181",
+          "add3d808"
+        ],
+        "mem_kib": 0,
+        "parallelism": 1,
+        "salt": "AAECAwQFBgcICQoLDA0ODw==",
+        "bound": {
+          "action": "write",
+          "path_prefix": "/contact"
+        },
+        "iat": 1790000000,
+        "exp": 1790000120,
+        "sig": "C4BphBD+YoZR8ZtHUeQKVp2XGRpUPanHhJdmt9fPXlI="
+      },
+      "nonces": [
+        "a1",
+        "00000000b2d05e1f",
+        "00000000b2d05e31",
+        "00000000b2d05e3e"
+      ],
+      "now": 1790000001,
+      "expect": "bad_solution"
+    },
+    {
+      "name": "ttl over 120s (re-signed)",
+      "challenge": {
+        "v": 1,
+        "id": "8f3c0000000000000000000000000001",
+        "site": "site_abc123",
+        "algo": "pbkdf2-sha256",
+        "cost": 2000,
+        "n": 4,
+        "bits": 32,
+        "counter_start": 3000000000,
+        "counter_end": 3000000064,
+        "targets": [
+          "fa0f2fdb",
+          "a0174c6d",
+          "19596181",
+          "add3d808"
+        ],
+        "mem_kib": 0,
+        "parallelism": 1,
+        "salt": "AAECAwQFBgcICQoLDA0ODw==",
+        "bound": {
+          "action": "write",
+          "path_prefix": "/contact"
+        },
+        "iat": 1790000000,
+        "exp": 1790000121,
+        "sig": "5NRuYV2vGszJgfa+X7x0v859SJujF2yVrHGPKFfnAow="
+      },
+      "nonces": [
+        "00000000b2d05e05",
+        "00000000b2d05e1f",
+        "00000000b2d05e31",
+        "00000000b2d05e3e"
+      ],
+      "now": 1790000001,
+      "expect": "malformed"
+    },
+    {
+      "name": "unsupported algo (re-signed)",
+      "challenge": {
+        "v": 1,
+        "id": "8f3c0000000000000000000000000001",
+        "site": "site_abc123",
+        "algo": "sha256-leading",
+        "cost": 2000,
+        "n": 4,
+        "bits": 32,
+        "counter_start": 3000000000,
+        "counter_end": 3000000064,
+        "targets": [
+          "fa0f2fdb",
+          "a0174c6d",
+          "19596181",
+          "add3d808"
+        ],
+        "mem_kib": 0,
+        "parallelism": 1,
+        "salt": "AAECAwQFBgcICQoLDA0ODw==",
+        "bound": {
+          "action": "write",
+          "path_prefix": "/contact"
+        },
+        "iat": 1790000000,
+        "exp": 1790000120,
+        "sig": "0F41rCehNS5PYWjCpDpypPT2wtNuez93PD5UZhcZB/8="
+      },
+      "nonces": [
+        "00000000b2d05e05",
+        "00000000b2d05e1f",
+        "00000000b2d05e31",
+        "00000000b2d05e3e"
+      ],
+      "now": 1790000001,
+      "expect": "unsupported"
+    }
+  ],
+  "pass": [
+    {
+      "name": "pass for default-shape write (n=4, bits=32, cost=2000)",
+      "claims": {
+        "v": 1,
+        "site": "site_abc123",
+        "sub": "pass_00000000000000a0",
+        "cls": "write",
+        "n": 20,
+        "iat": 1790000001,
+        "exp": 1790000901,
+        "jti": "00000000000000000000000000000000"
+      },
+      "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJjbHMiOiJ3cml0ZSIsImV4cCI6MTc5MDAwMDkwMSwiaWF0IjoxNzkwMDAwMDAxLCJqdGkiOiIwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMCIsIm4iOjIwLCJzaXRlIjoic2l0ZV9hYmMxMjMiLCJzdWIiOiJwYXNzXzAwMDAwMDAwMDAwMDAwYTAiLCJ2IjoxfQ.258JOzYv58LYztf7IrMDAX9jXavg2wewz02F4ncghBY"
+    },
+    {
+      "name": "pass for single sub-puzzle search (n=1, bits=16, cost=1000)",
+      "claims": {
+        "v": 1,
+        "site": "site_abc123",
+        "sub": "pass_00000000000000a1",
+        "cls": "search",
+        "n": 20,
+        "iat": 1790000001,
+        "exp": 1790000901,
+        "jti": "00000000000000000000000000000001"
+      },
+      "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJjbHMiOiJzZWFyY2giLCJleHAiOjE3OTAwMDA5MDEsImlhdCI6MTc5MDAwMDAwMSwianRpIjoiMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDEiLCJuIjoyMCwic2l0ZSI6InNpdGVfYWJjMTIzIiwic3ViIjoicGFzc18wMDAwMDAwMDAwMDAwMGExIiwidiI6MX0.-TQ0hhfcjAFu_J8-00oIKIhhbCsfZfw_Tmi4QDywYT4"
+    },
+    {
+      "name": "pass for counter above 2^32 account (n=2, bits=24, cost=1500)",
+      "claims": {
+        "v": 1,
+        "site": "site_abc123",
+        "sub": "pass_00000000000000a2",
+        "cls": "account",
+        "n": 20,
+        "iat": 1790000001,
+        "exp": 1790000901,
+        "jti": "00000000000000000000000000000002"
+      },
+      "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJjbHMiOiJhY2NvdW50IiwiZXhwIjoxNzkwMDAwOTAxLCJpYXQiOjE3OTAwMDAwMDEsImp0aSI6IjAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAyIiwibiI6MjAsInNpdGUiOiJzaXRlX2FiYzEyMyIsInN1YiI6InBhc3NfMDAwMDAwMDAwMDAwMDBhMiIsInYiOjF9.uPn-b5Ra1NArS79-zW4UQe43rl9oHadqvN7KhvEhc3c"
+    }
+  ],
+  "pass_invalid": [
+    {
+      "name": "expired pass",
+      "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJjbHMiOiJ3cml0ZSIsImV4cCI6MTc5MDAwMDkwMSwiaWF0IjoxNzkwMDAwMDAxLCJqdGkiOiIwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMCIsIm4iOjIwLCJzaXRlIjoic2l0ZV9hYmMxMjMiLCJzdWIiOiJwYXNzXzAwMDAwMDAwMDAwMDAwYTAiLCJ2IjoxfQ.258JOzYv58LYztf7IrMDAX9jXavg2wewz02F4ncghBY",
+      "now": 1790000901,
+      "action": "write",
+      "expect": "expired"
+    },
+    {
+      "name": "class too high for pass (write pass, account action)",
+      "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJjbHMiOiJ3cml0ZSIsImV4cCI6MTc5MDAwMDkwMSwiaWF0IjoxNzkwMDAwMDAxLCJqdGkiOiIwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMCIsIm4iOjIwLCJzaXRlIjoic2l0ZV9hYmMxMjMiLCJzdWIiOiJwYXNzXzAwMDAwMDAwMDAwMDAwYTAiLCJ2IjoxfQ.258JOzYv58LYztf7IrMDAX9jXavg2wewz02F4ncghBY",
+      "now": 1790000010,
+      "action": "account",
+      "expect": "class_too_low"
+    },
+    {
+      "name": "tampered payload",
+      "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJjbHMiOiJ3cml0ZSIsImV4cCI6MTc5MDAwMDkwMSwiaWF0IjoxNzkwMDAwMDAxLCJqdGkiOiIwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMCIsIm4iOjIwLCJzaXRlIjoic2l0ZV9hYmMxMjMiLCJzdWIiOiJwYXNzXzAwMDAwMDAwMDAwMDAwYTAiLCJ2IjoxAA.258JOzYv58LYztf7IrMDAX9jXavg2wewz02F4ncghBY",
+      "now": 1790000010,
+      "action": "write",
+      "expect": "bad_sig"
+    },
+    {
+      "name": "tampered signature",
+      "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJjbHMiOiJ3cml0ZSIsImV4cCI6MTc5MDAwMDkwMSwiaWF0IjoxNzkwMDAwMDAxLCJqdGkiOiIwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMCIsIm4iOjIwLCJzaXRlIjoic2l0ZV9hYmMxMjMiLCJzdWIiOiJwYXNzXzAwMDAwMDAwMDAwMDAwYTAiLCJ2IjoxfQ.258JOzYv58LYztf7IrMDAX9jXavg2wewz02F4ncAAAA",
+      "now": 1790000010,
+      "action": "write",
+      "expect": "bad_sig"
+    }
+  ],
+  "pass_valid_checks": [
+    {
+      "name": "write pass covers search",
+      "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJjbHMiOiJ3cml0ZSIsImV4cCI6MTc5MDAwMDkwMSwiaWF0IjoxNzkwMDAwMDAxLCJqdGkiOiIwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMCIsIm4iOjIwLCJzaXRlIjoic2l0ZV9hYmMxMjMiLCJzdWIiOiJwYXNzXzAwMDAwMDAwMDAwMDAwYTAiLCJ2IjoxfQ.258JOzYv58LYztf7IrMDAX9jXavg2wewz02F4ncghBY",
+      "now": 1790000010,
+      "action": "search"
+    },
+    {
+      "name": "write pass covers write",
+      "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJjbHMiOiJ3cml0ZSIsImV4cCI6MTc5MDAwMDkwMSwiaWF0IjoxNzkwMDAwMDAxLCJqdGkiOiIwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMCIsIm4iOjIwLCJzaXRlIjoic2l0ZV9hYmMxMjMiLCJzdWIiOiJwYXNzXzAwMDAwMDAwMDAwMDAwYTAiLCJ2IjoxfQ.258JOzYv58LYztf7IrMDAX9jXavg2wewz02F4ncghBY",
+      "now": 1790000010,
+      "action": "write"
+    }
+  ]
+}

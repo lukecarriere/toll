@@ -1,0 +1,30 @@
+# toll.yaml (spec §14). Copy to toll.yaml and set TOLL_SECRET in the environment.
+site_id: site_abc123
+secret: env:TOLL_SECRET          # at least 16 characters; never shipped to browsers
+issuer_public_url: http://localhost:8787
+allowed_origins: [http://localhost:8787]
+defaults:
+  algos: [pbkdf2-sha256]
+  pass_ttl_s: 900                # one pass: 15 minutes...
+  pass_uses: 20                  # ...or 20 actions, whichever comes first
+  challenge_ttl_s: 120           # at most 120
+  max_solve_ms: 8000             # longest check; set the same value on the script tag (data-max-solve-ms)
+work:                            # policy defaults; see docs/policy.md before changing
+  cost: 2000                     # KDF iterations per attempt
+  n: 4                           # sub-puzzles per challenge
+  bits: 32
+  unit_iterations: 400000        # expected work for a 1x class on desktop (write = 4x)
+  max_iterations: 11000000       # worst-case cap per challenge
+  device_mult: { mobile: 0.6, desktop: 1.0 }
+adaptive:
+  velocity: false                # phase 3
+rate_limit:
+  challenge_per_min: 60          # per IP
+cookie:
+  secure: auto                   # Secure flag when the request is HTTPS
+routes:
+  - { prefix: "/contact", class: write }
+  - { prefix: "/search", class: search }
+  - { prefix: "/wp-login.php", class: account }
+settlement:
+  enabled: false                 # phase 2

@@ -1,0 +1,24 @@
+# Demo issuer config (spec §14). The secret comes from the environment; the demo makes a
+# random one for the run if TOLL_SECRET is not set.
+site_id: site_demo
+secret: env:TOLL_SECRET
+issuer_public_url: http://localhost:8787
+allowed_origins: [http://localhost:8787, http://127.0.0.1:8787]
+defaults:
+  algos: [pbkdf2-sha256]
+  pass_ttl_s: 900
+  pass_uses: 20
+  challenge_ttl_s: 120
+  max_solve_ms: 8000
+adaptive:
+  velocity: false        # phase 3 turns velocity on
+rate_limit:
+  # Default is 60/min per IP. The demo allows 300 so the bot hammer (about 100 challenges
+  # per run of both buttons) can be re-run without waiting a minute.
+  challenge_per_min: 300
+routes:
+  - { prefix: "/contact", class: write }
+  - { prefix: "/comments", class: write }
+  - { prefix: "/search", class: search }
+settlement:
+  enabled: false

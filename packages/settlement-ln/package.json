@@ -1,0 +1,3 @@
+{ "name": "@toll/settlement", "private": true, "version": "0.1.0", "type": "module",
+  "description": "Toll settlement rail (draft): stub settler, proof check, ledger. Not wired into the issuer in phase 1.",
+  "exports": { ".": "./src/index.ts" } }

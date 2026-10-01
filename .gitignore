@@ -1,0 +1,11 @@
+node_modules/
+dist/
+*.log
+.DS_Store
+# Team planning inputs live next to the repo but are not part of it
+/SPEC.md
+/prd/
+/research/
+/design/
+*.gen.ts
+bench/dist/

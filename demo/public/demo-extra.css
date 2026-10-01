@@ -1,0 +1,9 @@
+/* Demo-only additions to the designer's demo.css (kept verbatim). No inline styles, so the demo runs under a strict CSP. */
+.vh{position:absolute;left:-9999px}
+textarea.f.short{height:64px}
+.nojs{font-size:13px;margin:8px 0 0}
+.res .pill[hidden]{display:none}
+.wrap.one{grid-template-columns:1fr}
+.legend-p{display:inline-flex;align-items:center;gap:6px}
+.legend-p .cell{width:14px}
+.cells20{grid-template-columns:repeat(20,1fr);max-width:640px}

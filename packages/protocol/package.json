@@ -1,0 +1,3 @@
+{ "name": "@toll/protocol", "private": true, "version": "0.1.0", "type": "module",
+  "description": "Toll wire protocol v1: challenges, work, passes.",
+  "exports": { ".": "./src/index.ts" } }
