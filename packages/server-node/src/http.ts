@@ -5,7 +5,7 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 import { readFileSync, existsSync, statSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { type ActionClass, TollError, isActionClass, timingSafeEqual, utf8, verifyPassToken, classCovers } from "../../protocol/src/index.ts";
-import { l402Challenge } from "../../settlement-ln/src/index.ts";
+import { paymentRequired } from "../../settlement-ln/src/index.ts";
 import type { Toll } from "./toll.ts";
 
 export const VERSION = "1.0.0";
@@ -170,15 +170,18 @@ export function tollRouter(toll: Toll) {
         const client = isAgentRequest(url.searchParams, req.headers["toll-client"] as string | undefined) ? "agent" : "widget";
         if (!toll.allowChallenge(clientIp(req))) return send(res, 429, { error: "rate_limited" }, { "retry-after": "60" });
         // Offers only for agent clients with paid requests on and healthy; otherwise [] (spec §8.5, §19.11).
-        const { challenge, offers } = await toll.issueWithOffers({
+        // `offers=0`: the agent's work fallback (a 402's challenge_url) wants the challenge only.
+        const workOnly = url.searchParams.get("offers") === "0";
+        const input = {
           site: url.searchParams.get("site") ?? undefined,
           action,
           path: url.searchParams.get("path") ?? undefined,
-          client,
+          client: client as "agent" | "widget",
           userAgent: req.headers["user-agent"],
           ip: clientIp(req),
-          source: "challenge_endpoint",
-        });
+          source: "challenge_endpoint" as const,
+        };
+        const { challenge, offers } = workOnly ? { challenge: await toll.issueChallenge(input), offers: [] } : await toll.issueWithOffers(input);
         return send(res, 200, { challenge, offers });
       }
 
@@ -294,56 +297,61 @@ export function protect(toll: Toll, o: ProtectOptions = {}) {
       return send(res, 400, { error: "malformed" });
     }
     const token = extractPass(req, body);
+    if (!token) return reject(toll, req, res, action, o.noJsMessage, true); // first contact: absent, not rejected
     try {
-      if (!token) {
-        toll.metrics.passReject({ reason: "missing", action });
-        throw new TollError("malformed", "missing");
-      }
       const claims = await toll.verifyPass(token, { action });
       (req as any).toll = claims;
       if (body && typeof body === "object") delete body["toll-pass"];
       return next();
     } catch (e) {
       if (e instanceof TollError && e.code === "store_unavailable") return send(res, 503, { error: "unavailable" });
-      return reject(toll, req, res, action, o.noJsMessage);
+      return reject(toll, req, res, action, o.noJsMessage, false);
     }
   };
 }
 
-async function reject(toll: Toll, req: Req, res: ServerResponse, action: ActionClass, noJsMessage?: string) {
+/**
+ * Gate response for a request without a usable pass. `absent`: no pass was presented at all, which
+ * is logged as `pass_absent` (first contact), not as a rejection; invalid passes were already logged
+ * as `pass_reject` with their reason by verifyPass.
+ */
+async function reject(toll: Toll, req: Req, res: ServerResponse, action: ActionClass, noJsMessage: string | undefined, absent: boolean) {
   const agent = isAgentRequest(new URL(req.url ?? "/", "http://x").searchParams, req.headers["toll-client"] as string | undefined);
   if (!agent && wantsHtml(req)) {
+    gateLog(toll, action, absent, 403);
     res.statusCode = 403;
     res.setHeader("content-type", "text/html; charset=utf-8");
     res.setHeader("cache-control", "no-store");
     return res.end(`<!doctype html><meta charset="utf-8"><title>403</title><p>${noJsMessage ?? "This form needs JavaScript."}</p>`);
   }
-  let issued: Awaited<ReturnType<Toll["issueWithOffers"]>> | undefined;
-  if (toll.allowChallenge(clientIp(req))) {
-    try {
-      issued = await toll.issueWithOffers({ action, path: new URL(req.url ?? "/", "http://x").pathname, client: agent ? "agent" : "widget", userAgent: req.headers["user-agent"], ip: clientIp(req), source: "middleware" });
-    } catch {
-      issued = undefined;
-    }
-  }
-  const r = requiredResponse(toll, action, issued);
+  const r = await gateResponse(toll, { action, path: new URL(req.url ?? "/", "http://x").pathname, agent, userAgent: req.headers["user-agent"] as string | undefined, ip: clientIp(req) });
+  gateLog(toll, action, absent, r.status);
   return send(res, r.status, r.body, r.headers);
 }
 
+function gateLog(toll: Toll, action: ActionClass, absent: boolean, status: number) {
+  if (absent) toll.metrics.passAbsent({ action, status });
+  if (status === 403) toll.metrics.turnedAway();
+}
+
 /**
- * 402 for an agent when there is an offer to pay (settlement.md §4, Q2); otherwise the work-only 403.
- * Offers never appear in a 403.
+ * 402 for an agent when there is an offer to pay (settlement.md §4, Q2), with a `challenge_url` for
+ * the work fallback instead of an inline challenge: nothing is minted for the work engine unless the
+ * agent asks. Otherwise the work-only 403 with an inline challenge. Offers never appear in a 403.
+ * Both paths count against the per-IP challenge rate limit; over it, the 403 has no challenge.
  */
-function requiredResponse(toll: Toll, action: ActionClass, issued: { challenge: unknown; offers: Parameters<typeof l402Challenge>[0][] } | undefined): { status: number; body: unknown; headers: Record<string, string> } {
-  if (issued && issued.offers.length > 0) {
-    toll.metrics.offerShown({ cls: action, amount_msat: issued.offers[0].amount_msat, offers: issued.offers.length });
-    return {
-      status: 402,
-      body: { error: "payment_required", challenge: issued.challenge, offers: issued.offers },
-      headers: { "www-authenticate": l402Challenge(issued.offers[0]), "access-control-expose-headers": "www-authenticate" },
-    };
+async function gateResponse(toll: Toll, o: { action: ActionClass; path: string; agent: boolean; userAgent?: string | null; ip?: string }): Promise<{ status: number; body: unknown; headers: Record<string, string> }> {
+  if (!toll.allowChallenge(o.ip)) return { status: 403, body: { error: "toll_required" }, headers: {} };
+  const input = { action: o.action, path: o.path, client: o.agent ? ("agent" as const) : ("widget" as const), userAgent: o.userAgent, ip: o.ip, source: "middleware" as const };
+  if (o.agent) {
+    const offers = await toll.offersFor(input).catch(() => []);
+    if (offers.length > 0) {
+      toll.metrics.offerShown({ cls: o.action, amount_msat: offers[0].amount_msat, offers: offers.length });
+      return paymentRequired(toll.config.site_id, o.action, o.path, offers);
+    }
   }
-  return { status: 403, body: issued ? { error: "toll_required", challenge: issued.challenge } : { error: "toll_required" }, headers: {} };
+  const challenge = await toll.issueChallenge(input).catch(() => undefined);
+  return { status: 403, body: challenge ? { error: "toll_required", challenge } : { error: "toll_required" }, headers: {} };
 }
 
 /**
@@ -358,21 +366,20 @@ export function guardFetch(toll: Toll, handler: (req: Request, claims: unknown) 
     const auth = request.headers.get("authorization") ?? "";
     const m = /^(?:Toll|Bearer)\s+(\S+)$/i.exec(auth);
     const token = m?.[1] ?? parseCookies(request.headers.get("cookie") ?? undefined)[PASS_COOKIE];
+    const refuse = async (absent: boolean) => {
+      const ip = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim();
+      const agent = isAgentRequest(url.searchParams, request.headers.get("toll-client"));
+      const r = await gateResponse(toll, { action, path: url.pathname, agent, userAgent: request.headers.get("user-agent"), ip });
+      gateLog(toll, action, absent, r.status);
+      return Response.json(r.body, { status: r.status, headers: r.headers });
+    };
+    if (!token) return refuse(true);
     try {
-      if (!token) {
-        toll.metrics.passReject({ reason: "missing", action });
-        throw new TollError("malformed");
-      }
       const claims = await toll.verifyPass(token, { action });
       return handler(request, claims);
     } catch (e) {
       if (e instanceof TollError && e.code === "store_unavailable") return Response.json({ error: "unavailable" }, { status: 503 });
-      const ip = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim();
-      const agent = isAgentRequest(url.searchParams, request.headers.get("toll-client"));
-      let issued: Awaited<ReturnType<Toll["issueWithOffers"]>> | undefined;
-      if (toll.allowChallenge(ip)) issued = await toll.issueWithOffers({ action, path: url.pathname, client: agent ? "agent" : "widget", userAgent: request.headers.get("user-agent"), ip, source: "middleware" }).catch(() => undefined);
-      const r = requiredResponse(toll, action, issued);
-      return Response.json(r.body, { status: r.status, headers: r.headers });
+      return refuse(false);
     }
   };
 }

@@ -16,6 +16,7 @@
   "fee_display_rule": "{fee} = fee_bps / 100, plain number, trailing zeros dropped (docs/copy.md Money)",
   "usd_rule": "fresh = rate > 0 and now - fetched_at <= 900. owner: cents = floor(msat * rate / 1e9 + 1e-6); '$D.CC', 'less than $0.01' when msat > 0 and cents < 1. offer: units = ceil(msat * rate / 1e7 - 1e-6); 'D.UUUU'. null when not fresh. Rounding confirmed in docs/copy.md 'Money': owner totals round down to the cent, offers round up to $0.0001.",
   "settle_pass_rule": "pass claims n = 1, exp = iat + 60 (Q6); same token format as work passes",
+  "gate_rule": "agent 402 body = {error: 'payment_required', challenge_url, offers} in that key order; no inline challenge. challenge_url = '/v1/challenge?' + form-encoded site, action, path, client=agent, offers=0 (root-relative to the issuer). WWW-Authenticate = L402 macaroon=\"<offers[0].macaroon>\", invoice=\"<offers[0].invoice>\". The work challenge is minted only when challenge_url is fetched.",
   "price_cases": [
     {
       "cls": "search",
@@ -478,5 +479,70 @@
       "ok",
       "replay"
     ]
-  }
+  },
+  "gate_cases": [
+    {
+      "site": "site_abc123",
+      "action": "write",
+      "path": "/contact",
+      "status": 402,
+      "www_authenticate": "L402 macaroon=\"eyJhbW91bnRfbXNhdCI6MTAwMDAsImNscyI6IndyaXRlIiwiZXhwIjoxNzkwMDAwMTIwLCJvZmZlcl9pZCI6Im9mZl8wMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDEiLCJwYXltZW50X2hhc2giOiIxNjAxZDhjMjBhYTcxZGQzYmNmYzI4NjZjMWFmMDA0YTlkMWI4NTE3YzljY2NkMDhiMDk3NjhhOGUxYjY3NzJhIiwic2l0ZSI6InNpdGVfYWJjMTIzIiwidiI6MX0.xft5oTPnWWgXMmM47K5j7iqSww1vtCR7PkJQ0IQKgaQ\", invoice=\"lnstub110000m11601d8c20aa71dd3bcfc2866c1af004a9d1b8517c9cccd08b09768a8e1b6772adfdf8576343fc62b\"",
+      "body": {
+        "error": "payment_required",
+        "challenge_url": "/v1/challenge?site=site_abc123&action=write&path=%2Fcontact&client=agent&offers=0",
+        "offers": [
+          {
+            "id": "off_000000000000000000000001",
+            "kind": "ln402",
+            "amount_msat": 10000,
+            "invoice": "lnstub110000m11601d8c20aa71dd3bcfc2866c1af004a9d1b8517c9cccd08b09768a8e1b6772adfdf8576343fc62b",
+            "macaroon": "eyJhbW91bnRfbXNhdCI6MTAwMDAsImNscyI6IndyaXRlIiwiZXhwIjoxNzkwMDAwMTIwLCJvZmZlcl9pZCI6Im9mZl8wMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDEiLCJwYXltZW50X2hhc2giOiIxNjAxZDhjMjBhYTcxZGQzYmNmYzI4NjZjMWFmMDA0YTlkMWI4NTE3YzljY2NkMDhiMDk3NjhhOGUxYjY3NzJhIiwic2l0ZSI6InNpdGVfYWJjMTIzIiwidiI6MX0.xft5oTPnWWgXMmM47K5j7iqSww1vtCR7PkJQ0IQKgaQ",
+            "exp": 1790000120
+          }
+        ]
+      }
+    },
+    {
+      "site": "site_abc123",
+      "action": "search",
+      "path": "/search?q=a b&x=1",
+      "status": 402,
+      "www_authenticate": "L402 macaroon=\"eyJhbW91bnRfbXNhdCI6MjAwMCwiY2xzIjoic2VhcmNoIiwiZXhwIjoxNzkwMDAwMTIwLCJvZmZlcl9pZCI6Im9mZl8wMDAwMDAwMDAwMDAwMDAwMDAwMDAwZmYiLCJwYXltZW50X2hhc2giOiIxNjAxZDhjMjBhYTcxZGQzYmNmYzI4NjZjMWFmMDA0YTlkMWI4NTE3YzljY2NkMDhiMDk3NjhhOGUxYjY3NzJhIiwic2l0ZSI6InNpdGVfYWJjMTIzIiwidiI6MX0.xfuQqdOfv9KtCQ3UGnVV9P7_I-5_Xi3CWHL5ZlBOGxA\", invoice=\"lnstub12000m11601d8c20aa71dd3bcfc2866c1af004a9d1b8517c9cccd08b09768a8e1b6772a7c0797d497f7d144\"",
+      "body": {
+        "error": "payment_required",
+        "challenge_url": "/v1/challenge?site=site_abc123&action=search&path=%2Fsearch%3Fq%3Da+b%26x%3D1&client=agent&offers=0",
+        "offers": [
+          {
+            "id": "off_0000000000000000000000ff",
+            "kind": "ln402",
+            "amount_msat": 2000,
+            "invoice": "lnstub12000m11601d8c20aa71dd3bcfc2866c1af004a9d1b8517c9cccd08b09768a8e1b6772a7c0797d497f7d144",
+            "macaroon": "eyJhbW91bnRfbXNhdCI6MjAwMCwiY2xzIjoic2VhcmNoIiwiZXhwIjoxNzkwMDAwMTIwLCJvZmZlcl9pZCI6Im9mZl8wMDAwMDAwMDAwMDAwMDAwMDAwMDAwZmYiLCJwYXltZW50X2hhc2giOiIxNjAxZDhjMjBhYTcxZGQzYmNmYzI4NjZjMWFmMDA0YTlkMWI4NTE3YzljY2NkMDhiMDk3NjhhOGUxYjY3NzJhIiwic2l0ZSI6InNpdGVfYWJjMTIzIiwidiI6MX0.xfuQqdOfv9KtCQ3UGnVV9P7_I-5_Xi3CWHL5ZlBOGxA",
+            "exp": 1790000120
+          }
+        ]
+      }
+    },
+    {
+      "site": "site_abc123",
+      "action": "write",
+      "path": "/wp-comments-post.php",
+      "status": 402,
+      "www_authenticate": "L402 macaroon=\"eyJhbW91bnRfbXNhdCI6MTAwMDAsImNscyI6IndyaXRlIiwiZXhwIjoxNzkwMDAwMTIwLCJvZmZlcl9pZCI6Im9mZl8wMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDEiLCJwYXltZW50X2hhc2giOiIxNjAxZDhjMjBhYTcxZGQzYmNmYzI4NjZjMWFmMDA0YTlkMWI4NTE3YzljY2NkMDhiMDk3NjhhOGUxYjY3NzJhIiwic2l0ZSI6InNpdGVfYWJjMTIzIiwidiI6MX0.xft5oTPnWWgXMmM47K5j7iqSww1vtCR7PkJQ0IQKgaQ\", invoice=\"lnstub110000m11601d8c20aa71dd3bcfc2866c1af004a9d1b8517c9cccd08b09768a8e1b6772adfdf8576343fc62b\"",
+      "body": {
+        "error": "payment_required",
+        "challenge_url": "/v1/challenge?site=site_abc123&action=write&path=%2Fwp-comments-post.php&client=agent&offers=0",
+        "offers": [
+          {
+            "id": "off_000000000000000000000001",
+            "kind": "ln402",
+            "amount_msat": 10000,
+            "invoice": "lnstub110000m11601d8c20aa71dd3bcfc2866c1af004a9d1b8517c9cccd08b09768a8e1b6772adfdf8576343fc62b",
+            "macaroon": "eyJhbW91bnRfbXNhdCI6MTAwMDAsImNscyI6IndyaXRlIiwiZXhwIjoxNzkwMDAwMTIwLCJvZmZlcl9pZCI6Im9mZl8wMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDEiLCJwYXltZW50X2hhc2giOiIxNjAxZDhjMjBhYTcxZGQzYmNmYzI4NjZjMWFmMDA0YTlkMWI4NTE3YzljY2NkMDhiMDk3NjhhOGUxYjY3NzJhIiwic2l0ZSI6InNpdGVfYWJjMTIzIiwidiI6MX0.xft5oTPnWWgXMmM47K5j7iqSww1vtCR7PkJQ0IQKgaQ",
+            "exp": 1790000120
+          }
+        ]
+      }
+    }
+  ]
 }

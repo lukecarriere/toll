@@ -4,7 +4,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { TollError, signPass, verifyPassToken } from "../packages/protocol/src/index.ts";
-import { StubSettler, mintOffer, verifyPaidRedeem, offerAmountMsat, priceMsat, splitFee, usdDisplay, offerUsd, stubEngineSecret, feePercent, fillFee } from "../packages/settlement-ln/src/index.ts";
+import { StubSettler, mintOffer, verifyPaidRedeem, offerAmountMsat, priceMsat, splitFee, usdDisplay, offerUsd, stubEngineSecret, feePercent, fillFee, paymentRequired } from "../packages/settlement-ln/src/index.ts";
 
 const V = JSON.parse(readFileSync(new URL("../docs/settlement-vectors.json", import.meta.url), "utf8"));
 
@@ -38,6 +38,20 @@ test("{fee} placeholder: fee_bps / 100 with trailing zeros dropped (docs/copy.md
   assert.equal(fillFee("after the {fee}% platform fee", 750), "after the 7.5% platform fee");
   assert.throws(() => feePercent(10001));
   assert.throws(() => feePercent(1.5));
+});
+
+test("settlement vectors: agent 402 gate body links the work challenge (challenge_url), no inline challenge; WWW-Authenticate from offers[0]", () => {
+  assert.ok(V.gate_cases.length >= 3);
+  for (const c of V.gate_cases) {
+    const r = paymentRequired(c.site, c.action, c.path, c.body.offers);
+    assert.equal(r.status, 402);
+    assert.deepEqual(r.body, c.body);
+    assert.deepEqual(Object.keys(c.body), ["error", "challenge_url", "offers"]);
+    assert.equal(r.headers["www-authenticate"], c.www_authenticate);
+    const u = new URL(c.body.challenge_url, "http://issuer.test");
+    assert.equal(u.pathname, "/v1/challenge");
+    assert.deepEqual(Object.fromEntries(u.searchParams), { site: c.site, action: c.action, path: c.path, client: "agent", offers: "0" });
+  }
 });
 
 test("settlement vectors: Q4 USD strings, hidden when the rate is stale or missing", () => {

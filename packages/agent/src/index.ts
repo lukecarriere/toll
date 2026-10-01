@@ -6,8 +6,10 @@
 // Every request carries `Toll-Client: agent`. On 402 the agent pays `offers[0]` through the caller's
 // `pay` function (a payment app or, in the demo, the local test backend), redeems the preimage at
 // `POST /v1/redeem` for a short pass (one use, 60 s by default) and retries once with
-// `Authorization: Toll <pass>`. On a 403 with only a work challenge (paid requests off or paused),
-// it does the work with the engine's Node solver when `work: true`, otherwise returns the 403.
+// `Authorization: Toll <pass>`; the paid path never fetches a work challenge. When it cannot pay
+// (no `pay`, payment declined, offer over `maxAmountMsat`) and `work` is on, it fetches the 402's
+// `challenge_url` on demand and does the work with the engine's Node solver. On a 403 with an inline
+// work challenge (paid requests off or paused) it does the work directly.
 // The agent never parses invoices or macaroons: both are opaque strings from the issuer.
 import { solveWork } from "../../work-adapter/src/index.ts";
 
@@ -26,7 +28,7 @@ export interface AgentOptions {
   base: string;
   /** Pay an offer's invoice and return the 64-hex preimage. Throw to decline. */
   pay?: (offer: AgentOffer) => Promise<string>;
-  /** Fall back to doing the work when no offer is available. Default true. */
+  /** Fall back to doing the work when it cannot pay (or no offer is available). Default true. */
   work?: boolean;
   /** Refuse offers above this amount (msat). Default: no limit. */
   maxAmountMsat?: number;
@@ -45,7 +47,7 @@ export interface AgentResult {
   /** What /v1/redeem said: rail ("settle" | "work") and class of the pass. */
   redeemed?: { rail: string; cls: string; exp: number };
   /** Client-side timings in ms: payment (test backend), work solve, redeem call, whole request. */
-  timings?: { pay_ms?: number; solve_ms?: number; redeem_ms?: number; total_ms: number };
+  timings?: { pay_ms?: number; challenge_ms?: number; solve_ms?: number; redeem_ms?: number; total_ms: number };
 }
 
 export class AgentError extends Error {
@@ -97,21 +99,44 @@ export function createAgent(o: AgentOptions) {
     const first = await f(url(path), withHeaders(init, {}));
     if (first.status !== 402 && first.status !== 403) return { response: first, via: "none", timings: { total_ms: ms(performance.now() - t0) } };
     const gate: any = await first.clone().json().catch(() => null);
+    const canWork = o.work !== false;
     if (first.status === 402 && Array.isArray(gate?.offers) && gate.offers.length > 0 && o.pay) {
       const offer: AgentOffer = gate.offers[0];
-      if (o.maxAmountMsat !== undefined && offer.amount_msat > o.maxAmountMsat) throw new AgentError("offer", `amount ${offer.amount_msat} msat is over the limit`);
-      const tp = performance.now();
-      const preimage = (await o.pay(offer)).toLowerCase();
-      const tr = performance.now();
-      const r = await redeemPaid(offer, preimage);
-      const redeem_ms = performance.now() - tr;
-      const response = await f(url(path), withHeaders(init, { authorization: "Toll " + r.pass }));
-      return { response, via: "paid", offer, preimage, pass: r.pass, gate: 402, redeemed: { rail: r.rail, cls: r.cls, exp: r.exp }, timings: { pay_ms: ms(tr - tp), redeem_ms: ms(redeem_ms), total_ms: ms(performance.now() - t0) } };
+      const overLimit = o.maxAmountMsat !== undefined && offer.amount_msat > o.maxAmountMsat;
+      if (overLimit && !(canWork && gate.challenge_url)) throw new AgentError("offer", `amount ${offer.amount_msat} msat is over the limit`);
+      if (!overLimit) {
+        const tp = performance.now();
+        let preimage: string | undefined;
+        try {
+          preimage = (await o.pay(offer)).toLowerCase();
+        } catch (e) {
+          if (!(canWork && gate.challenge_url)) throw e; // declined, and no way to do the work instead
+        }
+        if (preimage !== undefined) {
+          const tr = performance.now();
+          const r = await redeemPaid(offer, preimage);
+          const redeem_ms = performance.now() - tr;
+          const response = await f(url(path), withHeaders(init, { authorization: "Toll " + r.pass }));
+          return { response, via: "paid", offer, preimage, pass: r.pass, gate: 402, redeemed: { rail: r.rail, cls: r.cls, exp: r.exp }, timings: { pay_ms: ms(tr - tp), redeem_ms: ms(redeem_ms), total_ms: ms(performance.now() - t0) } };
+        }
+      }
     }
-    if (gate?.challenge && o.work !== false) {
-      const w = await redeemWork(gate.challenge);
+    if (!canWork) return { response: first, via: "none", gate: first.status };
+    // Work fallback. A 402 links the challenge (minted only when asked); a 403 carries it inline.
+    let challenge = gate?.challenge;
+    let challenge_ms: number | undefined;
+    if (!challenge && first.status === 402 && typeof gate?.challenge_url === "string") {
+      const tc = performance.now();
+      const cr = await f(url(gate.challenge_url), { headers: { "toll-client": "agent", accept: "application/json" } });
+      const cj: any = await cr.json().catch(() => ({}));
+      if (cr.status !== 200 || !cj.challenge) throw new AgentError("challenge", cj.error ?? "status " + cr.status, cr.status);
+      challenge = cj.challenge;
+      challenge_ms = ms(performance.now() - tc);
+    }
+    if (challenge) {
+      const w = await redeemWork(challenge);
       const response = await f(url(path), withHeaders(init, { authorization: "Toll " + w.pass }));
-      return { response, via: "work", pass: w.pass, gate: first.status, redeemed: { rail: w.rail, cls: w.cls, exp: w.exp }, timings: { solve_ms: ms(w.solve_ms), redeem_ms: ms(w.redeem_ms), total_ms: ms(performance.now() - t0) } };
+      return { response, via: "work", pass: w.pass, gate: first.status, redeemed: { rail: w.rail, cls: w.cls, exp: w.exp }, timings: { challenge_ms, solve_ms: ms(w.solve_ms), redeem_ms: ms(w.redeem_ms), total_ms: ms(performance.now() - t0) } };
     }
     return { response: first, via: "none", gate: first.status };
   }

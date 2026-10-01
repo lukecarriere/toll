@@ -8,7 +8,7 @@
 import { writeFileSync } from "node:fs";
 import { type PassClaims, sha256, fromHex, toHex, signPass } from "../packages/protocol/src/index.ts";
 import {
-  StubSettler, mintOffer, verifyPaidRedeem, offerAmountMsat, priceMsat, splitFee, usdDisplay, offerUsd, stubEngineSecret, feePercent, type Offer,
+  StubSettler, mintOffer, verifyPaidRedeem, offerAmountMsat, priceMsat, splitFee, usdDisplay, offerUsd, stubEngineSecret, feePercent, paymentRequired, type Offer,
 } from "../packages/settlement-ln/src/index.ts";
 
 const SECRET = "toll-test-vector-secret-do-not-use";
@@ -80,6 +80,16 @@ const paid_invalid = [
   { name: "malformed preimage", offer_id: o1.id, macaroon: o1.macaroon, preimage: "5e11", now: NOW + 5, expect: "malformed" },
   { name: "uppercase preimage is malformed (the issuer lowercases before calling)", offer_id: o1.id, macaroon: o1.macaroon, preimage: PREIMAGE.toUpperCase(), now: NOW + 5, expect: "malformed" },
 ];
+// Agent gate (docs/settlement.md §4): the 402 body links the work challenge instead of carrying one.
+const gate_cases = [
+  { action: "write", path: "/contact", offers: [o1] },
+  { action: "search", path: "/search?q=a b&x=1", offers: [o2] },
+  { action: "write", path: "/wp-comments-post.php", offers: [o1] },
+].map((c) => {
+  const r = paymentRequired(SITE, c.action, c.path, c.offers);
+  return { site: SITE, action: c.action, path: c.path, status: r.status, www_authenticate: r.headers["www-authenticate"], body: r.body };
+});
+
 // Stateful (replay store): the same offer + preimage twice -> second is "replay". Node only.
 const paid_replay = { offer_id: o1.id, macaroon: o1.macaroon, preimage: PREIMAGE, now: NOW + 5, expect: ["ok", "replay"] };
 
@@ -96,6 +106,7 @@ const out = {
   fee_display_rule: "{fee} = fee_bps / 100, plain number, trailing zeros dropped (docs/copy.md Money)",
   usd_rule: "fresh = rate > 0 and now - fetched_at <= 900. owner: cents = floor(msat * rate / 1e9 + 1e-6); '$D.CC', 'less than $0.01' when msat > 0 and cents < 1. offer: units = ceil(msat * rate / 1e7 - 1e-6); 'D.UUUU'. null when not fresh. Rounding confirmed in docs/copy.md 'Money': owner totals round down to the cent, offers round up to $0.0001.",
   settle_pass_rule: "pass claims n = 1, exp = iat + 60 (Q6); same token format as work passes",
+  gate_rule: "agent 402 body = {error: 'payment_required', challenge_url, offers} in that key order; no inline challenge. challenge_url = '/v1/challenge?' + form-encoded site, action, path, client=agent, offers=0 (root-relative to the issuer). WWW-Authenticate = L402 macaroon=\"<offers[0].macaroon>\", invoice=\"<offers[0].invoice>\". The work challenge is minted only when challenge_url is fetched.",
   price_cases,
   fee_cases,
   fee_display_cases,
@@ -103,6 +114,7 @@ const out = {
   paid,
   paid_invalid,
   paid_replay,
+  gate_cases,
 };
 writeFileSync(new URL("../docs/settlement-vectors.json", import.meta.url), JSON.stringify(out, null, 2) + "\n");
-console.log(`settlement vectors: ${price_cases.length} price, ${fee_cases.length} fee, ${fee_display_cases.length} fee display, ${usd_cases.length} usd, ${paid.length} paid, ${paid_invalid.length} paid_invalid, 1 replay`);
+console.log(`settlement vectors: ${price_cases.length} price, ${fee_cases.length} fee, ${fee_display_cases.length} fee display, ${usd_cases.length} usd, ${paid.length} paid, ${paid_invalid.length} paid_invalid, 1 replay, ${gate_cases.length} gate`);

@@ -29,6 +29,7 @@ import {
   StubSettler,
   createSettlementRail,
   stubEngineSecret,
+  workChallengeUrl,
 } from "../../settlement-ln/src/index.ts";
 import { type TollConfig, classifyPath } from "./config.ts";
 import { Metrics } from "./metrics.ts";
@@ -149,7 +150,23 @@ export function createToll(config: TollConfig, opts: TollOptions = {}) {
     return { challenge, offers };
   }
 
-  async function issue(input: IssueInput): Promise<{ challenge: Challenge; velocity_mult: number }> {
+  /**
+   * Offers only, no challenge minted (the 402 to agents carries a `challenge_url` instead, so the
+   * work engine runs only if the agent actually asks for it). [] for non-agents or when off/degraded.
+   */
+  async function offersFor(input: IssueInput): Promise<Offer[]> {
+    if (input.client !== "agent" || !paid) return [];
+    const { wp } = policyFor(input);
+    return paid.rail.offers(input.action as Exclude<ActionClass, "read">, { velocity: wp.mults.velocity, suspicion: 1 });
+  }
+
+  /** Where an agent fetches the work challenge for this action (relative to the issuer origin). */
+  function challengeUrl(action: ActionClass, path: string): string {
+    return workChallengeUrl(config.site_id, action, path);
+  }
+
+  /** Work policy for a request (shared by challenges and offers so price and work move together). */
+  function policyFor(input: IssueInput) {
     const site = input.site ?? config.site_id;
     if (site !== config.site_id) throw new TollError("wrong_site");
     if (!isActionClass(input.action) || input.action === "read") throw new TollError("malformed", "action must be search, write, account or admin");
@@ -161,6 +178,11 @@ export function createToll(config: TollConfig, opts: TollOptions = {}) {
       recent_redeems: velocity.count(key),
       velocity_enabled: config.adaptive.velocity,
     });
+    return { site, prefix, ua_class, wp };
+  }
+
+  async function issue(input: IssueInput): Promise<{ challenge: Challenge; velocity_mult: number }> {
+    const { site, prefix, ua_class, wp } = policyFor(input);
     const challenge = await mintChallenge({
       secret: config.secret,
       site,
@@ -281,6 +303,8 @@ export function createToll(config: TollConfig, opts: TollOptions = {}) {
     allowChallenge,
     issueChallenge,
     issueWithOffers,
+    offersFor,
+    challengeUrl,
     redeemPaid,
     /** Paid-request rail, when enabled (status, owner balance, recent payments). */
     paid: paid?.rail,

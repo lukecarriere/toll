@@ -53,7 +53,9 @@ test("Q2: protected route -> 402 + WWW-Authenticate for agents; 403 toll_require
     const www = r.headers.get("www-authenticate") ?? "";
     const j: any = await r.json();
     assert.equal(j.error, "payment_required");
-    assert.ok(j.challenge?.id);
+    assert.ok(!("challenge" in j), "no inline challenge: the work challenge is linked, minted on request");
+    assert.equal(j.challenge_url, "/v1/challenge?site=site_test&action=write&path=%2Fcontact&client=agent&offers=0");
+    assert.deepEqual(Object.keys(j), ["error", "challenge_url", "offers"]);
     assert.equal(j.offers.length, 1);
     assert.equal(www, `L402 macaroon="${j.offers[0].macaroon}", invoice="${j.offers[0].invoice}"`);
   }
@@ -303,4 +305,68 @@ test("owner toggle (demo-only): unticked -> no offers, agents get 403 and do the
   assert.equal((await agentOffer()).amount_msat, 10000);
   const st: any = await (await fetch(`${S.url}/demo/stats`)).json();
   assert.equal(st.mode, "test payments on");
+});
+
+test("lazy work challenge: a paid write mints no challenge; challenge_url mints one only when fetched, bound to the same action/site/path, no offers", async () => {
+  const minted = () => S.events.filter((e) => e.event === "challenge_minted").length;
+  const m0 = minted();
+  const agent = createAgent({ base: S.url, pay: testBackendPayer(S.url), work: false });
+  for (let i = 0; i < 3; i++) {
+    const w = await agent.fetch("/contact", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ message: "paid " + i }) });
+    assert.equal(w.via, "paid");
+    assert.equal(w.response.status, 200);
+    assert.equal(w.timings?.challenge_ms, undefined, "the paid path never fetches a challenge");
+  }
+  assert.equal(minted() - m0, 0, "0 challenge_minted on paid writes");
+  const g: any = await (await postContact({ "toll-client": "agent" })).json();
+  assert.equal(minted() - m0, 0, "the 402 itself mints nothing");
+  const cr = await fetch(S.url + g.challenge_url, { headers: { "toll-client": "agent" } });
+  assert.equal(cr.status, 200);
+  const cj: any = await cr.json();
+  assert.deepEqual(cj.offers, [], "offers=0: challenge only, no second invoice");
+  assert.equal(cj.challenge.bound.action, "write");
+  assert.equal(cj.challenge.site, "site_test");
+  assert.equal(minted() - m0, 1);
+  const ev = S.events.filter((e) => e.event === "challenge_minted").pop()!;
+  assert.deepEqual([ev.client, ev.source, ev.cls], ["agent", "challenge_endpoint", "write"]);
+  const inline: any = await (await postContact({})).json(); // widget 403: inline challenge, same binding
+  assert.deepEqual(cj.challenge.bound, inline.challenge.bound);
+});
+
+test("agent work fallback fetches challenge_url on demand: no payer, payment declined, offer over the limit", async () => {
+  const body = { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ message: "work" }) };
+  const cases = {
+    "no payer": createAgent({ base: S.url }),
+    declined: createAgent({ base: S.url, pay: async () => { throw new Error("declined"); } }),
+    "over limit": createAgent({ base: S.url, pay: testBackendPayer(S.url), maxAmountMsat: 5000 }),
+  };
+  for (const [name, agent] of Object.entries(cases)) {
+    const w = await agent.fetch("/contact", body);
+    assert.equal(w.gate, 402, name);
+    assert.equal(w.via, "work", name);
+    assert.equal(w.response.status, 200, name);
+    assert.equal(w.redeemed?.rail, "work", name);
+    assert.ok(typeof w.timings?.challenge_ms === "number", name + ": challenge fetched on demand");
+  }
+  // With the fallback off, the old answers stand: 402 returned, or the limit error.
+  const off = await createAgent({ base: S.url, work: false }).fetch("/contact", body);
+  assert.deepEqual([off.via, off.response.status], ["none", 402]);
+  await assert.rejects(createAgent({ base: S.url, pay: testBackendPayer(S.url), maxAmountMsat: 5000, work: false }).fetch("/contact", body), /over the limit/);
+  await assert.rejects(createAgent({ base: S.url, pay: async () => { throw new Error("declined"); }, work: false }).fetch("/contact", body), /declined/);
+});
+
+test("pass_absent: a first contact with no pass is not a rejection; real rejections keep their reason", async () => {
+  const c0 = S.demo.toll.metrics.snapshot();
+  const n0 = S.events.length;
+  assert.equal((await postContact({ "toll-client": "agent" })).status, 402);
+  assert.equal((await postContact({})).status, 403);
+  assert.equal((await postContact({ authorization: "Toll not-a-pass" })).status, 403);
+  const c1 = S.demo.toll.metrics.snapshot();
+  assert.equal(c1.pass_absent - c0.pass_absent, 2);
+  assert.equal(c1.pass_reject - c0.pass_reject, 1, "only the bad pass counts as a rejection");
+  assert.equal(c1.turned_away - c0.turned_away, 2, "the two 403s, not the 402");
+  const ev = S.events.slice(n0);
+  assert.deepEqual(ev.filter((e) => e.event === "pass_absent").map((e) => [e.action, e.status]), [["write", 402], ["write", 403]]);
+  assert.ok(ev.filter((e) => e.event === "pass_reject").every((e) => e.reason !== "missing"));
+  assert.ok(!S.events.some((e) => e.event === "pass_reject" && e.reason === "missing"), "reason=missing is gone");
 });

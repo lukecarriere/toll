@@ -9,7 +9,12 @@ export interface Counters {
   redeems_ok: number;
   redeems_fail: number;
   pass_accept: number;
+  /** Real rejections only: expired, replayed, invalid, wrong site, wrong class, exhausted. */
   pass_reject: number;
+  /** Gated requests that carried no pass at all (first contact). Not a rejection. */
+  pass_absent: number;
+  /** Gate 403s (work-only challenge, no-JS page, or rate-limited), whatever the pass state. Agent 402s are not counted. */
+  turned_away: number;
   avg_took_ms: number | null;
   settled_msat: number;
   /** 402 responses that carried at least one offer. Compare with `paid` (settle redeems). */
@@ -20,7 +25,7 @@ export interface Counters {
 }
 
 export class Metrics {
-  c = { challenges_minted: 0, redeems_ok: 0, redeems_fail: 0, pass_accept: 0, pass_reject: 0, settled_msat: 0, offer_shown: 0, paid: 0, settlement_degraded: 0 };
+  c = { challenges_minted: 0, redeems_ok: 0, redeems_fail: 0, pass_accept: 0, pass_reject: 0, pass_absent: 0, turned_away: 0, settled_msat: 0, offer_shown: 0, paid: 0, settlement_degraded: 0 };
   /** Per "rail|cls" tag counts for redeems_ok and pass_accept. */
   byTag: Record<string, { redeems_ok: number; pass_accept: number }> = {};
   private tookSum = 0;
@@ -74,6 +79,20 @@ export class Metrics {
   passReject(f: { reason: string; action: string }): void {
     this.c.pass_reject++;
     this.emit("pass_reject", f);
+  }
+
+  /**
+   * A gated request with no pass (first contact). Logged apart from pass_reject so rejection rates
+   * count only real rejections. `status` is the gate response: 402 (offers) or 403 (work challenge).
+   */
+  passAbsent(f: { action: string; status: number }): void {
+    this.c.pass_absent++;
+    this.emit("pass_absent", f);
+  }
+
+  /** A gate 403 went out (counter only; the pass_absent / pass_reject event already says why). */
+  turnedAway(): void {
+    this.c.turned_away++;
   }
 
   /** A 402 with offers went out (Data Scientist P1: offers shown vs paid). Never logs the offer itself. */

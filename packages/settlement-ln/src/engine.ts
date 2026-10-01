@@ -58,3 +58,24 @@ export function parseL402Authorization(header: string | undefined, offer_id: str
 export function l402Challenge(offer: Offer): string {
   return `L402 macaroon="${offer.macaroon}", invoice="${offer.invoice}"`;
 }
+
+/**
+ * Where an agent fetches the work challenge a 402 links to (docs/settlement.md §4). Root-relative,
+ * resolved against the issuer origin. `offers=0` asks for the challenge only (no second invoice).
+ */
+export function workChallengeUrl(site: string, action: string, path: string): string {
+  return "/v1/challenge?" + new URLSearchParams({ site, action, path, client: "agent", offers: "0" }).toString();
+}
+
+/**
+ * The agent 402 (docs/settlement.md §4): offers to pay plus a link to the work challenge, which is
+ * minted only if the agent fetches it. Key order is fixed: error, challenge_url, offers.
+ */
+export function paymentRequired(site: string, action: string, path: string, offers: Offer[]): { status: 402; headers: Record<string, string>; body: { error: "payment_required"; challenge_url: string; offers: Offer[] } } {
+  if (offers.length === 0) throw new Error("a 402 needs at least one offer");
+  return {
+    status: 402,
+    headers: { "www-authenticate": l402Challenge(offers[0]), "access-control-expose-headers": "www-authenticate" },
+    body: { error: "payment_required", challenge_url: workChallengeUrl(site, action, path), offers },
+  };
+}

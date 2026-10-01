@@ -127,7 +127,7 @@ A verifier rejects a pass that is past `exp`, for another site, for a lower clas
 
 | Endpoint | Notes |
 |---|---|
-| `GET /v1/challenge?site=&action=&path=&client=widget\|agent` | `{ challenge, offers }`. `site` defaults to the configured site. `action=read` is 400. Rate-limited per IP (default 60/min, 429 after). `offers` is `[]` unless the request is an agent (`client=agent` or `Toll-Client: agent`) and settlement is on and healthy (settlement.md §2, §4). |
+| `GET /v1/challenge?site=&action=&path=&client=widget\|agent&offers=0` | `{ challenge, offers }`. `site` defaults to the configured site. `action=read` is 400. Rate-limited per IP (default 60/min, 429 after). `offers` is `[]` unless the request is an agent (`client=agent` or `Toll-Client: agent`) and settlement is on and healthy (settlement.md §2, §4). `offers=0` asks for the challenge only (always `offers: []`, no invoice minted); it is what a 402's `challenge_url` carries. |
 | `POST /v1/redeem` | §4. |
 | `POST /v1/siteverify` | Form or JSON: `secret`, `response` (a pass, or a JSON redeem payload), optional `action`. Returns `{ success, action, hostname, challenge_ts }` or `{ success: false, "error-codes": […] }`. Spends one pass use. |
 | `GET /v1/status` | Cookie or `Authorization` pass → `{ ok: true, exp, cls, n }` (n = remaining uses), else `{ ok: false }`. |
@@ -135,7 +135,9 @@ A verifier rejects a pass that is past `exp`, for another site, for a lower clas
 
 CORS: the request `Origin` is echoed only if it is in `allowed_origins`, with credentials allowed; never `*`.
 
-Protected routes (middleware): a request without a valid pass gets `403 {"error":"toll_required","challenge":{…}}` (JSON clients, curl), or a short HTML page saying "This form needs JavaScript." when the client prefers HTML. Over the challenge rate limit, the 403 omits the challenge. `toll.fetch` solves the challenge in the 403 and retries once. An agent request (`client=agent` or `Toll-Client: agent`) gets `402 {"error":"payment_required","challenge":{…},"offers":[…]}` with a `WWW-Authenticate` payment challenge instead, when an offer is available (settlement.md §4); otherwise the same 403. A 403 never carries offers.
+Protected routes (middleware): a request without a valid pass gets `403 {"error":"toll_required","challenge":{…}}` (JSON clients, curl), or a short HTML page saying "This form needs JavaScript." when the client prefers HTML. Over the challenge rate limit, the 403 omits the challenge. `toll.fetch` solves the challenge in the 403 and retries once. An agent request (`client=agent` or `Toll-Client: agent`) gets `402 {"error":"payment_required","challenge_url":"/v1/challenge?site=…&action=…&path=…&client=agent&offers=0","offers":[…]}` with a `WWW-Authenticate` payment challenge instead, when an offer is available (settlement.md §4); otherwise the same 403. The 402 carries no inline challenge: the work option stays available through `challenge_url` (root-relative to the issuer origin, bound to the same site, action and path), and the challenge is minted only if the agent fetches it, so a paid write never pays for a work mint. A 403 never carries offers.
+
+Metrics for protected routes (JSON lines on stdout): `pass_accept {rail, cls, action, remaining}`; `pass_reject {reason, action}` only for a pass that was presented and refused (`expired`, `exhausted` (a spent one-use pass replayed), `bad_sig`, `malformed`, `wrong_site`, `class_too_low`); `pass_absent {action, status}` for a request that carried no pass at all (first contact, `status` 402 or 403), which is **not** a rejection. Rejection rates are `pass_reject / (pass_accept + pass_reject)`. The counters line adds `pass_absent` and `turned_away` (gate 403s of any kind: work challenge, no-JS page, rate-limited; agent 402s are not counted). `challenge_minted` fires per challenge actually minted (the 403's inline challenge or a `/v1/challenge` fetch).
 
 ## 8. Test vectors
 

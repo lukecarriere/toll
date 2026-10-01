@@ -42,7 +42,7 @@ export interface AgentPayReport {
   ledger_delta: Ledger | null;
   usd_after: { collected: string | null; available: string | null } | null;
   /** Server counters over this run (from /demo/stats): 402s with offers vs paid redeems, pass split by rail. */
-  server_delta: { offer_shown: number; paid: number; settled_msat: number; passes_work: number; passes_settle: number } | null;
+  server_delta: { offer_shown: number; paid: number; challenges_minted: number; settled_msat: number; passes_work: number; passes_settle: number } | null;
   ok: boolean;
 }
 type Ledger = { gross_msat: number; fee_held_msat: number; net_credited_msat: number; withdrawn_msat: number; available_msat: number };
@@ -58,7 +58,7 @@ async function stats(base: string): Promise<any> {
 
 function counters(st: any) {
   const p = st?.paid;
-  return p ? { offer_shown: p.offer_shown ?? 0, paid: p.paid ?? 0, settled_msat: p.settled_msat ?? 0, passes_work: p.passes?.work ?? 0, passes_settle: p.passes?.settle ?? 0 } : null;
+  return p ? { offer_shown: p.offer_shown ?? 0, paid: p.paid ?? 0, challenges_minted: p.challenges_minted ?? 0, settled_msat: p.settled_msat ?? 0, passes_work: p.passes?.work ?? 0, passes_settle: p.passes?.settle ?? 0 } : null;
 }
 
 /**
@@ -164,7 +164,7 @@ export async function main() {
   }
   if (r.server_delta) {
     const d = r.server_delta;
-    console.log(`server (this run): offer_shown ${d.offer_shown} · paid ${d.paid} · settled_msat ${d.settled_msat} · passes accepted: work ${d.passes_work}, settle ${d.passes_settle}`);
+    console.log(`server (this run): offer_shown ${d.offer_shown} · paid ${d.paid} · challenges minted ${d.challenges_minted} · settled_msat ${d.settled_msat} · passes accepted: work ${d.passes_work}, settle ${d.passes_settle}`);
   }
   const checks = r.paid > 0 ? `replay ${r.replay?.rejected ? "rejected" : "NOT rejected"} · spent pass ${r.pass_reuse?.rejected ? "refused" : "NOT refused"}` : "no paid writes (paid requests off): replay checks skipped";
   console.log(`${r.accepted}/${writes} writes accepted (${r.paid} paid, ${r.work} work) · ${checks} -> ${r.ok ? "OK" : "FAIL"}`);

@@ -10,7 +10,8 @@ const r = await agent.fetch("/contact", { method: "POST", headers: { "content-ty
 ```
 
 - Every request sends `Toll-Client: agent`.
-- 402 with an offer: `pay(offer)` returns the preimage → `POST /v1/redeem` → one-use 60 s pass → retry once with `Authorization: Toll <pass>`.
+- 402 with an offer: `pay(offer)` returns the preimage → `POST /v1/redeem` → one-use 60 s pass → retry once with `Authorization: Toll <pass>`. The paid path never fetches a work challenge.
+- 402 it cannot pay (no `pay`, `pay` throws, offer over `maxAmountMsat`) with `work` on (the default): `GET` the 402's `challenge_url` on demand, do the work, redeem, retry once (`timings.challenge_ms` records the fetch). With `work: false` it returns the 402, or throws the limit / payment error as before.
 - 403 with only a work challenge (paid requests off or paused): solve it with the work engine's Node solver and retry once (`work: false` turns that off).
 - `pay` is yours to supply. `testBackendPayer(base)` uses the demo's test-only `POST /demo/stub-pay` and moves no real money.
 - `maxAmountMsat` refuses offers above a limit.
@@ -22,4 +23,4 @@ npm run demo                              # in one terminal
 npm run agent-pay -- --writes 5           # or: node demo/agent-pay.mjs --writes 20 [--base URL] [--json]
 ```
 
-Pays N writes to `/contact` (doing the work instead when no offer is available, unless `--no-work`), prints one line per write (status, rail/class of the pass, pass shape, amount in msat and USD, client timings: pay, solve, redeem, total), then checks that the same preimage is rejected (`401 replay`) and the spent pass is refused, and prints each amount in msat and USD (from the offer) plus the site ledger totals (gross, fee held, net, in msat, and USD) from `/demo/stats`. It also prints the server counters for the run: `offer_shown`, `paid`, `settled_msat`, and passes accepted by rail (work vs settle). Exits non-zero if any check fails.
+Pays N writes to `/contact` (doing the work instead when no offer is available, unless `--no-work`), prints one line per write (status, rail/class of the pass, pass shape, amount in msat and USD, client timings: pay, solve, redeem, total), then checks that the same preimage is rejected (`401 replay`) and the spent pass is refused, and prints each amount in msat and USD (from the offer) plus the site ledger totals (gross, fee held, net, in msat, and USD) from `/demo/stats`. It also prints the server counters for the run: `offer_shown`, `paid`, `challenges minted` (0 on an all-paid run), `settled_msat`, and passes accepted by rail (work vs settle). Exits non-zero if any check fails.

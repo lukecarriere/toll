@@ -179,7 +179,7 @@ test("logs: raw took_ms with rail and cls tags, counters with settled_msat and s
   const acc = ev.find((e) => e.event === "pass_accept");
   assert.ok(acc && acc.rail === "work" && acc.cls === "write");
   const counters = ev.filter((e) => e.event === "counters").pop();
-  for (const k of ["challenges_minted", "redeems_ok", "redeems_fail", "pass_accept", "pass_reject", "avg_took_ms", "settled_msat", "settlement_degraded", "took_ms_p50", "took_ms_p95"]) assert.ok(k in counters, k);
+  for (const k of ["challenges_minted", "redeems_ok", "redeems_fail", "pass_accept", "pass_reject", "pass_absent", "turned_away", "avg_took_ms", "settled_msat", "settlement_degraded", "took_ms_p50", "took_ms_p95"]) assert.ok(k in counters, k);
   const all = S.lines.join("\n");
   for (const secret of [TEST_SECRET, p.pass, "very-private-text", "abc123", "127.0.0.1"]) assert.ok(!all.includes(secret), `log leaked ${secret.slice(0, 12)}`);
 });
