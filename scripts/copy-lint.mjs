@@ -14,7 +14,8 @@ export const TITLE_EXCEPTIONS = {
 };
 
 // Public surfaces (docs/copy.md "Where these rules apply"). The WordPress plugin joins when it exists.
-export const SURFACES = ["README.md", "packages/widget/src", "packages/widget/dist", "demo", "packages/server-node/src", "packages/wp-toll-gate", "toll.example.yaml"];
+// Amendment 2: the mission pages (website/) and docs/positioning.md are linted too and must pass as written.
+export const SURFACES = ["README.md", "packages/widget/src", "packages/widget/dist", "demo", "packages/server-node/src", "packages/wp-toll-gate", "toll.example.yaml", "website", "docs/positioning.md"];
 const TEXT = /\.(md|ts|mjs|js|html|css|php|json|yaml|yml|txt|sh)$/;
 
 function walk(rel, out = []) {

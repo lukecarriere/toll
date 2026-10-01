@@ -18,7 +18,8 @@
     "demo"
   ],
   "scripts": {
-    "build": "node scripts/gen-strings.mjs && node packages/widget/build.mjs && node scripts/check-dist.mjs",
+    "build": "node scripts/gen-strings.mjs && node packages/widget/build.mjs && node scripts/check-dist.mjs && node website/build.mjs",
+    "build:website": "node website/build.mjs",
     "typecheck": "tsc -p tsconfig.json",
     "vectors": "node scripts/gen-vectors.ts",
     "vectors:settlement": "node scripts/gen-settlement-vectors.ts",
