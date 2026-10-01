@@ -57,9 +57,17 @@ export interface IssueInput {
   path?: string;
   client?: "widget" | "agent";
   userAgent?: string | null;
-  ip?: string;
+  /**
+   * Client address (velocity key). null or omitted: there is none (a listed proxy sent no usable
+   * X-Forwarded-For, the edge had no CF-Connecting-IP, or an SDK caller passed no address), so there
+   * is no network: multiplier 1, no velocity key and no velocity count. There is no shared key.
+   */
+  ip?: string | null;
   source?: "challenge_endpoint" | "middleware";
 }
+
+/** A client address to key velocity on; null, omitted or empty means none (no network, multiplier 1). */
+const hasIp = (ip: string | null | undefined): ip is string => typeof ip === "string" && ip !== "";
 
 export interface Solution {
   /** The engine's solution, opaque to Toll (docs/adapters.md). */
@@ -207,10 +215,10 @@ export function createToll(config: TollConfig, opts: TollOptions = {}) {
     if (!isActionClass(input.action) || input.action === "read") throw new TollError("malformed", "action must be search, write, account or admin");
     const prefix = input.path ? classifyPath(config.routes, input.path, "POST").prefix : "/";
     const ua_class = uaClass(input.userAgent);
-    const key = coarseKey(site, input.ip ?? "?", input.action);
+    const key = hasIp(input.ip) ? coarseKey(site, input.ip, input.action) : null;
     const wp = workParams(config.work, input.action, {
       ua_class,
-      recent_redeems: velocity.count(key),
+      recent_redeems: key === null ? 0 : velocity.count(key),
       velocity_enabled: config.adaptive.velocity,
     });
     return { site, prefix, ua_class, wp };
@@ -249,7 +257,7 @@ export function createToll(config: TollConfig, opts: TollOptions = {}) {
    * single-use claim on the challenge id (replay) -> engine verify (one HMAC via the engine's key
    * signature). The id is consumed before the engine check, so each challenge is verified once.
    */
-  async function verifySolution(challenge: unknown, solution: Solution, ctx: { ip?: string; client?: string } = {}): Promise<RedeemResult> {
+  async function verifySolution(challenge: unknown, solution: Solution, ctx: { ip?: string | null; client?: string } = {}): Promise<RedeemResult> {
     let cls: string | undefined;
     try {
       const c = await checkChallenge(config.secret, challenge, { now: now(), site: config.site_id });
@@ -262,7 +270,7 @@ export function createToll(config: TollConfig, opts: TollOptions = {}) {
       const claims = newPassClaims({ site: c.site, cls: c.bound.action, n: config.defaults.pass_uses, ttl_s: config.defaults.pass_ttl_s, now: now() });
       await store.setTag("pass:" + claims.jti, "work", config.defaults.pass_ttl_s + 60);
       const pass = await signPass(config.secret, claims);
-      velocity.hit(coarseKey(c.site, ctx.ip ?? "?", c.bound.action));
+      if (hasIp(ctx.ip)) velocity.hit(coarseKey(c.site, ctx.ip, c.bound.action));
       const took = Number.isFinite(solution?.took_ms) ? Math.max(0, Math.round(Number(solution.took_ms))) : null;
       const ua = solution?.ua_class === "mobile" || solution?.ua_class === "desktop" ? solution.ua_class : null;
       metrics.redeemOk({ rail: "work", cls: c.bound.action, took_ms: took, ua_class: ua, client: ctx.client ?? "widget", verify_ms });
@@ -278,7 +286,7 @@ export function createToll(config: TollConfig, opts: TollOptions = {}) {
    * Paid redeem (settlement.md §6): the settlement engine checks the proof, the rail books it in the
    * msat ledger, then a short settle pass is minted (Q6 default: one use, 60 s).
    */
-  async function redeemPaid(body: unknown, ctx: { ip?: string } = {}): Promise<PaidRedeemResult> {
+  async function redeemPaid(body: unknown, ctx: { ip?: string | null } = {}): Promise<PaidRedeemResult> {
     if (!paid) throw new TollError("unsupported", "paid redeem is not enabled on this issuer");
     const t0 = performance.now();
     try {
@@ -288,7 +296,7 @@ export function createToll(config: TollConfig, opts: TollOptions = {}) {
       await store.setTag("pass:" + claims.jti, "settle", s.pass_ttl_s + 60);
       const pass = await signPass(config.secret, claims);
       // A paid redeem is a redeem: it counts toward velocity, so a paying swarm's price rises too (phase 3).
-      velocity.hit(coarseKey(config.site_id, ctx.ip ?? "?", r.cls));
+      if (hasIp(ctx.ip)) velocity.hit(coarseKey(config.site_id, ctx.ip, r.cls));
       metrics.redeemOk({ rail: "settle", cls: r.cls, took_ms: null, ua_class: null, client: "agent", verify_ms: Math.round((performance.now() - t0) * 100) / 100 });
       return { pass, exp: claims.exp, cls: claims.cls, rail: "settle", claims, amount_msat: r.amount_msat, fee_msat: r.fee_msat, net_msat: r.net_msat };
     } catch (e) {

@@ -1,7 +1,7 @@
 // toll.yaml loader (spec §14). Values of the form "env:NAME" are read from the environment.
 import { readFileSync } from "node:fs";
 import { parse } from "yaml";
-import { type ActionClass, type WorkPolicy, DEFAULT_ESCALATE, isActionClass, siteUrl } from "../../protocol/src/index.ts";
+import { type ActionClass, type WorkPolicy, type ProxyRange, DEFAULT_ESCALATE, isActionClass, siteUrl, trustedProxies } from "../../protocol/src/index.ts";
 
 /**
  * One route rule. A rule's class applies to writes (POST, PUT, PATCH, DELETE) under the prefix.
@@ -42,6 +42,12 @@ export interface TollConfig {
    * when neither is set.
    */
   discovery: { docs_url: string | null };
+  /**
+   * Reverse proxies whose X-Forwarded-For is read (packages/protocol client-ip.ts, docs/adapters.md):
+   * from the TOLL_TRUSTED_PROXIES environment variable, comma-separated addresses and CIDR ranges.
+   * Empty (the default): the socket address is the client and X-Forwarded-For is never read.
+   */
+  trusted_proxies: ProxyRange[];
   settlement: SettlementConfig;
 }
 
@@ -147,6 +153,7 @@ export function normalizeConfig(raw: Record<string, any>, env: NodeJS.ProcessEnv
     routes,
     confirm_page_view_gating,
     discovery: { docs_url: typeof raw.discovery?.docs_url === "string" && /^https?:\/\//.test(raw.discovery.docs_url) ? raw.discovery.docs_url : siteUrl(env.TOLL_SITE_URL) },
+    trusted_proxies: trustedProxies(env.TOLL_TRUSTED_PROXIES),
     settlement,
   };
 }

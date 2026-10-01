@@ -8,7 +8,7 @@
 //   /toll/v1/toll.js and its worker -> the widget, served same-origin
 // Runs locally only (wrangler dev / miniflare); no deploy, no account. Never logs bodies, cookies or
 // Authorization values. Work-only at the edge: standard mode, no paid offers (see README).
-import { TollError, isActionClass, timingSafeEqual, utf8, siteUrl, type ActionClass } from "../../protocol/src/index.ts";
+import { TollError, isActionClass, timingSafeEqual, utf8, siteUrl, ipBytes, type ActionClass } from "../../protocol/src/index.ts";
 import { createToll } from "../../server-node/src/toll.ts";
 import { normalizeConfig } from "../../server-node/src/config.ts";
 import { Metrics } from "../../server-node/src/metrics.ts";
@@ -92,7 +92,17 @@ function passFrom(req: Request): string | undefined {
   return cookies(req)[PASS_COOKIE];
 }
 
-const ip = (req: Request) => req.headers.get("cf-connecting-ip") ?? req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ?? "?";
+/**
+ * The client address: CF-Connecting-IP, which Cloudflare sets and overwrites on every request, so a
+ * client cannot choose it. X-Forwarded-For is never read here (anyone can write it). Missing or not a
+ * plain address (only in local dev without Cloudflare in front): null, so no network (multiplier 1).
+ */
+const ip = (req: Request): string | null => {
+  const v = req.headers.get("cf-connecting-ip");
+  return v !== null && ipBytes(v) ? v.trim() : null;
+};
+/** Challenge rate-limit key: the client address, else one shared bucket ("?") for every request without one. */
+const limitKey = (req: Request): string => ip(req) ?? "?";
 
 async function body(req: Request): Promise<Record<string, any>> {
   const ct = req.headers.get("content-type") ?? "";
@@ -172,7 +182,7 @@ export default {
       }
       toll.metrics.turnedAway();
       if ((req.headers.get("accept") ?? "").includes("text/html") && !(req.headers.get("accept") ?? "").includes("application/json")) return interstitial(req, url, action);
-      if (!toll.allowChallenge(ip(req))) return json({ error: "toll_required" }, 403);
+      if (!toll.allowChallenge(limitKey(req))) return json({ error: "toll_required" }, 403);
       const challenge = await toll.issueChallenge({ action, path, client: "widget", userAgent: req.headers.get("user-agent"), ip: ip(req), source: "middleware" });
       return json({ error: "toll_required", challenge }, 403);
     } catch (e) {
@@ -195,7 +205,7 @@ async function facade(req: Request, env: Env, url: URL, toll: ReturnType<typeof 
   if (path === "/v1/challenge" && req.method === "GET") {
     const action = url.searchParams.get("action") ?? "write";
     if (!isActionClass(action) || action === "read") return json({ error: "bad_action" }, 400);
-    if (!toll.allowChallenge(ip(req))) return json({ error: "rate_limited" }, 429, { "retry-after": "60" });
+    if (!toll.allowChallenge(limitKey(req))) return json({ error: "rate_limited" }, 429, { "retry-after": "60" });
     const client = url.searchParams.get("client") === "agent" || req.headers.get("toll-client") === "agent" ? "agent" : "widget";
     const challenge = await toll.issueChallenge({ site: url.searchParams.get("site") ?? undefined, action, path: url.searchParams.get("path") ?? undefined, client, userAgent: req.headers.get("user-agent"), ip: ip(req), source: "challenge_endpoint" });
     return json({ challenge, offers: [] });

@@ -4,7 +4,7 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { readFileSync, existsSync, statSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { type ActionClass, TollError, isActionClass, timingSafeEqual, utf8, verifyPassToken, classCovers } from "../../protocol/src/index.ts";
+import { type ActionClass, TollError, isActionClass, timingSafeEqual, utf8, verifyPassToken, classCovers, clientIp as resolveClientIp } from "../../protocol/src/index.ts";
 import { l402Challenge, paymentRequired, StubSettler } from "../../settlement-ln/src/index.ts";
 import type { Toll } from "./toll.ts";
 import { buildManifest, agentsPointer, priceBody, PAID_CLASSES } from "./manifest.ts";
@@ -32,9 +32,23 @@ function send(res: ServerResponse, status: number, body: unknown, headers: Recor
   res.end(json);
 }
 
-export function clientIp(req: Req): string {
-  return req.ip ?? req.socket?.remoteAddress ?? "?";
+/**
+ * Where a request comes from (docs/adapters.md, "Client address"). `ip` is the client address for load
+ * pricing and velocity: the socket address, or behind a proxy listed in TOLL_TRUSTED_PROXIES the
+ * X-Forwarded-For walk of packages/protocol client-ip.ts; null when that walk finds no usable client
+ * (no network: base price, multiplier 1, no velocity count). `limit` is the challenge rate-limit key:
+ * the client address, else the socket address (a stricter shared bucket), else "?". Express's req.ip
+ * and its "trust proxy" setting are not used.
+ */
+export function requestClient(toll: Toll, remoteAddr: string | null | undefined, xff: string | string[] | null | undefined): { ip: string | null; limit: string } {
+  const remote = typeof remoteAddr === "string" ? remoteAddr.trim() : "";
+  const header = Array.isArray(xff) ? xff.join(", ") : xff;
+  const found = resolveClientIp({ remoteAddr: remote, xff: header, trusted: toll.config.trusted_proxies ?? [] });
+  const ip = found === "" ? null : found;
+  return { ip, limit: ip ?? (remote || "?") };
 }
+
+const clientOf = (toll: Toll, req: Req) => requestClient(toll, req.socket?.remoteAddress, req.headers["x-forwarded-for"]);
 
 export function parseCookies(header: string | undefined): Record<string, string> {
   const out: Record<string, string> = {};
@@ -190,7 +204,7 @@ export function tollRouter(toll: Toll) {
         if (!(PAID_CLASSES as readonly string[]).includes(action)) return send(res, 400, { error: "bad_action" });
         const cls = action as (typeof PAID_CLASSES)[number];
         const at = url.searchParams.get("path") ?? "/";
-        const p = toll.currentPrice({ action: cls, path: at, ip: clientIp(req), userAgent: String(req.headers["user-agent"] ?? ""), client: "agent" });
+        const p = toll.currentPrice({ action: cls, path: at, ip: clientOf(toll, req).ip, userAgent: String(req.headers["user-agent"] ?? ""), client: "agent" });
         return send(res, 200, priceBody({ action: cls, status: toll.priceStatus(), p, challenge_url: toll.challengeUrl(cls, at) }));
       }
 
@@ -198,7 +212,7 @@ export function tollRouter(toll: Toll) {
         const action = url.searchParams.get("action") ?? "write";
         if (!isActionClass(action) || action === "read") return send(res, 400, { error: "bad_action" });
         const client = isAgentRequest(url.searchParams, req.headers["toll-client"] as string | undefined) ? "agent" : "widget";
-        if (!toll.allowChallenge(clientIp(req))) return send(res, 429, { error: "rate_limited" }, { "retry-after": "60" });
+        if (!toll.allowChallenge(clientOf(toll, req).limit)) return send(res, 429, { error: "rate_limited" }, { "retry-after": "60" });
         // Offers only for agent clients with paid requests on and healthy; otherwise [] (spec §8.5, §19.11).
         // `offers=0`: the agent's work fallback (a 402's challenge_url) wants the challenge only.
         const workOnly = url.searchParams.get("offers") === "0";
@@ -208,7 +222,7 @@ export function tollRouter(toll: Toll) {
           path: url.searchParams.get("path") ?? undefined,
           client: client as "agent" | "widget",
           userAgent: req.headers["user-agent"],
-          ip: clientIp(req),
+          ip: clientOf(toll, req).ip,
           source: "challenge_endpoint" as const,
         };
         const { challenge, offers } = workOnly ? { challenge: await toll.issueChallenge(input), offers: [] } : await toll.issueWithOffers(input);
@@ -222,14 +236,14 @@ export function tollRouter(toll: Toll) {
         if (body && body.offer_id !== undefined) {
           if (!toll.paid) return send(res, 400, { error: "unsupported", detail: "paid redeem is not enabled on this issuer" });
           // Paid pass: short (Q6), for the client's Authorization header. No cookie: agents carry it themselves.
-          const r = await toll.redeemPaid(body, { ip: clientIp(req) });
+          const r = await toll.redeemPaid(body, { ip: clientOf(toll, req).ip });
           return send(res, 200, { pass: r.pass, exp: r.exp, cls: r.cls, rail: r.rail });
         }
         if (!body || typeof body.challenge_id !== "string" || typeof body.solution !== "object" || body.solution === null) return send(res, 400, { error: "malformed" });
         const challenge = body.challenge ?? toll.findIssued(body.challenge_id);
         if (!challenge) return send(res, 401, { error: "unknown_challenge" });
         if (challenge.id !== body.challenge_id) return send(res, 400, { error: "malformed", detail: "challenge_id mismatch" });
-        const r = await toll.verifySolution(challenge, body.solution, { ip: clientIp(req), client: body.client === "agent" ? "agent" : "widget" });
+        const r = await toll.verifySolution(challenge, body.solution, { ip: clientOf(toll, req).ip, client: body.client === "agent" ? "agent" : "widget" });
         await setPassCookie(toll, req, res, r.pass, r.cls, r.exp);
         return send(res, 200, { pass: r.pass, exp: r.exp, cls: r.cls, rail: r.rail });
       }
@@ -343,7 +357,7 @@ export function tollRouter(toll: Toll) {
             const p = JSON.parse(response);
             const ch = p.challenge ?? toll.findIssued(p.challenge_id);
             if (!ch || ch.id !== p.challenge_id) throw new TollError("malformed");
-            token = (await toll.verifySolution(ch, p.solution ?? {}, { ip: clientIp(req) })).pass;
+            token = (await toll.verifySolution(ch, p.solution ?? {}, { ip: clientOf(toll, req).ip })).pass;
           } else {
             token = String(response ?? "");
           }
@@ -442,7 +456,8 @@ async function reject(toll: Toll, req: Req, res: ServerResponse, action: ActionC
     res.setHeader("cache-control", "no-store");
     return res.end(`<!doctype html><meta charset="utf-8"><title>403</title><p>${noJsMessage ?? "This form needs JavaScript."}</p>`);
   }
-  const r = await gateResponse(toll, { action, path: new URL(req.url ?? "/", "http://x").pathname, agent, userAgent: req.headers["user-agent"] as string | undefined, ip: clientIp(req) });
+  const from = clientOf(toll, req);
+  const r = await gateResponse(toll, { action, path: new URL(req.url ?? "/", "http://x").pathname, agent, userAgent: req.headers["user-agent"] as string | undefined, ip: from.ip, limit: from.limit });
   gateLog(toll, action, absent, r.status);
   return send(res, r.status, r.body, r.headers);
 }
@@ -458,8 +473,8 @@ function gateLog(toll: Toll, action: ActionClass, absent: boolean, status: numbe
  * agent asks. Otherwise the work-only 403 with an inline challenge. Offers never appear in a 403.
  * Both paths count against the per-IP challenge rate limit; over it, the 403 has no challenge.
  */
-async function gateResponse(toll: Toll, o: { action: ActionClass; path: string; agent: boolean; userAgent?: string | null; ip?: string }): Promise<{ status: number; body: unknown; headers: Record<string, string> }> {
-  if (!toll.allowChallenge(o.ip)) return { status: 403, body: { error: "toll_required" }, headers: {} };
+async function gateResponse(toll: Toll, o: { action: ActionClass; path: string; agent: boolean; userAgent?: string | null; ip: string | null; limit: string }): Promise<{ status: number; body: unknown; headers: Record<string, string> }> {
+  if (!toll.allowChallenge(o.limit)) return { status: 403, body: { error: "toll_required" }, headers: {} };
   const input = { action: o.action, path: o.path, client: o.agent ? ("agent" as const) : ("widget" as const), userAgent: o.userAgent, ip: o.ip, source: "middleware" as const };
   if (o.agent) {
     const offers = await toll.offersFor(input).catch(() => []);
@@ -472,12 +487,29 @@ async function gateResponse(toll: Toll, o: { action: ActionClass; path: string; 
   return { status: 403, body: challenge ? { error: "toll_required", challenge } : { error: "toll_required" }, headers: {} };
 }
 
+let warnedNoPeer = false;
+/** Once per process: guardFetch was given no peer address, so it cannot tell clients apart. Names what to set, never an address or header value. */
+function warnNoPeer() {
+  if (warnedNoPeer) return;
+  warnedNoPeer = true;
+  console.warn("[toll] guardFetch has no peer address for this request, so X-Forwarded-For is not read, the price is the base price and every such request shares one rate-limit bucket. Pass it as info.remoteAddr (the handler's second argument) or set o.remoteAddr(request, info).");
+}
+
 /**
  * Fetch-aware helper for Request/Response runtimes: wrap a handler so it only runs with a valid pass.
  *   export default { fetch: guardFetch(toll, handler, { action: "write" }) }
+ * A Request carries no socket address, so pass the peer address as `info.remoteAddr` (second argument)
+ * or with `o.remoteAddr(request, info)`. X-Forwarded-For is read only when that address is a listed
+ * trusted proxy (TOLL_TRUSTED_PROXIES), exactly like the Node router. Without a peer address there is
+ * no client address: no network (base price) and one shared rate-limit bucket, and a one-time warning
+ * (per process) says what to set.
  */
-export function guardFetch(toll: Toll, handler: (req: Request, claims: unknown) => Response | Promise<Response>, o: { action?: ActionClass } = {}) {
-  return async (request: Request): Promise<Response> => {
+export function guardFetch(
+  toll: Toll,
+  handler: (req: Request, claims: unknown) => Response | Promise<Response>,
+  o: { action?: ActionClass; remoteAddr?: (req: Request, info?: { remoteAddr?: string }) => string | null | undefined } = {},
+) {
+  return async (request: Request, info?: { remoteAddr?: string }): Promise<Response> => {
     const url = new URL(request.url);
     const action = o.action ?? toll.classify(url.pathname, request.method).cls;
     if (action === "read") return handler(request, null);
@@ -485,9 +517,11 @@ export function guardFetch(toll: Toll, handler: (req: Request, claims: unknown) 
     const m = /^(?:Toll|Bearer)\s+(\S+)$/i.exec(auth);
     const token = m?.[1] ?? parseCookies(request.headers.get("cookie") ?? undefined)[PASS_COOKIE];
     const refuse = async (absent: boolean) => {
-      const ip = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim();
+      const peer = o.remoteAddr ? o.remoteAddr(request, info) : info?.remoteAddr;
+      if (typeof peer !== "string" || peer.trim() === "") warnNoPeer();
+      const from = requestClient(toll, peer, request.headers.get("x-forwarded-for"));
       const agent = isAgentRequest(url.searchParams, request.headers.get("toll-client"));
-      const r = await gateResponse(toll, { action, path: url.pathname, agent, userAgent: request.headers.get("user-agent"), ip });
+      const r = await gateResponse(toll, { action, path: url.pathname, agent, userAgent: request.headers.get("user-agent"), ip: from.ip, limit: from.limit });
       gateLog(toll, action, absent, r.status);
       return Response.json(r.body, { status: r.status, headers: r.headers });
     };
