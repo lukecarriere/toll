@@ -18,3 +18,6 @@ packages/server-php/vendor/
 .dev.vars
 .wrangler/
 demo/.owner-key
+
+# Plugin zip builds (scripts/build-wp-zip.mjs)
+dist-release/
