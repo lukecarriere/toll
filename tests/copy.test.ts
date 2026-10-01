@@ -92,14 +92,24 @@ test("demo pages: the action class in each card description is in code style, li
   const text = html.replace(/<[^>]+>/g, "");
   for (const v of [COPY.commentsSub, COPY.searchSub, COPY.introLede, COPY.noPassSub]) assert.ok(text.includes(v), v);
   const hammer = hammerPage({ host: "localhost:8787" }).replace(/<[^>]+>/g, "");
-  for (const v of [COPY.hammerTitle, COPY.hammerLede, COPY.runWithoutSub, COPY.runWithSub, COPY.agentSub, COPY.phase2, COPY.legendPending]) assert.ok(hammer.includes(v), v);
+  for (const v of [COPY.hammerTitle, COPY.hammerLede, COPY.runWithoutSub, COPY.runWithSub, COPY.agentSub, COPY.legendPending]) assert.ok(hammer.includes(v), v);
+  // Designer: no "phase 2" tag on the Agent hammer card any more.
+  assert.doesNotMatch(hammerPage({ host: "localhost:8787" }), /phase 2|class="badge"/);
 });
 
 test("demo pages, paid requests on: phase 2 stats and owner block use copy.md strings, USD only, '—' + 'Rate unavailable' when the rate is down", () => {
-  const paid = { mode: COPY.modePaymentsOn, requests: 5, collected: "$0.05", available: "$0.04", agentAccepted: 5 };
+  const paid = { mode: COPY.modePaymentsOn, requests: 5, collected: "$0.05", available: "$0.04", agentAccepted: 5, feeBps: 1000, collecting: true, replayRejected: 1 };
   const strip = (h: string) => h.replace(/<[^>]+>/g, " ");
   const forms = strip(formsPage({ host: "localhost:8787", comments: [], paid }));
-  for (const v of [COPY.modePaymentsOn, COPY.statPaid, COPY.statCollected, COPY.payoutsLabel, COPY.payoutsHelp, COPY.balanceCaption, "$0.05", "$0.04"]) assert.ok(forms.includes(v), v);
+  for (const v of [COPY.modePaymentsOn, COPY.statPaid, COPY.statCollected, COPY.siteOwner, COPY.payoutsLabel, COPY.payoutsHelp, "available to withdraw · after the 10% platform fee", "$0.05", "$0.04"]) assert.ok(forms.includes(v), v);
+  assert.ok(!forms.includes("{fee}"));
+  // "Site owner" heading sits above the checkbox; the checkbox is a live control, not greyed out.
+  const raw = formsPage({ host: "localhost:8787", comments: [], paid });
+  assert.ok(raw.indexOf(`<h3>${COPY.siteOwner}</h3>`) < raw.indexOf('id="payouts-toggle"'));
+  assert.match(raw, /<input type="checkbox" id="payouts-toggle" checked>/);
+  assert.match(formsPage({ host: "localhost:8787", comments: [], paid: { ...paid, collecting: false } }), /<input type="checkbox" id="payouts-toggle">/);
+  // {fee} follows fee_bps (copy.md Money).
+  assert.ok(strip(formsPage({ host: "localhost:8787", comments: [], paid: { ...paid, feeBps: 750 } })).includes("after the 7.5% platform fee"));
   assert.doesNotMatch(forms, /msat|invoice|preimage|offer|stub|\bsat\b/i);
   assert.ok(!forms.includes(COPY.modeWorkOnly));
   const down = formsPage({ host: "localhost:8787", comments: [], paid: { ...paid, mode: COPY.modePaymentsPaused, collected: null, available: null } });
@@ -110,9 +120,46 @@ test("demo pages, paid requests on: phase 2 stats and owner block use copy.md st
   const hammer = hammerPage({ host: "localhost:8787", paid });
   assert.ok(!hammer.includes('class="card locked" id="agent"'));
   assert.match(hammer, /aria-label="5 of 20 accepted"/);
+  // Agent card counts (copy.md): paid requests · usage value collected · "N ✕" replayed payment(s) rejected.
+  const ht = strip(hammer);
+  for (const v of [COPY.agentPaid, COPY.agentCollected, "1 ✕", COPY.agentReplayedOne]) assert.ok(ht.includes(v), v);
+  assert.ok(!ht.includes(COPY.agentReplayedMany));
+  const h2 = strip(hammerPage({ host: "localhost:8787", paid: { ...paid, replayRejected: 2 } }));
+  assert.ok(h2.includes("2 ✕") && h2.includes(COPY.agentReplayedMany));
+  assert.ok(strip(hammerPage({ host: "localhost:8787", paid: { ...paid, replayRejected: 0 } })).replace(/\s+/g, " ").includes("0 ✕ " + COPY.agentReplayedMany));
   // Paid requests off: phase 1 page, no phase 2 block.
   const off = formsPage({ host: "localhost:8787", comments: [] });
   assert.ok(!off.includes(COPY.payoutsLabel) && off.includes(COPY.modeWorkOnly));
+});
+
+test("USD rounding follows the rule confirmed in docs/copy.md 'Money': owner totals round down to the cent, offers round up to $0.0001", async () => {
+  const { usdDisplay, offerUsd } = await import("../packages/settlement-ln/src/index.ts");
+  const money = section(md, "Money");
+  assert.match(money, /owner balances and totals round down to the cent/);
+  assert.match(money, /Offer prices round up and show at most four decimals \(\$0\.0001\)/);
+  const fx = { usd_per_btc: 100000, fetched_at: 0, source: "test" };
+  assert.equal(usdDisplay(45000, fx, 0), "$0.04"); // $0.045 owner total -> down
+  assert.equal(usdDisplay(19999, fx, 0), "$0.01"); // $0.019999 -> down
+  const fx2 = { usd_per_btc: 63412.57, fetched_at: 0, source: "test" };
+  assert.equal(offerUsd(10000, fx2, 0), "0.0064"); // $0.0063412 offer -> up
+  assert.equal(offerUsd(10000, fx, 0), "0.0100"); // exact stays exact
+});
+
+test("{fee} placeholder (docs/copy.md 'Money'): 1000 -> 10, 750 -> 7.5, 25 -> 0.25; filled in the demo and WordPress templates", async () => {
+  const { feePercent, fillFee } = await import("../packages/settlement-ln/src/index.ts");
+  assert.equal(feePercent(1000), "10");
+  assert.equal(feePercent(750), "7.5");
+  assert.equal(feePercent(25), "0.25");
+  assert.match(section(md, "Money"), /1000 → "10", 750 → "7\.5", 25 → "0\.25"/);
+  const wp = section(md, "WordPress strings");
+  for (const [tpl, want] of [
+    ["available to withdraw, after the {fee}% platform fee", "available to withdraw, after the 7.5% platform fee"],
+    ["{fee}% · recorded on each payment", "7.5% · recorded on each payment"],
+  ]) {
+    assert.ok(wp.includes(tpl), tpl);
+    assert.equal(fillFee(tpl, 750), want);
+  }
+  assert.equal(fillFee(COPY.balanceCaption, 25), "available to withdraw · after the 0.25% platform fee");
 });
 
 test("vendor names (docs/adapters.md list) are caught on public surfaces and allowed only in adapters.md, package.json and licence notices", async () => {

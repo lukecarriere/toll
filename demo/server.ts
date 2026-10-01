@@ -38,7 +38,18 @@ export function createDemo(o: { config?: TollConfig; metrics?: Metrics; store?: 
     if (!toll.paid) return null;
     const st = await toll.paid.status();
     const b = toll.paid.balance();
-    return { mode: st.healthy ? COPY.modePaymentsOn : COPY.modePaymentsPaused, requests: b.paid_requests, collected: b.usd?.collected ?? null, available: b.usd?.available ?? null, agentAccepted: toll.metrics.byTag["settle|write"]?.pass_accept ?? 0 };
+    // Owner switched paid requests off -> "work-only" (not "paused", which means the backend failed).
+    const mode = !st.collecting ? COPY.modeWorkOnly : st.healthy ? COPY.modePaymentsOn : COPY.modePaymentsPaused;
+    return {
+      mode,
+      requests: b.paid_requests,
+      collected: b.usd?.collected ?? null,
+      available: b.usd?.available ?? null,
+      agentAccepted: toll.metrics.byTag["settle|write"]?.pass_accept ?? 0,
+      feeBps: toll.paid.fee_bps,
+      collecting: st.collecting,
+      replayRejected: toll.paid.replayRejected(),
+    };
   }
 
   app.get("/", async (req, res) => {
@@ -70,12 +81,28 @@ export function createDemo(o: { config?: TollConfig; metrics?: Metrics; store?: 
     const s = toll.metrics.snapshot();
     const pv = await paidView();
     // `paid.ledger` (integer msat) is for the agent script's summary; the page shows only the USD strings.
-    const paid = pv && toll.paid ? { ...pv, ledger: toll.paid.balance().msat, fee_bps: toll.paid.fee_bps } : null;
+    const passes = { work: 0, settle: 0 };
+    for (const [k, v] of Object.entries(s.by_tag)) {
+      const rail = k.split("|")[0];
+      if (rail === "work" || rail === "settle") passes[rail] += v.pass_accept;
+    }
+    const paid = pv && toll.paid ? { ...pv, offer_shown: s.offer_shown, paid: s.paid, settled_msat: s.settled_msat, passes, ledger: toll.paid.balance().msat, fee_bps: toll.paid.fee_bps } : null;
     res.set("cache-control", "no-store").json({ accepted: s.pass_accept, rejected: s.pass_reject, mean_solve_ms: s.avg_took_ms, mode: pv ? pv.mode : COPY.modeWorkOnly, paid });
   });
 
   // TEST ONLY: the local test backend's payer, standing in for the client's payment app in the demo
   // and the agent script. Mounted only with the stub backend; it never moves real money.
+  // Demo-only working toggle for the owner block's "Collect usage payouts" (PM confirmed). JSON only,
+  // so a cross-site form cannot flip it. Off: no offers, agents get the work challenge (403).
+  if (toll.paid) {
+    const rail = toll.paid;
+    app.post("/demo/payouts", express.json({ limit: "1kb" }), (req, res) => {
+      if (typeof req.body?.collect !== "boolean") return res.status(400).json({ error: "malformed" });
+      rail.setCollecting(req.body.collect);
+      res.set("cache-control", "no-store").json({ collect: rail.isCollecting() });
+    });
+  }
+
   const settler = toll.stubSettler;
   if (settler) {
     app.post("/demo/stub-pay", express.json({ limit: "4kb" }), (req, res) => {

@@ -326,7 +326,7 @@ async function reject(toll: Toll, req: Req, res: ServerResponse, action: ActionC
       issued = undefined;
     }
   }
-  const r = requiredResponse(issued);
+  const r = requiredResponse(toll, action, issued);
   return send(res, r.status, r.body, r.headers);
 }
 
@@ -334,8 +334,9 @@ async function reject(toll: Toll, req: Req, res: ServerResponse, action: ActionC
  * 402 for an agent when there is an offer to pay (settlement.md §4, Q2); otherwise the work-only 403.
  * Offers never appear in a 403.
  */
-function requiredResponse(issued: { challenge: unknown; offers: Parameters<typeof l402Challenge>[0][] } | undefined): { status: number; body: unknown; headers: Record<string, string> } {
+function requiredResponse(toll: Toll, action: ActionClass, issued: { challenge: unknown; offers: Parameters<typeof l402Challenge>[0][] } | undefined): { status: number; body: unknown; headers: Record<string, string> } {
   if (issued && issued.offers.length > 0) {
+    toll.metrics.offerShown({ cls: action, amount_msat: issued.offers[0].amount_msat, offers: issued.offers.length });
     return {
       status: 402,
       body: { error: "payment_required", challenge: issued.challenge, offers: issued.offers },
@@ -370,7 +371,7 @@ export function guardFetch(toll: Toll, handler: (req: Request, claims: unknown) 
       const agent = isAgentRequest(url.searchParams, request.headers.get("toll-client"));
       let issued: Awaited<ReturnType<Toll["issueWithOffers"]>> | undefined;
       if (toll.allowChallenge(ip)) issued = await toll.issueWithOffers({ action, path: url.pathname, client: agent ? "agent" : "widget", userAgent: request.headers.get("user-agent"), ip, source: "middleware" }).catch(() => undefined);
-      const r = requiredResponse(issued);
+      const r = requiredResponse(toll, action, issued);
       return Response.json(r.body, { status: r.status, headers: r.headers });
     }
   };

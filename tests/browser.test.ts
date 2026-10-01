@@ -505,3 +505,48 @@ test("phase 2 demo: USD-only stats and owner block, live after 5 paid agent writ
     await paid.close();
   }
 });
+
+test("owner toggle (demo-only): untick -> 'work-only' tag, balance still shown, agents fall back to work; tick -> 'test payments on', agents pay; checkbox is a live, full-contrast control", async () => {
+  const { agentPay } = await import("../packages/agent/src/agent-pay.ts");
+  const { PAID_ON } = await import("./helpers.ts");
+  const paid = await startDemo({ work: { standard: { cost: 500 } }, ...PAID_ON });
+  const { page, ctx, errors } = await newPage();
+  try {
+    assert.equal((await agentPay({ base: paid.url, writes: 2 })).paid, 2);
+    await page.goto(paid.url + "/");
+    const box = page.locator("#payouts-toggle");
+    assert.equal(await box.isChecked(), true);
+    assert.equal(await box.isEnabled(), true);
+    const look = await page.evaluate(() => {
+      const el = document.getElementById("payouts-toggle")!;
+      const label = el.closest("label")!;
+      return { disabled: (el as HTMLInputElement).disabled, op: getComputedStyle(el).opacity, labelOp: getComputedStyle(label).opacity, color: getComputedStyle(label).color };
+    });
+    assert.deepEqual({ disabled: look.disabled, op: look.op, labelOp: look.labelOp }, { disabled: false, op: "1", labelOp: "1" });
+    assert.equal(await page.textContent("#mode-tag"), "test payments on");
+    // Untick.
+    await page.click('label:has(#payouts-toggle)');
+    await page.waitForFunction(() => document.getElementById("mode-tag")?.textContent === "work-only", null, { timeout: 5000 });
+    assert.equal(await box.isChecked(), false);
+    assert.notEqual(await page.textContent("#mode-tag"), "test payments paused");
+    assert.equal(await page.textContent("#bal-amt"), "$0.01", "balance stays visible while unticked (2 writes: 18,000 msat net)");
+    assert.equal(await page.isVisible("#bal-rate"), false);
+    const off = await agentPay({ base: paid.url, writes: 2 });
+    assert.equal(off.ok, true);
+    assert.deepEqual([off.paid, off.work], [0, 2]);
+    await page.waitForTimeout(2200); // a stats refresh must not flip the box back
+    assert.equal(await box.isChecked(), false);
+    assert.equal(await page.textContent("#mode-tag"), "work-only");
+    // Tick again.
+    await page.click('label:has(#payouts-toggle)');
+    await page.waitForFunction(() => document.getElementById("mode-tag")?.textContent === "test payments on", null, { timeout: 5000 });
+    const on = await agentPay({ base: paid.url, writes: 1 });
+    assert.deepEqual([on.paid, on.work, on.replay?.rejected], [1, 0, true]);
+    await page.waitForFunction(() => document.getElementById("st-paid")?.textContent === "3", null, { timeout: 5000 });
+    assert.deepEqual(await page.evaluate(() => (window as any).__csp), []);
+    assert.deepEqual(errors, []);
+  } finally {
+    await ctx.close();
+    await paid.close();
+  }
+});

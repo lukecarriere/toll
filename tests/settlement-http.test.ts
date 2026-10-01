@@ -146,7 +146,10 @@ test("§19.10: the agent client pays 5 writes end to end; ledger gross/fee/net i
     assert.equal(w.via, "paid");
     assert.equal(w.amount_msat, 10000);
     assert.equal(w.usd, "0.0100");
-    assert.equal(w.pass_exp_in_s, 60);
+    assert.equal(w.pass_ttl_s, 60);
+    assert.equal(w.pass_n, 1);
+    assert.equal(w.rail, "settle");
+    assert.equal(w.cls, "write");
   }
   assert.equal(r.replay?.rejected, true);
   assert.equal(r.pass_reuse?.rejected, true);
@@ -245,4 +248,59 @@ test("config: settlement accepts only the local test backend and Q6-bounded pass
   // No rate configured: offers carry no USD and owner amounts are hidden.
   const toll = createToll(normalizeConfig({ ...base, settlement: { enabled: true } }), { metrics: new Metrics(() => {}) });
   assert.equal(toll.paid!.balance().usd, null);
+});
+
+test("offer_shown (Data Scientist P1): +1 per 402 that carries offers; not for 403s or /v1/challenge; in /demo/stats and the counters line next to paid", async () => {
+  const st0: any = await (await fetch(`${S.url}/demo/stats`)).json();
+  const c0 = S.demo.toll.metrics.snapshot();
+  assert.equal((await postContact({ "toll-client": "agent" })).status, 402);
+  assert.equal((await postContact({ "toll-client": "agent" })).status, 402);
+  await fetch(`${S.url}/v1/challenge?action=write&client=agent`);
+  assert.equal((await postContact({})).status, 403);
+  const c1 = S.demo.toll.metrics.snapshot();
+  assert.equal(c1.offer_shown - c0.offer_shown, 2);
+  assert.equal(c1.paid, c0.paid);
+  const st1: any = await (await fetch(`${S.url}/demo/stats`)).json();
+  assert.equal(st1.paid.offer_shown - st0.paid.offer_shown, 2);
+  assert.equal(st1.paid.paid, c1.paid);
+  // One paid write: one more 402 shown, one more paid.
+  const r = await agentPay({ base: S.url, writes: 1 });
+  assert.equal(r.server_delta?.paid, 1);
+  assert.equal(r.server_delta?.offer_shown, 2, "the write's 402 plus the spent-pass check's 402");
+  // Counters line: offer_shown sits right next to paid.
+  S.demo.toll.metrics.flush();
+  const line = S.lines.filter((l) => l.includes('"event":"counters"')).pop()!;
+  const keys = Object.keys(JSON.parse(line));
+  assert.equal(keys.indexOf("paid") - keys.indexOf("offer_shown"), 1, line);
+  const ev = S.events.filter((e) => e.event === "offer_shown");
+  assert.ok(ev.length >= 2 && ev.every((e) => e.cls === "write" && e.amount_msat === 10000 && !("invoice" in e) && !("macaroon" in e)));
+});
+
+test("owner toggle (demo-only): unticked -> no offers, agents get 403 and do the work, mode 'work-only' (not 'paused'), balance kept; ticked -> offers back", async () => {
+  const toggle = (collect: unknown) => fetch(`${S.url}/demo/payouts`, { method: "POST", headers: json, body: JSON.stringify({ collect }) });
+  assert.equal((await toggle("no")).status, 400);
+  const degradedBefore = S.events.filter((e) => e.event === "settlement_degraded").length;
+  assert.deepEqual(await (await toggle(false)).json(), { collect: false });
+  try {
+    const q: any = await (await fetch(`${S.url}/v1/challenge?action=write&client=agent`)).json();
+    assert.deepEqual(q.offers, []);
+    assert.equal((await postContact({ "toll-client": "agent" })).status, 403);
+    const st: any = await (await fetch(`${S.url}/demo/stats`)).json();
+    assert.equal(st.mode, "work-only");
+    assert.equal(st.paid.collecting, false);
+    assert.match(st.paid.available, /^\$\d+\.\d\d$/, "balance stays visible");
+    const r = await agentPay({ base: S.url, writes: 2 });
+    assert.equal(r.ok, true, JSON.stringify(r));
+    assert.deepEqual([r.paid, r.work], [0, 2]);
+    assert.ok(r.writes.every((w) => w.rail === "work" && w.timings?.solve_ms !== undefined));
+    assert.equal(S.events.filter((e) => e.event === "settlement_degraded").length, degradedBefore, "switching off is not a failure");
+    const page = await (await fetch(`${S.url}/`)).text();
+    assert.match(page, /<span id="mode-tag">work-only<\/span>/);
+    assert.match(page, /<input type="checkbox" id="payouts-toggle">/);
+  } finally {
+    await toggle(true);
+  }
+  assert.equal((await agentOffer()).amount_msat, 10000);
+  const st: any = await (await fetch(`${S.url}/demo/stats`)).json();
+  assert.equal(st.mode, "test payments on");
 });

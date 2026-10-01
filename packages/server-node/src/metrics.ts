@@ -12,11 +12,15 @@ export interface Counters {
   pass_reject: number;
   avg_took_ms: number | null;
   settled_msat: number;
+  /** 402 responses that carried at least one offer. Compare with `paid` (settle redeems). */
+  offer_shown: number;
+  /** Successful paid redeems (rail = settle). */
+  paid: number;
   settlement_degraded: number;
 }
 
 export class Metrics {
-  c = { challenges_minted: 0, redeems_ok: 0, redeems_fail: 0, pass_accept: 0, pass_reject: 0, settled_msat: 0, settlement_degraded: 0 };
+  c = { challenges_minted: 0, redeems_ok: 0, redeems_fail: 0, pass_accept: 0, pass_reject: 0, settled_msat: 0, offer_shown: 0, paid: 0, settlement_degraded: 0 };
   /** Per "rail|cls" tag counts for redeems_ok and pass_accept. */
   byTag: Record<string, { redeems_ok: number; pass_accept: number }> = {};
   private tookSum = 0;
@@ -45,6 +49,7 @@ export class Metrics {
 
   redeemOk(f: { rail: "work" | "settle"; cls: string; took_ms: number | null; ua_class: string | null; client: string; verify_ms: number }): void {
     this.c.redeems_ok++;
+    if (f.rail === "settle") this.c.paid++;
     this.tag(f.rail, f.cls).redeems_ok++;
     if (f.took_ms !== null && f.rail === "work") {
       this.tookSum += f.took_ms;
@@ -69,6 +74,12 @@ export class Metrics {
   passReject(f: { reason: string; action: string }): void {
     this.c.pass_reject++;
     this.emit("pass_reject", f);
+  }
+
+  /** A 402 with offers went out (Data Scientist P1: offers shown vs paid). Never logs the offer itself. */
+  offerShown(f: { cls: string; amount_msat: number; offers: number }): void {
+    this.c.offer_shown++;
+    this.emit("offer_shown", f);
   }
 
   settlementDegraded(f: { reason: string }): void {

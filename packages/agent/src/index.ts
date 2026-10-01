@@ -42,6 +42,10 @@ export interface AgentResult {
   pass?: string;
   /** Status of the gate response before the retry (402 or 403), when there was one. */
   gate?: number;
+  /** What /v1/redeem said: rail ("settle" | "work") and class of the pass. */
+  redeemed?: { rail: string; cls: string; exp: number };
+  /** Client-side timings in ms: payment (test backend), work solve, redeem call, whole request. */
+  timings?: { pay_ms?: number; solve_ms?: number; redeem_ms?: number; total_ms: number };
 }
 
 export class AgentError extends Error {
@@ -74,32 +78,40 @@ export function createAgent(o: AgentOptions) {
     return j;
   }
 
-  async function redeemWork(challenge: any): Promise<string> {
+  async function redeemWork(challenge: any): Promise<{ pass: string; rail: string; cls: string; exp: number; solve_ms: number; redeem_ms: number }> {
+    const t0 = performance.now();
     const s = await solveWork(challenge.work);
+    const solve_ms = performance.now() - t0;
     if (!s) throw new AgentError("work", "no solution in time");
+    const t1 = performance.now();
     const r = await f(url("/v1/redeem"), { method: "POST", headers: { "content-type": "application/json", "toll-client": "agent" }, body: JSON.stringify({ challenge_id: challenge.id, challenge, client: "agent", solution: { work: { counter: s.counter, derivedKey: s.derivedKey }, took_ms: Math.round(s.time) } }) });
     const j: any = await r.json().catch(() => ({}));
     if (r.status !== 200 || typeof j.pass !== "string") throw new AgentError("redeem", j.error ?? "rejected", r.status);
-    return j.pass;
+    return { pass: j.pass, rail: j.rail, cls: j.cls, exp: j.exp, solve_ms, redeem_ms: performance.now() - t1 };
   }
 
   /** Fetch a protected resource, paying (or working) once if the gate asks. Bodies must be replayable (string/bytes). */
   async function agentFetch(path: string, init?: RequestInit): Promise<AgentResult> {
+    const t0 = performance.now();
+    const ms = (x: number) => Math.round(x * 10) / 10;
     const first = await f(url(path), withHeaders(init, {}));
-    if (first.status !== 402 && first.status !== 403) return { response: first, via: "none" };
+    if (first.status !== 402 && first.status !== 403) return { response: first, via: "none", timings: { total_ms: ms(performance.now() - t0) } };
     const gate: any = await first.clone().json().catch(() => null);
     if (first.status === 402 && Array.isArray(gate?.offers) && gate.offers.length > 0 && o.pay) {
       const offer: AgentOffer = gate.offers[0];
       if (o.maxAmountMsat !== undefined && offer.amount_msat > o.maxAmountMsat) throw new AgentError("offer", `amount ${offer.amount_msat} msat is over the limit`);
+      const tp = performance.now();
       const preimage = (await o.pay(offer)).toLowerCase();
+      const tr = performance.now();
       const r = await redeemPaid(offer, preimage);
+      const redeem_ms = performance.now() - tr;
       const response = await f(url(path), withHeaders(init, { authorization: "Toll " + r.pass }));
-      return { response, via: "paid", offer, preimage, pass: r.pass, gate: 402 };
+      return { response, via: "paid", offer, preimage, pass: r.pass, gate: 402, redeemed: { rail: r.rail, cls: r.cls, exp: r.exp }, timings: { pay_ms: ms(tr - tp), redeem_ms: ms(redeem_ms), total_ms: ms(performance.now() - t0) } };
     }
     if (gate?.challenge && o.work !== false) {
-      const pass = await redeemWork(gate.challenge);
-      const response = await f(url(path), withHeaders(init, { authorization: "Toll " + pass }));
-      return { response, via: "work", pass, gate: first.status };
+      const w = await redeemWork(gate.challenge);
+      const response = await f(url(path), withHeaders(init, { authorization: "Toll " + w.pass }));
+      return { response, via: "work", pass: w.pass, gate: first.status, redeemed: { rail: w.rail, cls: w.cls, exp: w.exp }, timings: { solve_ms: ms(w.solve_ms), redeem_ms: ms(w.redeem_ms), total_ms: ms(performance.now() - t0) } };
     }
     return { response: first, via: "none", gate: first.status };
   }

@@ -7,5 +7,5 @@ textarea.f.short{height:64px}
 .legend-p{display:inline-flex;align-items:center;gap:6px}
 .legend-p .cell{width:14px}
 .cells20{grid-template-columns:repeat(20,1fr);max-width:640px}
-.sum2{grid-template-columns:repeat(2,1fr);max-width:640px}
+.sum3{max-width:640px}
 .bal .cap[hidden]{display:none}

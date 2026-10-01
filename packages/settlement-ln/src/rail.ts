@@ -28,6 +28,8 @@ export interface RailOptions {
 export interface RailStatus {
   mode: "stub";
   healthy: boolean;
+  /** Owner switch: false means paid requests are switched off on purpose (offers []), not degraded. */
+  collecting: boolean;
   usd: "ok" | "unavailable";
   rate_source: string;
 }
@@ -41,6 +43,9 @@ export function createSettlementRail(o: RailOptions) {
   const ledger = o.ledger ?? new MemoryLedger();
   let degraded = false;
   let settledCount = 0;
+  /** Owner switch ("Collect usage payouts"). Off: no new offers; work keeps flowing. Not a failure. */
+  let collecting = true;
+  let replayRejected = 0;
   const recent: { at: number; cls: ActionClass; amount_msat: number }[] = [];
 
   function markDegraded(reason: string) {
@@ -50,6 +55,7 @@ export function createSettlementRail(o: RailOptions) {
 
   /** offers[] for an agent request. Fail soft: any engine problem means no offers, work still flows. */
   async function offers(cls: PaidClass, mults: { velocity?: number; suspicion?: number } = {}): Promise<Offer[]> {
+    if (!collecting) return [];
     const now = o.now();
     let healthy = false;
     try {
@@ -84,7 +90,13 @@ export function createSettlementRail(o: RailOptions) {
   async function redeemPaid(body: any): Promise<Paid & { fee_msat: number; net_msat: number }> {
     if (!body || body.kind !== "ln402" || typeof body.offer_id !== "string" || typeof body.preimage !== "string" || typeof body.macaroon !== "string") throw new TollError("malformed");
     const now = o.now();
-    const paid = await o.engine.verifyPaid({ site: o.site, proof: { offer_id: body.offer_id, credential: body.macaroon, preimage: body.preimage.toLowerCase() }, now, firstUse: o.firstUse });
+    let paid: Paid;
+    try {
+      paid = await o.engine.verifyPaid({ site: o.site, proof: { offer_id: body.offer_id, credential: body.macaroon, preimage: body.preimage.toLowerCase() }, now, firstUse: o.firstUse });
+    } catch (e) {
+      if (e instanceof TollError && e.code === "replay") replayRejected++;
+      throw e;
+    }
     const entry = ledger.credit({ site: o.site, ref: body.offer_id, gross_msat: paid.amount_msat, fee_bps: o.fee_bps, at: now });
     settledCount++;
     recent.push({ at: now, cls: paid.cls, amount_msat: paid.amount_msat });
@@ -99,7 +111,7 @@ export function createSettlementRail(o: RailOptions) {
     if (!healthy) markDegraded("engine_unhealthy");
     else degraded = false;
     const now = o.now();
-    return { mode: "stub", healthy, usd: fresh(o.fx.quote(now), now) ? "ok" : "unavailable", rate_source: o.fx.kind };
+    return { mode: "stub", healthy, collecting, usd: fresh(o.fx.quote(now), now) ? "ok" : "unavailable", rate_source: o.fx.kind };
   }
 
   /** Owner view: msat totals plus USD strings (null when the rate is unavailable: hide, don't guess). */
@@ -112,7 +124,15 @@ export function createSettlementRail(o: RailOptions) {
     return { msat: b, paid_requests: settledCount, usd: collected !== null && available !== null ? { collected, available } : null };
   }
 
-  return { offers, redeemPaid, status, balance, ledger, recent: () => [...recent], isDegraded: () => degraded, fee_bps: o.fee_bps };
+  /**
+   * Switch new offers on or off. Offers already issued can still be redeemed (the client may have
+   * paid already); one payment still buys one pass.
+   */
+  function setCollecting(on: boolean) {
+    collecting = on;
+  }
+
+  return { offers, redeemPaid, status, balance, setCollecting, isCollecting: () => collecting, replayRejected: () => replayRejected, ledger, recent: () => [...recent], isDegraded: () => degraded, fee_bps: o.fee_bps };
 }
 
 export type SettlementRail = ReturnType<typeof createSettlementRail>;

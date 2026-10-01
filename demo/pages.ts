@@ -1,3 +1,4 @@
+import { fillFee } from "../packages/settlement-ln/src/index.ts";
 import { COPY, resultsFor } from "./strings.ts";
 
 const esc = (s: string) => s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
@@ -14,7 +15,16 @@ export interface PaidView {
   available: string | null;
   /** Writes accepted with a paid pass (agent hammer squares). */
   agentAccepted: number;
+  /** Platform fee in basis points, for the {fee} placeholder. */
+  feeBps: number;
+  /** Owner switch "Collect usage payouts" (demo-only working toggle). */
+  collecting: boolean;
+  /** Paid redeems rejected as replays (agent hammer third count). */
+  replayRejected: number;
 }
+
+/** Agent card third count label: singular at 1 (copy.md). */
+export const replayedLabel = (n: number) => (n === 1 ? COPY.agentReplayedOne : COPY.agentReplayedMany);
 
 function header(host: string, current: "forms" | "hammer", paid: PaidView | null) {
   const cur = (k: string) => (k === current ? ' aria-current="page"' : "");
@@ -79,16 +89,16 @@ ${statsAside(o.paid ?? null)}
 }
 
 function statsAside(paid: PaidView | null) {
-  // Phase 2 block (designer's prototype). The payouts checkbox reflects the demo config and is
-  // read-only here: the setting itself lives in toll.yaml (and, later, the WordPress settings screen).
+  // Phase 2 block (designer's prototype). The payouts checkbox is a working, demo-only toggle
+  // (POST /demo/payouts): unticked = no offers, agents do the work instead; the balance stays shown.
   const phase2 = paid
     ? `<div class="phase2"><div class="hr"></div>
 <dl class="kv"><dt>${COPY.statPaid}</dt><dd id="st-paid">${paid.requests}</dd><dt>${COPY.statCollected}</dt><dd id="st-coll">${esc(paid.collected ?? "—")}</dd></dl></div>
 <div class="hr"></div>
-<div class="owner">
-<label class="chk"><input type="checkbox" checked disabled>${COPY.payoutsLabel}</label>
+<div class="owner"><h3>${COPY.siteOwner}</h3>
+<label class="chk"><input type="checkbox" id="payouts-toggle"${paid.collecting ? " checked" : ""}>${COPY.payoutsLabel}</label>
 <p class="help">${COPY.payoutsHelp}</p>
-<div class="bal"><div class="amt" id="bal-amt">${esc(paid.available ?? "—")}</div><div class="cap">${COPY.balanceCaption}</div><div class="cap" id="bal-rate"${paid.available === null ? "" : " hidden"}>${COPY.rateUnavailable}</div></div>
+<div class="bal"><div class="amt" id="bal-amt">${esc(paid.available ?? "—")}</div><div class="cap">${esc(fillFee(COPY.balanceCaption, paid.feeBps))}</div><div class="cap" id="bal-rate"${paid.available === null ? "" : " hidden"}>${COPY.rateUnavailable}</div></div>
 </div>`
     : "";
   return `<aside class="stats" aria-labelledby="st-h"><div class="card">
@@ -106,9 +116,9 @@ function agentCard(paid: PaidView | null) {
   const n = paid ? Math.min(20, paid.agentAccepted) : 0;
   const row = Array.from({ length: 20 }, (_, i) => (i < n ? `<span class="cell a" title="${COPY.legendAccepted}">✓</span>` : `<span class="cell p" title="${COPY.legendPending}">·</span>`)).join("");
   const sum = paid
-    ? `<div class="sum sum2"><div><b id="ag-paid">${paid.requests}</b><span>${COPY.statPaid}</span></div><div><b id="ag-coll">${esc(paid.collected ?? "—")}</b><span>${COPY.statCollected}</span></div></div>`
+    ? `<div class="sum sum3"><div><b id="ag-paid">${paid.requests}</b><span>${COPY.agentPaid}</span></div><div><b id="ag-coll">${esc(paid.collected ?? "—")}</b><span>${COPY.agentCollected}</span></div><div><b id="ag-replay">${paid.replayRejected} ✕</b><span id="ag-replay-l">${replayedLabel(paid.replayRejected)}</span></div></div>`
     : "";
-  return `<section class="card${paid ? "" : " locked"}" id="agent" aria-labelledby="r3"><h2 id="r3">${COPY.navAgent} <span class="badge">${COPY.phase2}</span></h2><p class="sub">${COPY.agentSub}</p>
+  return `<section class="card${paid ? "" : " locked"}" id="agent" aria-labelledby="r3"><h2 id="r3">${COPY.navAgent}</h2><p class="sub">${COPY.agentSub}</p>
 <pre class="term"><span class="g">$</span> node demo/agent-pay.mjs --writes 20</pre>
 <div class="cells cells20" id="ag-cells" role="img" aria-label="${n} of 20 accepted">${row}</div>${sum}</section>`;
 }

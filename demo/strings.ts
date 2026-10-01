@@ -39,9 +39,11 @@ export const COPY = {
   // Stats and owner block (phase 2)
   statPaid: "Paid requests",
   statCollected: "Usage value collected",
+  siteOwner: "Site owner",
   payoutsLabel: "Collect usage payouts",
   payoutsHelp: "High-volume clients can pay per request. You withdraw from the dashboard.",
-  balanceCaption: "available to withdraw · after the 10% platform fee",
+  // Template: {fee} = fee_bps / 100, trailing zeros dropped (copy.md "Money"; fillFee in settlement-ln)
+  balanceCaption: "available to withdraw · after the {fee}% platform fee",
   // From copy.md "Money": what the demo shows when the USD rate is unavailable
   rateUnavailable: "Rate unavailable",
   // Hammer page
@@ -59,7 +61,10 @@ export const COPY = {
   legendRejected: "✕ rejected",
   legendPending: "not sent yet",
   agentSub: "An automated client sends 20 writes with no widget. It pays each request instead of doing the work, using the test payment backend.",
-  phase2: "phase 2",
+  agentPaid: "paid requests",
+  agentCollected: "usage value collected",
+  agentReplayedMany: "replayed payments rejected",
+  agentReplayedOne: "replayed payment rejected",
   // Shared with the widget (copy.md "Widget strings")
   noJs: "This form needs JavaScript.",
 } as const;

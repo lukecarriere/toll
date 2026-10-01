@@ -92,6 +92,8 @@ Error mapping: malformed body or preimage → 400 `malformed`; credential MAC or
 - `usd = amount_msat / 1e11 * usd_per_btc`.
 - Owner totals: two decimals ("$12.40"), **rounded down** to the cent so a balance is never overstated; a non-zero amount under a cent is "less than $0.01" (docs/copy.md). `usdDisplay()` in `ledger.ts` returns nothing when the rate is missing or older than 15 minutes, so the screen hides the amount (demo: "—" / "Rate unavailable"; WordPress: "Balance will show again shortly") rather than blocking anything.
 - Offer `display.usd`: 4 decimals, **rounded up** to $0.0001 (`offerUsd()` in `fx.ts`).
+- This rounding rule is confirmed by the PM in docs/copy.md "Money" (tests: `tests/copy.test.ts`, vectors `usd_cases`).
+- `{fee}` in owner copy is `feePercent(fee_bps)`: fee_bps / 100 with trailing zeros dropped (1000 → "10", 750 → "7.5", 25 → "0.25"); `fillFee()` in `ledger.ts`, PHP `Settlement::feePercent()` / `fillFee()` for the WordPress strings (copy only; no plugin code). Vectors `fee_display_cases`.
 - Both formulas are integer-cent / integer-unit with a 1e-6 tolerance so Node and PHP print identical strings (vectors `usd_cases`).
 - Offers still carry `amount_msat` when FX is down; only `display.usd` is dropped. `/v1/health` reports `usd_rate: "ok" | "unavailable"`.
 
@@ -167,7 +169,11 @@ If the backend fails health checks or invoice minting fails: keep issuing work c
 
 ## 12. Metrics (already in the counters line)
 
-`settled_msat` (sum of gross msat settled), `settlement_degraded` (count), and `rail`/`cls` tags on `redeem_ok` and `pass_accept`. All are 0 or absent of `settle` rows while settlement is off.
+`settled_msat` (sum of gross msat settled), `offer_shown` (402 responses that carried offers; one `offer_shown {cls, amount_msat, offers}` event each, never the offer itself) next to `paid` (successful paid redeems), `settlement_degraded` (count), and `rail`/`cls` tags on `redeem_ok` and `pass_accept`. `offer_shown` vs `paid` is the Data Scientist's pay-vs-grind conversion signal; `/v1/challenge?client=agent` responses are not counted. All are 0 or absent of `settle` rows while settlement is off.
+
+## 12a. Owner switch (demo-only working toggle)
+
+The demo's "Collect usage payouts" checkbox calls `POST /demo/payouts {collect: bool}` (JSON only) → `rail.setCollecting()`. Unticked: no new offers, so agents get the 403 work challenge and `agent-pay` does the work; the mode tag reads "work-only" (not "test payments paused", which is only for a failing backend); no `settlement_degraded` is logged; the balance stays visible. Offers already issued can still be redeemed. Ticked: offers return. The setting is in memory and resets to `settlement.enabled` on restart. The PM confirmed the toggle (2026-09-30). The WordPress checkbox is still the TODO in §9.
 
 ## 13. Logging and secrets
 

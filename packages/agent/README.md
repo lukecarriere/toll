@@ -22,4 +22,4 @@ npm run demo                              # in one terminal
 npm run agent-pay -- --writes 5           # or: node demo/agent-pay.mjs --writes 20 [--base URL] [--json]
 ```
 
-Pays N writes to `/contact`, then checks that the same preimage is rejected (`401 replay`) and the spent pass is refused, and prints each amount in msat and USD (from the offer) plus the site ledger totals (gross, fee held, net, in msat, and USD) from `/demo/stats`. Exits non-zero if any check fails.
+Pays N writes to `/contact` (doing the work instead when no offer is available, unless `--no-work`), prints one line per write (status, rail/class of the pass, pass shape, amount in msat and USD, client timings: pay, solve, redeem, total), then checks that the same preimage is rejected (`401 replay`) and the spent pass is refused, and prints each amount in msat and USD (from the offer) plus the site ledger totals (gross, fee held, net, in msat, and USD) from `/demo/stats`. It also prints the server counters for the run: `offer_shown`, `paid`, `settled_msat`, and passes accepted by rail (work vs settle). Exits non-zero if any check fails.
