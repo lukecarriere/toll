@@ -88,6 +88,25 @@ test("unit: counting_since is set by the first flush and never moved by later on
   assert.equal(out.second, "1000000000", "a later flush leaves counting_since alone");
 });
 
+test("unit: a failed flush returns 0, logs one error line and moves no counter (counts are dropped, not retried)", { skip }, () => {
+  const out = JSON.parse(wpEval(`
+    global $wpdb; $log = tempnam(sys_get_temp_dir(), 'toll-flush-'); ini_set('error_log', $log);
+    $before = toll_gate_counters_today();
+    toll_gate_count('pass_absent');
+    $keep = $wpdb->options; $wpdb->options = $wpdb->prefix . 'toll_no_such_table';
+    $n = toll_gate_counters_flush();
+    $wpdb->options = $keep;
+    $again = toll_gate_counters_flush();
+    $after = toll_gate_counters_today();
+    $lines = array_values(array_filter(explode("\\n", (string) file_get_contents($log)))); unlink($log);
+    echo wp_json_encode(['n' => $n, 'again' => $again, 'd' => $after['pass_absent'] - $before['pass_absent'], 'lines' => $lines]);`).split("\n").pop()!);
+  assert.equal(out.n, 0, "a failed write is not reported as written");
+  assert.equal(out.again, 0, "the buffer was emptied; nothing is retried");
+  assert.equal(out.d, 0);
+  assert.equal(out.lines.length, 1, "exactly one error_log line: " + JSON.stringify(out.lines));
+  assert.match(out.lines[0], /Toll: counter flush failed: \S.*(doesn't exist|not found)/);
+});
+
 test("M10 reads: 0 counter writes and no counter moves on /, a post, the feed, search, the login page and the price lookup", { skip }, async () => {
   const post = await (await fetch(WP + "/wp-json/wp/v2/posts?per_page=1")).json();
   const postPath = Array.isArray(post) && post[0] ? new URL(post[0].link).pathname : "/?p=1";
