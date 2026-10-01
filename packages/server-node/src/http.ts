@@ -121,12 +121,17 @@ export function tollRouter(toll: Toll) {
     const url = new URL(req.url ?? "/", "http://x");
     const path = url.pathname;
     try {
-      if (path === "/toll/v1/toll.js" || path === "/toll/v1/toll.worker.js") {
+      if (path === "/toll/v1/toll.js" || path === "/toll/v1/toll.worker.js" || path === "/toll/v1/toll.worker-argon2id.js" || path === "/toll/v1/LICENSES.txt") {
         const body = asset(path.slice("/toll/v1/".length));
         if (!body) return send(res, 404, { error: "not_built" });
         res.statusCode = 200;
-        res.setHeader("content-type", "text/javascript; charset=utf-8");
+        res.setHeader("content-type", path.endsWith(".txt") ? "text/plain; charset=utf-8" : "text/javascript; charset=utf-8");
         res.setHeader("cache-control", "no-cache");
+        // A dedicated worker runs under the policy of its own response. The hardened engine compiles
+        // WebAssembly, so its worker (and only its worker) gets 'wasm-unsafe-eval' and nothing else:
+        // no network, no imports. This overrides any page-wide policy the host app set for this path.
+        if (path.endsWith("toll.worker-argon2id.js")) res.setHeader("content-security-policy", "default-src 'none'; script-src 'self' 'wasm-unsafe-eval'");
+        else if (path.endsWith("toll.worker.js")) res.setHeader("content-security-policy", "default-src 'none'; script-src 'self'");
         return res.end(body);
       }
       if (!path.startsWith("/v1/")) return next();

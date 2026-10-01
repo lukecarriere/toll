@@ -1,6 +1,8 @@
 <?php
-// Toll protocol v1 verifier for PHP 8.1+ (spec §12). No framework, no extensions beyond hash.
-// Mirrors packages/protocol (TypeScript). Both must pass docs/vectors.json.
+// Toll protocol v1 verifier for PHP 8.1+ (spec §12, Amendment 1). Toll owns the envelope and pass;
+// the puzzle is verified by the work engine's PHP library (pinned in composer.json, see
+// docs/adapters.md). Argon2id (hardened mode) needs ext-sodium. Mirrors packages/protocol and
+// packages/work-adapter (TypeScript). Both must pass docs/vectors.json.
 declare(strict_types=1);
 
 namespace Toll;
@@ -17,8 +19,10 @@ final class Protocol
 {
     public const CLASS_MULT = ['read' => 0, 'search' => 1, 'write' => 4, 'account' => 8, 'admin' => 16];
     public const MAX_TTL = 120;
-    public const MAX_SPAN = 16777216;
-    private const FIELDS = ['v', 'id', 'site', 'algo', 'cost', 'n', 'bits', 'counter_start', 'counter_end', 'targets', 'mem_kib', 'parallelism', 'salt', 'bound', 'iat', 'exp', 'sig'];
+    public const MAX_WORK_BYTES = 4096;
+    /** Toll alg -> the engine's algorithm name inside the opaque payload. */
+    private const ENGINE_ALG = ['pbkdf2-sha256' => 'PBKDF2/SHA-256', 'argon2id' => 'ARGON2ID'];
+    private const FIELDS = ['v', 'id', 'site', 'alg', 'work', 'bound', 'iat', 'exp', 'sig'];
 
     /** Canonical JSON: sorted keys, no whitespace, slashes and unicode unescaped (same bytes as JS). */
     public static function canonicalJson(mixed $v): string
@@ -74,24 +78,11 @@ final class Protocol
             }
         }
         if (($c['v'] ?? null) !== 1) throw new TollError('unsupported', 'version');
-        if (($c['algo'] ?? null) !== 'pbkdf2-sha256') throw new TollError('unsupported', 'algo');
+        if (!isset(self::ENGINE_ALG[$c['alg'] ?? ''])) throw new TollError('unsupported', 'alg');
         if (!is_string($c['id'] ?? null) || !preg_match('/^[0-9a-f]{32}$/', $c['id'])) throw new TollError('malformed', 'id');
         if (!is_string($c['site'] ?? null) || strlen($c['site']) < 1 || strlen($c['site']) > 128) throw new TollError('malformed', 'site');
-        if (!self::isInt($c['cost'] ?? null, 1, 10000000)) throw new TollError('malformed', 'cost');
-        if (!self::isInt($c['n'] ?? null, 1, 16)) throw new TollError('malformed', 'n');
-        if (!self::isInt($c['bits'] ?? null, 8, 64) || $c['bits'] % 8 !== 0) throw new TollError('malformed', 'bits');
-        if (!self::isInt($c['counter_start'] ?? null, 0, PHP_INT_MAX) || !self::isInt($c['counter_end'] ?? null, 1, 9007199254740991)) throw new TollError('malformed', 'range');
-        $span = $c['counter_end'] - $c['counter_start'];
-        if ($span < 1 || $span > self::MAX_SPAN) throw new TollError('malformed', 'range');
-        if (!is_array($c['targets'] ?? null) || !array_is_list($c['targets']) || count($c['targets']) !== $c['n']) throw new TollError('malformed', 'targets');
-        $hexLen = intdiv($c['bits'], 4);
-        foreach ($c['targets'] as $t) {
-            if (!is_string($t) || !preg_match('/^[0-9a-f]{' . $hexLen . '}$/', $t)) throw new TollError('malformed', 'target');
-        }
-        if (($c['mem_kib'] ?? null) !== 0 || ($c['parallelism'] ?? null) !== 1) throw new TollError('malformed', 'mem_kib/parallelism');
-        if (!is_string($c['salt'] ?? null)) throw new TollError('malformed', 'salt');
-        $salt = base64_decode($c['salt'], true);
-        if ($salt === false || strlen($salt) < 8 || strlen($salt) > 64) throw new TollError('malformed', 'salt');
+        if (!is_array($c['work'] ?? null) || ($c['work'] !== [] && array_is_list($c['work']))) throw new TollError('malformed', 'work');
+        if (strlen(self::canonicalJson($c['work'])) > self::MAX_WORK_BYTES) throw new TollError('malformed', 'work payload too large');
         $b = $c['bound'] ?? null;
         if (!is_array($b) || count($b) !== 2 || !isset(self::CLASS_MULT[$b['action'] ?? '']) || $b['action'] === 'read' || !is_string($b['path_prefix'] ?? null) || !str_starts_with($b['path_prefix'], '/')) throw new TollError('malformed', 'bound');
         if (!self::isInt($c['iat'] ?? null, 0, PHP_INT_MAX) || !self::isInt($c['exp'] ?? null, 0, PHP_INT_MAX)) throw new TollError('malformed', 'times');
@@ -112,7 +103,7 @@ final class Protocol
         return $unsigned;
     }
 
-    /** Signature, time and site. Cheap; run before verifyWork. */
+    /** Signature, time and site. Cheap; run before the work engine verifies anything. */
     public static function checkChallenge(string $secret, mixed $c, int $now, ?string $site = null, int $skew = 5): array
     {
         self::assertChallengeShape($c);
@@ -125,31 +116,39 @@ final class Protocol
         return $c;
     }
 
-    public static function subSalt(string $saltB64, int $i): string
+    /** Work-engine secrets, derived from the Toll secret (same derivation as packages/work-adapter). */
+    public static function engineSecret(string $secret, string $label): string
     {
-        return hash('sha256', base64_decode($saltB64, true) . pack('N', $i), true);
+        return hash_hmac('sha256', 'toll/work-adapter/v1/' . $label, $secret);
     }
 
-    /** One PBKDF2 call per sub-puzzle; stops at the first wrong one. */
-    public static function verifyWork(array $c, mixed $nonces): bool
+    /**
+     * Verify the engine payload and solution with the engine's own PHP library (docs/adapters.md),
+     * after binding it to this Toll challenge id. No network: the engine's online verification
+     * service is never called.
+     */
+    public static function verifyWork(string $secret, array $c, mixed $solution): bool
     {
-        if (!is_array($nonces) || !array_is_list($nonces) || count($nonces) !== $c['n']) return false;
-        $bytes = intdiv($c['bits'], 8);
-        foreach ($nonces as $i => $nonce) {
-            if (!is_string($nonce) || !preg_match('/^[0-9a-f]{16}$/', $nonce)) return false;
-            $counter = hexdec($nonce);
-            if (!is_int($counter) || $counter < $c['counter_start'] || $counter >= $c['counter_end']) return false;
-            $dk = hash_pbkdf2('sha256', $nonce, self::subSalt($c['salt'], $i), $c['cost'], 32, true);
-            if (bin2hex(substr($dk, 0, $bytes)) !== $c['targets'][$i]) return false;
+        $w = $c['work'];
+        $params = $w['parameters'] ?? null;
+        if (!is_array($params) || ($params['algorithm'] ?? null) !== self::ENGINE_ALG[$c['alg']]) throw new TollError('malformed', 'engine payload');
+        if (($params['data']['tid'] ?? null) !== $c['id']) return false;
+        if (!is_array($solution) || !self::isInt($solution['counter'] ?? null, 0, 0xffffffff) || !is_string($solution['derivedKey'] ?? null) || !preg_match('/^(?:[0-9a-f]{2}){1,64}$/', $solution['derivedKey'])) return false;
+        $engine = new \AltchaOrg\Altcha\Altcha(self::engineSecret($secret, 'challenge'), self::engineSecret($secret, 'key'));
+        $kdf = $c['alg'] === 'argon2id' ? new \AltchaOrg\Altcha\Algorithm\Argon2id() : new \AltchaOrg\Altcha\Algorithm\Pbkdf2();
+        try {
+            $r = $engine->verifySolution(new \AltchaOrg\Altcha\VerifySolutionOptions(['challenge' => $w, 'solution' => ['counter' => $solution['counter'], 'derivedKey' => $solution['derivedKey']]], $kdf));
+        } catch (\Throwable $e) {
+            throw new TollError('malformed', 'engine payload');
         }
-        return true;
+        return $r->verified;
     }
 
     /** Full redeem check: returns the challenge or throws TollError. Replay tracking is the caller's job. */
-    public static function verifySolution(string $secret, mixed $challenge, mixed $nonces, int $now, ?string $site = null): array
+    public static function verifySolution(string $secret, mixed $challenge, mixed $solution, int $now, ?string $site = null): array
     {
         $c = self::checkChallenge($secret, $challenge, $now, $site);
-        if (!self::verifyWork($c, $nonces)) throw new TollError('bad_solution');
+        if (!self::verifyWork($secret, $c, is_array($solution) ? ($solution['work'] ?? null) : null)) throw new TollError('bad_solution');
         return $c;
     }
 

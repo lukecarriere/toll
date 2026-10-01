@@ -1,13 +1,15 @@
 <?php
-// §19.1: the shared work and pass vectors must pass on PHP. Run: php tests/php/run-vectors.php
+// §19.1: the shared work (engine fixtures) and pass vectors must pass on PHP. Run: php tests/php/run-vectors.php
+// Needs `composer install` in packages/server-php (the work engine's PHP library).
 declare(strict_types=1);
-require __DIR__ . '/../../packages/server-php/src/Toll.php';
+require __DIR__ . '/../../packages/server-php/vendor/autoload.php';
 
 use Toll\Protocol;
 use Toll\TollError;
 
 $v = json_decode(file_get_contents(__DIR__ . '/../../docs/vectors.json'), true, 512, JSON_THROW_ON_ERROR);
 $secret = $v['secret'];
+check(Protocol::engineSecret($secret, 'challenge') === $v['engine_secrets']['challenge'] && Protocol::engineSecret($secret, 'key') === $v['engine_secrets']['key'], 'engine secrets derive from the Toll secret');
 $pass = 0;
 $fail = 0;
 function check(bool $ok, string $name): void
@@ -21,13 +23,8 @@ foreach ($v['work'] as $w) {
     check(Protocol::signingInput($c) === $w['signing_input'], "canonical signing input: {$w['name']}");
     $unsigned = $c; unset($unsigned['sig']);
     check(Protocol::signChallenge($secret, $unsigned)['sig'] === $c['sig'], "challenge sig reproduces: {$w['name']}");
-    foreach ($w['sub_salt_hex'] as $i => $hex) check(bin2hex(Protocol::subSalt($c['salt'], $i)) === $hex, "sub-salt $i: {$w['name']}");
-    foreach ($w['solution']['nonces'] as $i => $nonce) {
-        $dk = hash_pbkdf2('sha256', $nonce, Protocol::subSalt($c['salt'], $i), $c['cost'], 32, true);
-        check(bin2hex($dk) === $w['dk_hex'][$i], "DK $i: {$w['name']}");
-    }
     try {
-        Protocol::verifySolution($secret, $c, $w['solution']['nonces'], $w['now'], $v['site']);
+        Protocol::verifySolution($secret, $c, $w['solution'], $w['now'], $v['site']);
         check(true, "solution accepted: {$w['name']}");
     } catch (TollError $e) {
         check(false, "solution accepted: {$w['name']} ({$e->codeName})");
@@ -37,7 +34,7 @@ foreach ($v['work'] as $w) {
 
 foreach ($v['work_invalid'] as $w) {
     try {
-        Protocol::verifySolution($secret, $w['challenge'], $w['nonces'], $w['now'], $v['site']);
+        Protocol::verifySolution($secret, $w['challenge'], $w['solution'], $w['now'], $v['site']);
         check(false, "rejected ({$w['expect']}): {$w['name']} -- was accepted");
     } catch (TollError $e) {
         check($e->codeName === $w['expect'], "rejected ({$w['expect']}): {$w['name']}" . ($e->codeName === $w['expect'] ? '' : " -- got {$e->codeName}"));

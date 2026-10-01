@@ -4,17 +4,15 @@ secret: env:TOLL_SECRET          # at least 16 characters; never shipped to brow
 issuer_public_url: http://localhost:8787
 allowed_origins: [http://localhost:8787]
 defaults:
-  algos: [pbkdf2-sha256]
   pass_ttl_s: 900                # one pass: 15 minutes...
   pass_uses: 20                  # ...or 20 actions, whichever comes first
   challenge_ttl_s: 120           # at most 120
   max_solve_ms: 8000             # longest check; set the same value on the script tag (data-max-solve-ms)
 work:                            # policy defaults; see docs/policy.md before changing
-  cost: 2000                     # KDF iterations per attempt
-  n: 4                           # sub-puzzles per challenge
-  bits: 32
-  unit_iterations: 400000        # expected work for a 1x class on desktop (write = 4x)
-  max_iterations: 11000000       # worst-case cap per challenge
+  mode: standard                 # standard (fast) or hardened (memory-hard, heavier on phones)
+  standard: { cost: 5000, unit_tries: 64 }                                   # write = 4 units
+  hardened: { cost: 2, memory_kib: 19456, parallelism: 1, unit_tries: 4 }   # Argon2id, 19 MiB, t=2
+  max_units: 28                  # worst-case cap per check, in units
   device_mult: { mobile: 0.6, desktop: 1.0 }
 adaptive:
   velocity: false                # phase 3

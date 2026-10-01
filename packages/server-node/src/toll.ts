@@ -14,9 +14,9 @@ import {
   signPass,
   uaClass,
   verifyPassToken,
-  verifyWork,
   workParams,
 } from "../../protocol/src/index.ts";
+import { createWorkAdapter, type WorkAdapter } from "../../work-adapter/src/index.ts";
 import { type TollConfig, classifyPath } from "./config.ts";
 import { Metrics } from "./metrics.ts";
 import { MemoryStore, type TollStore, WindowCounter } from "./stores.ts";
@@ -26,6 +26,11 @@ export interface TollOptions {
   metrics?: Metrics;
   /** Unix seconds. Injectable for tests. */
   now?: () => number;
+  /**
+   * Test and benchmark hook: choose the hidden counter in [0, counter_max) instead of uniformly at
+   * random (for example near the top, so a slow-path UI test is not left to chance). Never set in production.
+   */
+  pickCounter?: (counter_max: number) => number;
 }
 
 export interface IssueInput {
@@ -39,7 +44,8 @@ export interface IssueInput {
 }
 
 export interface Solution {
-  nonces: unknown;
+  /** The engine's solution, opaque to Toll (docs/adapters.md). */
+  work: unknown;
   took_ms?: unknown;
   ua_class?: unknown;
 }
@@ -61,6 +67,7 @@ export function createToll(config: TollConfig, opts: TollOptions = {}) {
   const challengeRate = new WindowCounter(60, () => now());
   const velocity = new WindowCounter(config.work.velocity_window_s, () => now());
   const issued = new Map<string, { c: Challenge; until: number }>();
+  const engine: WorkAdapter = createWorkAdapter(config.secret);
 
   function rememberIssued(c: Challenge) {
     const t = now();
@@ -85,25 +92,25 @@ export function createToll(config: TollConfig, opts: TollOptions = {}) {
       recent_redeems: velocity.count(key),
       velocity_enabled: config.adaptive.velocity,
     });
-    const { challenge } = await mintChallenge({
+    const challenge = await mintChallenge({
       secret: config.secret,
       site,
       action: input.action,
       path_prefix: prefix,
-      cost: wp.cost,
-      n: wp.n,
-      bits: wp.bits,
-      span: wp.span,
+      alg: wp.alg,
       ttl_s: config.defaults.challenge_ttl_s,
       now: now(),
+      makeWork: async (tid, exp) => (await engine.issue({ tid, exp, spec: { alg: wp.alg, cost: wp.cost, memory_kib: wp.memory_kib, parallelism: wp.parallelism, counter_max: wp.counter_max }, counter: opts.pickCounter ? Math.min(wp.counter_max - 1, Math.max(0, Math.floor(opts.pickCounter(wp.counter_max)))) : undefined })) as unknown as Record<string, unknown>,
     });
     rememberIssued(challenge);
     metrics.challengeMinted({
       cls: input.action,
       client: input.client ?? "widget",
       ua_class,
-      span: wp.span,
-      expected_iterations: wp.expected_iterations,
+      mode: wp.mode,
+      alg: wp.alg,
+      counter_max: wp.counter_max,
+      expected_tries: wp.expected_tries,
       velocity_mult: wp.mults.velocity,
       source: input.source ?? "sdk",
     });
@@ -112,8 +119,8 @@ export function createToll(config: TollConfig, opts: TollOptions = {}) {
 
   /**
    * Verify a work solution and mint a pass. Order: shape, signature, time, site (cheap) ->
-   * single-use claim on the challenge id (replay) -> work check (one KDF call per sub-puzzle).
-   * The id is consumed before the work check, so each signed challenge costs at most one verify.
+   * single-use claim on the challenge id (replay) -> engine verify (one HMAC via the engine's key
+   * signature). The id is consumed before the engine check, so each challenge is verified once.
    */
   async function verifySolution(challenge: unknown, solution: Solution, ctx: { ip?: string; client?: string } = {}): Promise<RedeemResult> {
     let cls: string | undefined;
@@ -122,10 +129,9 @@ export function createToll(config: TollConfig, opts: TollOptions = {}) {
       cls = c.bound.action;
       const fresh = await store.firstUse("chal:" + c.id, c.exp - now() + 60);
       if (!fresh) throw new TollError("replay");
-      const t0 = performance.now();
-      const ok = await verifyWork(c, solution?.nonces);
-      const verify_ms = Math.round((performance.now() - t0) * 10) / 10;
-      if (!ok) throw new TollError("bad_solution");
+      const v = await engine.verify(c.work, solution?.work, { tid: c.id, alg: c.alg });
+      const verify_ms = v.verify_ms;
+      if (!v.ok) throw new TollError(v.code === "expired" ? "expired" : v.code === "malformed" ? "malformed" : "bad_solution");
       const claims = newPassClaims({ site: c.site, cls: c.bound.action, n: config.defaults.pass_uses, ttl_s: config.defaults.pass_ttl_s, now: now() });
       await store.setTag("pass:" + claims.jti, "work", config.defaults.pass_ttl_s + 60);
       const pass = await signPass(config.secret, claims);

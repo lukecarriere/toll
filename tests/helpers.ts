@@ -30,12 +30,12 @@ export interface Running {
 }
 
 /** Start the demo app (issuer + widget + site) on a random localhost port, capturing log lines. */
-export async function startDemo(over: Record<string, any> = {}): Promise<Running> {
+export async function startDemo(over: Record<string, any> = {}, opts: { pickCounter?: (counter_max: number) => number } = {}): Promise<Running> {
   const lines: string[] = [];
   const metrics = new Metrics((l) => lines.push(l));
   const store = new MemoryStore();
   const config = testConfig(over);
-  const demo = createDemo({ config, metrics, store });
+  const demo = createDemo({ config, metrics, store, pickCounter: opts.pickCounter });
   const server: Server = await new Promise((ok) => {
     const s = demo.app.listen(0, "127.0.0.1", () => ok(s));
   });

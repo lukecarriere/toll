@@ -1,4 +1,4 @@
-# Policy defaults (phase 1)
+# Policy defaults (phase 1, as amended)
 
 This page lists the work policy that ships in phase 1, why each default is what it is, and the
 measured benchmark behind it. Every number in the benchmark section comes from a real run
@@ -6,94 +6,83 @@ on the build box; the raw files are linked. Nothing here is an estimate unless i
 
 ## 1. What the policy controls
 
-`effective_cost` (spec §9.5) decides how much work a challenge asks for. In this version:
+`effective_cost` (spec §9.5) decides how much work a challenge asks for. Since Amendment 1 the
+puzzle is the work engine's (docs/adapters.md); Toll's policy decides only how many engine tries a
+challenge needs:
 
 ```
-expected_iterations = unit_iterations * class_mult[action]
-                    * device_mult      // 0.6 mobile, 1.0 desktop (from the UA class)
-                    * velocity_mult    // 1, 2, 4, 8, 16 (off by default in phase 1, see §4)
-                    worst case (n * cost * span) clamped to max_iterations
+expected_tries = unit_tries[mode] * class_mult[action]
+               * device_mult      // 0.6 mobile, 1.0 desktop (from the UA class)
+               * velocity_mult    // 1, 2, 4, 8, 16 (off by default in phase 1, see §4)
+counter_max    = min(max_units * unit_tries[mode], round(2 * expected_tries))
 ```
 
-The issuer turns `expected_iterations` into a challenge with fixed `cost` (PBKDF2 iterations per try),
-`n` sub-puzzles and `bits`, and picks `span = counter_end - counter_start` so that the expected
-number of tries is `expected_iterations / cost`. Each sub-puzzle's answer is uniform in its span, so
-the expected tries per sub-puzzle are `(span + 1) / 2` and the worst case is `span`. See
-`docs/protocol.md` §3 for the exact rule.
+The issuer hides the answer at a secret counter drawn uniformly from `[0, counter_max)`, so a
+solve takes about `counter_max / 2` tries on average and never more than `counter_max`. The cost
+of one try is fixed per mode. `docs/protocol.md` §3 has the rule.
 
 ## 2. Defaults
 
 | Setting | Default | Where | Why |
 |---|---|---|---|
-| `algos` | `["pbkdf2-sha256"]` | `defaults.algos` | WebCrypto has PBKDF2 natively in every browser and in PHP (`hash_pbkdf2`). Argon2id is phase 3 (§9.2). |
-| `cost` | 2,000 iterations per try | `work.cost` | Small enough that one try is ~0.4 ms on the box's desktop Chromium, so the solver can cancel quickly and the span is wide (hard to guess); large enough that verification stays one KDF call per sub-puzzle (n x 2,000 iterations on the server). |
-| `n` | 4 sub-puzzles | `work.n` | Lets the worker run four searches in parallel and narrows the spread of solve time (the sum of four uniform draws), which keeps p95 closer to p50. |
-| `bits` | 32 | `work.bits` | The published target is the first 4 bytes of the derived key. 32 bits makes a false match inside a span of a few hundred tries vanishingly unlikely (about span / 2^32). |
-| `unit_iterations` | 400,000 | `work.unit_iterations` | One "unit" of work. Calibrated on the box so a write (4 units) lands inside the §9.3 "quiet human, desktop" band of 200–400 ms. See §3 for the measured result. |
+| `mode` | `standard` | `work.mode` | Standard is PBKDF2-SHA-256. The browser has it natively in WebCrypto, verification is one HMAC, and minting is one PBKDF2 call. `hardened` switches to Argon2id (memory-hard) for sites under GPU pressure. It is heavier on phones, and minting costs the issuer one Argon2id call per challenge. |
+| `standard.cost` | 5,000 PBKDF2 iterations per try | `work.standard.cost` | One try is a few ms per worker on desktop, so cancelling at the time cap is quick and the counter range stays wide. |
+| `standard.unit_tries` | 64 | `work.standard.unit_tries` | One "unit" of work. Calibrated on the box so a desktop write (4 units) sits under the 500 ms "Checking…" threshold even at p95. See §3. |
+| `hardened` | Argon2id t = 2, m = 19,456 KiB (19 MiB), p = 1 | `work.hardened` | The OWASP minimum Argon2id profile. 19 MiB per worker keeps four workers under 80 MB on a phone, and the server can mint at an acceptable cost. |
+| `hardened.unit_tries` | 4 | `work.hardened.unit_tries` | A desktop write expects 16 Argon2id tries. See §3 for the measured time on both profiles. |
 | class multipliers | read 0, search 1, write 4, account 8, admin 16 | `packages/protocol/src/classes.ts` | §8.4 ordering. Read asks for no work. The phase 1 demo exercises search and write. A pass for a higher class covers lower ones. |
 | `device_mult` | mobile 0.6, desktop 1.0 | `work.device_mult` | Spec §9.5. A phone gets 60% of the desktop work. |
-| `max_iterations` | 11,000,000 | `work.max_iterations` | Cap on the worst case of any one challenge (`n x cost x span`). Example: with velocity at its top step a write would expect 25.6M iterations; the cap holds it to 11M worst case, 5.5M expected. The widget also has an 8 s wall-clock cap (`defaults.max_solve_ms`, §9.5): past it, it stops and shows the checkbox state. |
+| `max_units` | 28 | `work.max_units` | Cap on the worst case of any one challenge (`counter_max ≤ 28 units`, so 14 units expected at most). With velocity at its top step a write would expect 64 units; the cap holds it to 28 worst case. The widget also has an 8 s wall-clock cap (`defaults.max_solve_ms`, §9.5): past it, the widget stops and shows the checkbox state. |
 | `velocity_steps` | 20→x2, 40→x4, 80→x8, 160→x16 per 60 s | `work.velocity_steps` | Spec §9.3 and §9.5. Keyed by site + /24 (IPv4) or /48 (IPv6) + action. Raises cost only; never blocks. |
-| `adaptive.velocity` | `false` | `adaptive.velocity` | Off by default in phase 1: the multiplier is implemented and tested, but the right thresholds need real traffic (phase 3 work). |
+| `adaptive.velocity` | `false` | `adaptive.velocity` | Off by default in phase 1. The multiplier is implemented and tested, but the right thresholds need real traffic (phase 3 work). |
 | `pass_ttl_s` / `pass_uses` | 900 s / 20 uses | `defaults` | Spec §8.3 example values. |
 | `challenge_ttl_s` | 120 s | `defaults` | Spec §8.1; the issuer refuses longer values. |
-| `rate_limit.challenge_per_min` | 60 per IP | `rate_limit` | Protects the issuer's CPU (minting costs n x cost KDF iterations). The demo raises it to 300 so the hammer can be re-run. |
+| `rate_limit.challenge_per_min` | 60 per IP | `rate_limit` | Protects the issuer's CPU: minting costs one KDF call: about 1 ms in standard mode, about 52 ms p50 (91 ms p95) of Argon2id in hardened mode (§4). The demo raises it to 300 so the hammer can be re-run. |
 
 ## 3. Measured benchmark
 
-<!-- BENCH:START (generated from bench/results/2026-10-01T00-32-07/summary.md) -->
-Run `2026-10-01T00-32-07` (UTC stamp).
+<!-- BENCH:START (generated from bench/results/2026-10-01T01-24-06/summary.md) -->
+Run `2026-10-01T01-24-06` (UTC stamp). Work engine as of Amendment 1; the retired built-in miner's run (`2026-10-01T00-32-07`) is kept in `bench/results/` as history only.
 
-Started 9/30/2026, 7:32:07 PM CT. Box CPU: Intel(R) Xeon(R) Processor, 8 vCPU (clock not reported by the VM), SHA-NI yes, kernel 6.12.94+, 16 GB RAM. Node v22.23.3. Load average before 1.6 / 1.2 / 1, after 1 / 1 / 1.1 (shared box).
-Default challenge: write, cost 2000, n 4, bits 32, unit_iterations 400,000. 10 warm-up solves, then 210 counted solves per profile; every counted solve kept. Percentiles: nearest-rank.
-Worker CPU throttling via CDP: rejected by Chromium: Operation is only supported for pages, not workers.
+Started 9/30/2026, 8:24:06 PM CT. Box CPU: Intel(R) Xeon(R) Processor, 8 vCPU, kernel 6.12.94+, 16 GB RAM. Node v22.23.3. Load average before 2.2 / 3.6 / 2.9, after 5.1 / 4.1 / 3.7 (shared box).
+Challenge: write (4 units), solved as the widget solves it (the engine's solver and workers as served by the issuer, same worker count), through the real /v1/challenge and /v1/redeem. 10 warm-up solves, then the counted solves below; every counted solve kept. Percentiles: nearest-rank.
 
-|  | Desktop Chromium | Lighthouse mobile preset (devtools CPU x4) | Lighthouse mobile preset + OS CPU quota (45% of a core) | Real Android phone |
-|---|---|---|---|---|
-| Browser | 153.0.8010.12 | 153.0.8010.12 | 153.0.8010.12 | — |
-| Challenge served (span per sub-puzzle) | 399 (4 x 2,000 iterations per try) | 239 (4 x 2,000 iterations per try) | 239 (4 x 2,000 iterations per try) | — |
-| Counted solves (redeemed OK) | 210 (210) | 210 (210) | 210 (210) | — |
-| Worker PBKDF2, iterations/s at cost 2,000 (median of 5) | 5,017,561 | 4,904,365 | 1,233,198 | — |
-| Worker PBKDF2, iterations/s at cost 100,000 (median of 3) | 5,366,246 | 6,339,144 | 1,256,281 | — |
-| Slowdown vs desktop (KDF, cost 2,000) | 1.00x | 1.02x | 4.07x | — |
-| Effective iterations/s while solving | 5,972,670 | 5,853,120 | 1,397,734 | — |
-| Solve time p50 (ms) | 268.0 | 163.0 | 707.8 | — |
-| Solve time p95 (ms) | 396.3 | 253.1 | 995.5 | — |
-| Solve time max (ms) | 524.0 | 326.6 | 1,399.6 | — |
-| Solve time mean (ms) | 271.4 | 167.8 | 693.7 | — |
-| Solves at or over 500 ms (shows Checking…) | 0.5% | 0.0% | 88.1% | — |
-| Fetch + solve + redeem p50 / p95 (ms) | 282.5 / 411.3 | 1,320.4 / 1,415.7 | 1,904.0 / 2,199.6 | — |
+|  | Desktop, standard | Phone-like, standard (CPU quota 45% of a core) | Desktop, hardened | Phone-like, hardened (CPU quota 180% of a core) | Real Android phone |
+|---|---|---|---|---|---|
+| Engine | PBKDF2-SHA-256, 5,000 iterations per try | PBKDF2-SHA-256, 5,000 iterations per try | Argon2id t=2, m=19,456 KiB, p=1 | Argon2id t=2, m=19,456 KiB, p=1 | — |
+| Workers | 4 | 4 | 4 | 4 | — |
+| Expected tries / counter_max (issuer) | 257 / 512 | 154 / 307 | 17 / 32 | 10 / 19 | — |
+| Counted solves (redeemed OK) | 210 (210) | 210 (210) | 210 (210) | 210 (210) | — |
+| Tries per second while solving | 1,169.1 | 357.9 | 30.3 | 7.3 | — |
+| Slowdown vs desktop, same mode | 1.00x | 3.27x | 1.00x | 4.15x | — |
+| **Solve time p50 (ms)** | **208.5** | **416.2** | **548.5** | **1,405.1** | — |
+| **Solve time p95 (ms)** | **404.2** | **714.9** | **1,041.7** | **2,295.7** | — |
+| Solve time max (ms) | 514.5 | 908.4 | 1,348.8 | 2,614.9 | — |
+| Solve time mean (ms) | 219.7 | 444.8 | 571.1 | 1,422.6 | — |
+| Solves at or over 500 ms (shows Checking…) | 0.5% | 40.0% | 56.7% | 95.2% | — |
+| Fetch + solve + redeem p50 / p95 (ms) | 223.0 / 417.7 | 498.3 / 798.5 | 640.4 / 1,110.8 | 1,520.8 / 2,401.9 | — |
 
+Phone-like = mobile screen and UA (the issuer serves the mobile challenge, device_mult 0.6) with every Chromium process in a cgroup v2 CPU quota, so the solver workers are really slowed. The quota is set per mode for about 4x per core (standard keeps about one core busy, hardened keeps four); the achieved slowdown is the measured row above. It is an emulation on a Xeon, not a phone.
 Real Android phone: not available on the box; left empty on purpose (no estimate).
 
-Raw data in `bench/results/2026-10-01T00-32-07/`: `desktop.csv`, `lh-mobile-devtools.csv`, `lh-mobile-os4x.csv`, `results.json`.
+Raw data in `bench/results/2026-10-01T01-24-06/`: `desktop-standard.csv`, `desktop-hardened.csv`, `phone-standard.csv`, `phone-hardened.csv`, `results.json`.
 <!-- BENCH:END -->
 
 ### How to read it
 
-- **Desktop Chromium** is headless Chromium on the box with no throttling.
-- **Lighthouse mobile preset (devtools CPU x4)** applies Lighthouse's mobile settings the way
-  Lighthouse's devtools mode does: Moto G Power screen and UA, CPU x4 via
-  `Emulation.setCPUThrottlingRate`, and the slow-4G network. **Chromium does not apply that CPU
-  throttle to dedicated workers** (the probe line above records Chromium's answer), and all
-  hashing runs in a worker (§10), so in this column the solve runs at desktop speed. The challenge
-  is still smaller (device_mult 0.6, the UA is mobile), which is why solve times drop. Treat this
-  column as "what Lighthouse would report", not as phone speed.
-- **Lighthouse mobile preset + OS CPU quota** is the same profile with every Chromium process placed
-  in a Linux cgroup v2 with a CPU quota, so the worker thread really is slowed. The achieved slowdown
-  is measured, not assumed (the "Slowdown vs desktop" row). This is the closest the box gets to a
-  mid-range phone, and it is still an emulation.
-- **Real Android phone** is empty on purpose: there is no phone on the box. Phase 1 ships without it
-  (PM decision); it should be filled from a real device before the phone defaults are trusted.
-- `took_ms` is the worker's own solve time (what the widget reports and what decides whether
-  "Checking…" is shown). The fetch + solve + redeem row adds the two HTTP round trips; in the mobile
-  columns those include Lighthouse's emulated 562.5 ms RTT.
+- **Desktop** is headless Chromium on the box with no throttling.
+- **Phone-like** uses a mobile screen and UA, so the issuer serves the mobile challenge (device_mult 0.6). Every Chromium process runs in a Linux cgroup v2 CPU quota, so the solver workers really are slowed. DevTools CPU throttling does not reach dedicated workers, so it can't be used here.
+  - The quota differs by mode because the two engines use the CPU differently. WebCrypto PBKDF2 keeps about one core busy even with four workers; the desktop rate is barely above one worker's. WASM Argon2id keeps all four busy.
+  - Achieved slowdowns are **3.27x** (standard) and **4.15x** (hardened), measured, not assumed.
+  - This is the closest the box gets to a mid-range phone, and it is still an emulation.
+- **Real Android phone** is empty on purpose: there is no phone on the box. It has to be filled from a real device before the phone defaults are trusted.
+- `took_ms` is the page's own solve time, which is what decides whether "Checking…" is shown. The fetch + solve + redeem row adds the two HTTP round trips to a local issuer.
 
 ### Reproduce
 
 ```
-npm run bench                       # all profiles; needs passwordless sudo for the cgroup profile
-BENCH_NO_CGROUP=1 npm run bench     # skip the OS-quota profile
+npm run bench                       # all four profiles; needs passwordless sudo for the phone-like ones
+BENCH_NO_CGROUP=1 npm run bench     # desktop only
 BENCH_SOLVES=50 npm run bench       # fewer solves
 node bench/summarize.ts             # re-render summary.md for the latest run
 ```
@@ -104,22 +93,27 @@ Method details: `bench/README.md`.
 
 Measured against the §9.3 targets (run above):
 
-- **Quiet human, desktop (target 200–400 ms):** p50 268 ms, p95 396 ms, max 524 ms. Inside the band;
-  1 of 210 solves (0.5%) crossed 500 ms and would have shown "Checking…". No change.
-- **Quiet human, phone (target 300–600 ms):** the only phone-like column is the OS-quota emulation
-  (measured 4.07x slower than desktop): p50 708 ms, p95 996 ms, and 88% of solves would show
-  "Checking…". That is **above the band**. Holding p50 near 450 ms on a device that slow would
-  need `device_mult.mobile` around 0.38 instead of 0.6. **The default is not changed**: a cgroup
-  quota on a Xeon is not a phone, and §9.5 fixes 0.6. This needs a real-device run and a decision
-  (see "Open items").
-- **The Lighthouse devtools column cannot show phone speed** because Chromium does not throttle workers.
-  Its p50 of 163 ms is the smaller mobile challenge (span 239 vs 399) run at desktop speed.
-- **Server cost:** verifying a write is n x cost = 8,000 PBKDF2 iterations (about 1.6 ms if Node ran at the
-  browser worker's measured rate. Server-side speed was not benchmarked). Minting costs the same.
-- **Velocity (off by default):** work scales linearly with the multiplier, so (derived, not measured) a
-  desktop write reaches the §9.3 "1–2 s" band only around x4. Thresholds need real traffic before velocity is on by default.
+- **Standard mode, desktop (target 200–400 ms).** p50 209 ms, p95 404 ms, max 515 ms. That is inside the band; 1 of 210 solves (0.5%) crossed 500 ms and would have shown "Checking…". `unit_tries` stays at 64. A first calibration run of 40 solves gave the same picture (p50 191 ms).
+- **Standard mode, phone-like (target 300–600 ms).** p50 416 ms, p95 715 ms. The p50 is inside the band, p95 is over it, and 40% of solves would show "Checking…".
+  - This emulation is only 3.27x slower than desktop, not 4x, so a real 4x phone would be somewhat slower still.
+  - That is better than the retired miner on its 4x emulation (p50 708 ms).
+  - The default is not changed; it needs real-device data.
+- **Hardened mode, desktop.** p50 549 ms, p95 1,042 ms; 57% of solves show "Checking…". Memory-hard work is heavier by design, which is why it is opt-in.
+- **Hardened mode, phone-like.** p50 1,405 ms, p95 2,296 ms; 95% show "Checking…", and the worst case (2.6 s) stays well under the 8 s cap. That is the §9.3 "1–2 s" escalation band, as a *default* for every visitor. **Hardened mode should stay opt-in for sites under GPU pressure**, not become the default. The Data Scientist should decide whether to lower `hardened.unit_tries` (to 2 or 3) or `device_mult.mobile` in hardened mode.
+- **Server cost.**
+  - Verifying is one HMAC in both modes (the engine's key signature).
+  - Minting costs one KDF call. A quick Node 22 measurement (20 mints after 5 warm-ups, 9/30 8:45 PM CT, shared box) gave PBKDF2 p50 1.1 ms (p95 1.4 ms) and Argon2id at 19 MiB, in WASM, p50 52 ms (p95 91 ms).
+  - Hardened mode makes challenge floods a real server cost, so keep the per-IP challenge limit.
+- **Velocity (off by default).** Work scales linearly with the multiplier up to `max_units` (28 units, 7x a write). This is derived, not measured: a desktop standard write reaches the "1–2 s" band around x4–x8.
 
 ## 5. Pay vs grind
+
+> **Needs a re-run (Amendment 1).** This section was computed for the retired built-in miner
+> (`unit_iterations` 400,000, cost 2,000, the 2026-10-01T00-32-07 bench). The engine now uses
+> PBKDF2 at 5,000 iterations per try × 64 tries per unit (standard), or Argon2id (hardened), and
+> the bench in §3 is new. The conclusion for standard mode is unlikely to change, since it is
+> still PBKDF2-SHA-256. The hardened column is new and has no GPU figure yet. The table below is
+> left as the Data Scientist wrote it until they re-run it.
 
 Filled by the Data Scientist, 2026-09-30 (CT). Question: for an automated client, is it cheaper to pay
 the settlement offer or to grind the PBKDF2 work challenge on rented GPUs? Everything below is
@@ -187,7 +181,9 @@ real traffic data first.
 
 ## 6. Open items
 
-- Real Android device column (empty). Until it is filled, the phone defaults are unverified. On the OS-quota emulation they miss the §9.3 phone band (see §4). Decision for Luke and the Data Scientist: keep 0.6, lower it, or wait for device data.
+- Real Android device column (empty). Until it is filled, the phone defaults are unverified. On the OS-quota emulation, standard mode's p50 is inside the §9.3 phone band and its p95 is over it; hardened mode is in the 1–2 s band (see §4). Decision for Luke and the Data Scientist: keep 0.6, lower it, or wait for device data.
+- Hardened mode on phones: lower `hardened.unit_tries` or the mobile multiplier, or keep it as an opt-in heavy mode (Data Scientist).
+- Pay vs grind (§5) needs a re-run on the new engine, including a GPU figure for Argon2id.
 - Velocity thresholds need real traffic before `adaptive.velocity` is turned on by default.
 - `device_mult` comes from the UA class only; the "previous took_ms EMA" input from §9.5 is logged
   (`redeem_ok.took_ms`) but not yet fed back into cost.

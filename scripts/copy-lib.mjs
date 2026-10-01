@@ -112,3 +112,53 @@ export function widgetStrings(md = readCopy()) {
 export function inCopy(s, md = readCopy()) {
   return md.includes(s);
 }
+
+// ---- Vendor names (Amendment 1) ----------------------------------------------------------------
+// The work engine and settlement vendors, their hosted services, and forbidden captcha / risk-score
+// services must never appear on a public surface. The list lives in docs/adapters.md
+// ("## Vendor names (copy lint)"). Vendor names are allowed only in docs/adapters.md, package.json
+// files (dependency pins) and the bundled third-party licence notices.
+export const ADAPTERS_PATH = ROOT + "docs/adapters.md";
+export const VENDOR_ALLOWED = [/^docs\/adapters\.md$/, /(^|\/)package(-lock)?\.json$/, /(^|\/)composer\.(json|lock)$/, /(^|\/)LICENSES\.txt$/];
+
+export function isVendorAllowed(relPath) {
+  return VENDOR_ALLOWED.some((re) => re.test(relPath.replace(/\\/g, "/")));
+}
+
+/** { exact: [...], any: [...] } from the adapters doc. "Exact case:" lines match case-sensitively. */
+export function vendorList(md = readFileSync(ADAPTERS_PATH, "utf8")) {
+  const sec = section(md, "Vendor names (copy lint)");
+  const exact = [];
+  const any = [];
+  for (const raw of sec.split("\n")) {
+    const line = raw.replace(/^[-*]\s*/, "").trim();
+    const i = line.indexOf(":");
+    if (i < 0 || line.startsWith("|") || line.startsWith(">")) continue;
+    const label = line.slice(0, i).toLowerCase();
+    if (!/case/.test(label)) continue;
+    const terms = line.slice(i + 1).split(",").map((t) => t.trim().replace(/\.$/, "").trim()).filter(Boolean);
+    (/exact case/.test(label) ? exact : any).push(...terms);
+  }
+  if (exact.length + any.length === 0) throw new Error("docs/adapters.md: vendor name list is empty");
+  return { exact, any };
+}
+
+export function vendorRegexes(list = vendorList()) {
+  const mk = (t, flags) => ({ term: t, re: new RegExp(`(?<![A-Za-z0-9_])${esc(t).replace(/\s+/g, "\\s+")}(?![A-Za-z0-9_])`, flags) });
+  return [...list.exact.map((t) => mk(t, "g")), ...list.any.map((t) => mk(t, "gi"))];
+}
+
+/** Vendor-name hits for a public-surface file; [] where vendor names are allowed. */
+export function lintVendor(relPath, text, regexes = vendorRegexes()) {
+  if (isVendorAllowed(relPath)) return [];
+  const hits = [];
+  const lines = text.split("\n");
+  for (let n = 0; n < lines.length; n++) {
+    for (const { term, re } of regexes) {
+      re.lastIndex = 0;
+      const m = re.exec(lines[n]);
+      if (m) hits.push({ term: "vendor: " + term, line: n + 1, text: m[0] });
+    }
+  }
+  return hits;
+}

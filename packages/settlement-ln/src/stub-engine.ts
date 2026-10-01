@@ -1,25 +1,17 @@
-// L402-shaped offers (draft, spec §8.6). docs/settlement.md is the normative text.
-//
-// macaroon (v1 draft) = base64url(canonical JSON caveats) "." base64url(HMAC-SHA256(secret, "toll-offer-v1." + payload))
-// caveats = { v, offer_id, site, cls, amount_msat, payment_hash, exp }
-// Binding offer_id and payment_hash inside the HMAC stops invoice substitution (spec §16).
+// Stub settlement engine (tests, CI, demo). NOT a macaroon implementation: real L402 macaroons come
+// only from the settlement engine (docs/adapters.md §2, Amendment 1). This stub issues an opaque,
+// HMAC-sealed test credential with the same binding properties the tests check:
+//   credential = base64url(canonical JSON caveats) "." base64url(HMAC-SHA256(secret, "toll-offer-v1." + payload))
+//   caveats = { v, offer_id, site, cls, amount_msat, payment_hash, exp }
+// Binding offer_id and payment_hash inside the seal stops invoice substitution (spec §16).
 import {
   type ActionClass, TollError, canonicalJson, fromB64url, fromHex, fromUtf8, hmacSha256, hmacVerify, randomHex, sha256, timingSafeEqual, toB64url, utf8,
 } from "../../protocol/src/index.ts";
-import type { Settler } from "./stub-settler.ts";
+import { StubSettler, type Settler } from "./stub-settler.ts";
+import type { Offer, Paid, PaidClass, PaidProof, SettlementEngine } from "./engine.ts";
 
 export const BASE_MSAT: Record<Exclude<ActionClass, "read">, number> = { search: 2000, write: 10000, account: 25000, admin: 100000 };
 export const MAX_OFFER_TTL_S = 120;
-
-export interface Offer {
-  id: string;
-  kind: "ln402";
-  amount_msat: number;
-  display?: { usd: string; label: string };
-  invoice: string;
-  macaroon: string;
-  exp: number;
-}
 
 interface Caveats { v: 1; offer_id: string; site: string; cls: ActionClass; amount_msat: number; payment_hash: string; exp: number }
 
@@ -66,4 +58,30 @@ export async function verifyPaidRedeem(o: {
   if (!timingSafeEqual(hash, fromHex(c.payment_hash))) throw new TollError("bad_solution", "preimage does not match payment hash");
   if (!(await o.firstUse("offer:" + c.offer_id, c.exp - o.now + 60))) throw new TollError("replay");
   return { cls: c.cls, amount_msat: c.amount_msat, payment_hash: c.payment_hash };
+}
+
+/** The stub engine: stub settler + sealed test credential. Never touches a network. */
+export class StubEngine implements SettlementEngine {
+  readonly kind = "stub" as const;
+  readonly settler: StubSettler;
+  private secret: string;
+
+  constructor(o: { secret: string; settler?: StubSettler }) {
+    if (!o.secret || o.secret.length < 16) throw new Error("stub engine: secret too short");
+    this.secret = o.secret;
+    this.settler = o.settler ?? new StubSettler();
+  }
+
+  offer(o: { site: string; cls: PaidClass; amount_msat: number; now: number; ttl_s?: number }): Promise<Offer> {
+    return mintOffer({ ...o, secret: this.secret, settler: this.settler });
+  }
+
+  async verifyPaid(o: { site: string; proof: PaidProof; now: number; firstUse: (key: string, ttl_s: number) => Promise<boolean> }): Promise<Paid> {
+    const r = await verifyPaidRedeem({ secret: this.secret, site: o.site, offer_id: o.proof.offer_id, preimage: o.proof.preimage, macaroon: o.proof.credential, now: o.now, firstUse: o.firstUse });
+    return { cls: r.cls, amount_msat: r.amount_msat, payment_ref: r.payment_hash };
+  }
+
+  healthy(): Promise<boolean> {
+    return this.settler.healthy();
+  }
 }

@@ -12,7 +12,6 @@ export interface TollConfig {
   hostname: string;
   allowed_origins: string[];
   defaults: {
-    algos: string[];
     pass_ttl_s: number;
     pass_uses: number;
     challenge_ttl_s: number;
@@ -28,11 +27,11 @@ export interface TollConfig {
 
 // Policy defaults. Calibration and the measured runs behind them: docs/policy.md.
 export const DEFAULT_WORK: WorkPolicy = {
-  cost: 2000,
-  n: 4,
-  bits: 32,
-  unit_iterations: 400_000,
-  max_iterations: 11_000_000,
+  mode: "standard",
+  // Engine tries per 1x unit. Calibrated on the box (docs/policy.md); write = 4 units.
+  standard: { alg: "pbkdf2-sha256", cost: 5000, unit_tries: 64 },
+  hardened: { alg: "argon2id", cost: 2, memory_kib: 19456, parallelism: 1, unit_tries: 4 },
+  max_units: 28,
   device_mult: { mobile: 0.6, desktop: 1.0 },
   velocity_steps: [[20, 2], [40, 4], [80, 8], [160, 16]],
   velocity_window_s: 60,
@@ -50,8 +49,7 @@ export function normalizeConfig(raw: Record<string, any>, env: NodeJS.ProcessEnv
   if (typeof secret !== "string" || secret.length < 16) throw new Error("toll config: secret is missing or shorter than 16 characters (set TOLL_SECRET)");
   const issuer_public_url = String(raw.issuer_public_url ?? "http://localhost:8787");
   const d = raw.defaults ?? {};
-  const algos: string[] = d.algos ?? ["pbkdf2-sha256"];
-  for (const a of algos) if (a !== "pbkdf2-sha256") throw new Error(`toll config: algo ${a} is not available in this version`);
+  if (d.algos !== undefined) throw new Error("toll config: defaults.algos was replaced by work.mode (standard | hardened); see docs/adapters.md");
   const challenge_ttl_s = Number(d.challenge_ttl_s ?? 120);
   if (!(challenge_ttl_s > 0 && challenge_ttl_s <= 120)) throw new Error("toll config: challenge_ttl_s must be 1..120");
   const routes: RouteRule[] = (raw.routes ?? []).map((r: any) => {
@@ -59,11 +57,20 @@ export function normalizeConfig(raw: Record<string, any>, env: NodeJS.ProcessEnv
     return { prefix: r.prefix, class: r.class };
   });
   const w = raw.work ?? {};
+  for (const k of ["cost", "n", "bits", "unit_iterations", "max_iterations"]) if (k in w) throw new Error(`toll config: work.${k} belongs to the retired built-in miner; use work.mode and work.standard / work.hardened (docs/policy.md)`);
   const work: WorkPolicy = {
     ...DEFAULT_WORK,
     ...w,
+    standard: { ...DEFAULT_WORK.standard, ...(w.standard ?? {}), alg: "pbkdf2-sha256" },
+    hardened: { ...DEFAULT_WORK.hardened, ...(w.hardened ?? {}), alg: "argon2id" },
     device_mult: { ...DEFAULT_WORK.device_mult, ...(w.device_mult ?? {}) },
   };
+  if (work.mode !== "standard" && work.mode !== "hardened") throw new Error("toll config: work.mode must be standard or hardened");
+  for (const m of [work.standard, work.hardened]) {
+    if (!(Number.isInteger(m.cost) && m.cost >= 1)) throw new Error("toll config: work cost must be a positive integer");
+    if (!(m.unit_tries > 0)) throw new Error("toll config: work unit_tries must be positive");
+  }
+  if (!(Number.isInteger(work.hardened.memory_kib) && work.hardened.memory_kib! >= 8192 && work.hardened.memory_kib! <= 262144)) throw new Error("toll config: work.hardened.memory_kib must be 8192..262144");
   const s = raw.settlement ?? {};
   if (s.enabled) throw new Error("toll config: settlement is not available in this version (phase 2). Set settlement.enabled: false");
   return {
@@ -73,7 +80,6 @@ export function normalizeConfig(raw: Record<string, any>, env: NodeJS.ProcessEnv
     hostname: String(raw.hostname ?? new URL(issuer_public_url).hostname),
     allowed_origins: (raw.allowed_origins ?? [new URL(issuer_public_url).origin]).map(String),
     defaults: {
-      algos,
       pass_ttl_s: Number(d.pass_ttl_s ?? 900),
       pass_uses: Number(d.pass_uses ?? 20),
       challenge_ttl_s,

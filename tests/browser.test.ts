@@ -9,17 +9,19 @@ const V = JSON.parse(readFileSync(new URL("../docs/vectors.json", import.meta.ur
 let browser: Browser;
 let fast: Running; // default policy
 let tiny: Running; // very light work: solves well under 500ms
-let slow: Running; // heavy work: solves take well over 500ms
+let slow: Running; // heavy work: solves take well over 500ms (counter pinned near the top of its range)
+let hard: Running; // hardened mode (Argon2id worker)
 
 before(async () => {
   browser = await chromium.launch();
   fast = await startDemo();
-  tiny = await startDemo({ work: { unit_iterations: 20_000 } });
-  slow = await startDemo({ work: { unit_iterations: 2_500_000, max_iterations: 60_000_000 } });
+  tiny = await startDemo({ work: { standard: { unit_tries: 2 } } });
+  slow = await startDemo({ work: { standard: { unit_tries: 1100 }, max_units: 64 } }, { pickCounter: (m) => 0.95 * m });
+  hard = await startDemo({ work: { mode: "hardened" } });
 });
 after(async () => {
   await browser?.close();
-  await Promise.all([fast?.close(), tiny?.close(), slow?.close()]);
+  await Promise.all([fast?.close(), tiny?.close(), slow?.close(), hard?.close()]);
 });
 
 async function newPage(o: { reducedMotion?: "reduce" | "no-preference"; js?: boolean } = {}) {
@@ -57,15 +59,36 @@ const gateState = (page: Page, sel = "toll-gate") =>
     };
   }, sel);
 
-test("19.2 the widget's worker solves a known challenge in the browser", async () => {
+test("19.2 the engine's workers, as served by the issuer, solve the vector challenges in the browser (both modes)", async () => {
   const { page, ctx } = await newPage();
   await page.goto(fast.url + "/");
-  const out = await page.evaluate(async (challenge) => {
-    const w = new Worker("/toll/v1/toll.worker.js");
-    return await new Promise<any>((ok) => { w.onmessage = (e) => ok(e.data); w.postMessage({ id: 1, challenge }); });
-  }, V.work[0].challenge);
-  assert.equal(out.ok, true);
-  assert.deepEqual(out.nonces, V.work[0].solution.nonces);
+  for (const w of V.work) {
+    const url = w.challenge.alg === "argon2id" ? "/toll/v1/toll.worker-argon2id.js" : "/toll/v1/toll.worker.js";
+    // The engine's worker protocol: { type: "work", challenge, counterStart, counterStep } -> solution.
+    const out = await page.evaluate(async ({ url, challenge }) => {
+      const wk = new Worker(url);
+      const r = await new Promise<any>((ok) => { wk.onmessage = (e) => ok(e.data); wk.postMessage({ type: "work", challenge, counterStart: 0, counterStep: 1 }); });
+      wk.terminate();
+      return r;
+    }, { url, challenge: w.challenge.work });
+    assert.equal(out.counter, w.secret_counter, w.name);
+    assert.equal(out.derivedKey, w.solution.work.derivedKey, w.name);
+  }
+  await ctx.close();
+});
+
+test("hardened mode: the demo form submits without thinking with the Argon2id engine (no CSP violations)", async () => {
+  const { page, ctx, errors } = await newPage();
+  const workers: string[] = [];
+  page.on("worker", (w) => workers.push(w.url()));
+  await page.goto(hard.url + "/");
+  await page.click("#contact button[type=submit]");
+  await page.waitForURL(/sent=contact/, { timeout: 30000 });
+  assert.match((await page.textContent("#contact .pill"))!, /Accepted/);
+  assert.ok(workers.some((u) => u.endsWith("/toll/v1/toll.worker-argon2id.js")), JSON.stringify(workers));
+  assert.ok(!workers.some((u) => u.endsWith("/toll/v1/toll.worker.js")), "standard worker not loaded in hardened mode");
+  assert.deepEqual(await page.evaluate(() => (window as any).__csp), []);
+  assert.deepEqual(errors, []);
   await ctx.close();
 });
 
@@ -356,4 +379,78 @@ test("toll.fetch attaches a pass and retries once on 403 toll_required", async (
   });
   assert.deepEqual(out, { status: 200, body: { ok: true } });
   await ctx.close();
+});
+
+// ---- Amendment 1: the work engine is a solver only -----------------------------------------------
+// In every widget state, no vendor name (docs/adapters.md list) may appear in <toll-gate>'s
+// rendered text, its shadow markup (including hidden parts and attributes), or the page's
+// accessibility tree; and the visitor's browser talks to no origin but the site's own.
+test("vendor names never reach the visitor: rendered text, shadow markup and accessibility tree in all nine states; zero third-party requests", async () => {
+  // @ts-ignore plain JS helper
+  const { vendorRegexes } = await import("../scripts/copy-lib.mjs");
+  const res: { term: string; re: RegExp }[] = vendorRegexes();
+  const seen: Record<string, string> = {};
+  const hits: string[] = [];
+  const foreign: string[] = [];
+
+  async function scan(page: Page, state: string) {
+    const dom = await page.evaluate(() => {
+      const out: string[] = [document.body?.innerText ?? ""];
+      for (const g of Array.from(document.querySelectorAll("toll-gate")) as any[]) {
+        out.push(g.outerHTML, g.textContent ?? "");
+        if (g.shadowRoot) out.push(g.shadowRoot.innerHTML, g.shadowRoot.textContent ?? "");
+      }
+      return out.join("\n");
+    });
+    const cdp = await page.context().newCDPSession(page);
+    const { nodes } = (await cdp.send("Accessibility.getFullAXTree")) as any;
+    await cdp.detach();
+    const ax = nodes.flatMap((n: any) => [n.name?.value, n.description?.value, n.value?.value, ...(n.properties ?? []).map((p: any) => p.value?.value)]).filter((x: any) => typeof x === "string").join("\n");
+    for (const { term, re } of res) {
+      for (const [where, text] of [["dom", dom], ["a11y", ax]] as const) {
+        re.lastIndex = 0;
+        const m = re.exec(text);
+        if (m) hits.push(`${state} ${where}: "${m[0]}" (${term})`);
+      }
+    }
+    seen[state] = (dom + "\n" + ax).replace(/\s+/g, " ").slice(0, 4000);
+  }
+  async function open(o: Parameters<typeof newPage>[0] = {}) {
+    const r = await newPage(o);
+    r.page.on("request", (q) => { const u = new URL(q.url()); if (!/^(127\.0\.0\.1|localhost)$/.test(u.hostname) && u.protocol !== "data:" && u.protocol !== "blob:") foreign.push(q.url()); });
+    return r;
+  }
+  const shown = (p: Page, sel: string) => p.waitForFunction((s) => { const g = document.querySelector("toll-gate") as any; const el = g?.shadowRoot?.querySelector(s); return el && !el.hidden && !g.hidden; }, sel, { timeout: 10000 });
+
+  // 1. fast solve: nothing rendered
+  { const { page, ctx } = await open(); await page.goto(tiny.url + "/"); await page.waitForResponse((r) => r.url().includes("/v1/redeem")); await scan(page, "1 invisible"); await ctx.close(); }
+  // 2-3. slow solve: Checking…, then Verified
+  { const { page, ctx } = await open(); await page.goto(slow.url + "/"); await shown(page, '[role="status"]'); await scan(page, "2 checking"); await page.waitForResponse((r) => r.url().includes("/v1/redeem"), { timeout: 20000 }); await page.waitForTimeout(50); await scan(page, "3 verified"); await ctx.close(); }
+  // 4. reduced motion
+  { const { page, ctx } = await open({ reducedMotion: "reduce" }); await page.goto(slow.url + "/"); await shown(page, ".bar"); await scan(page, "4 reduced motion"); await ctx.close(); }
+  // 5-7. checkbox mode: idle, busy, verified
+  { const { page, ctx } = await open(); await fixture(page, slow.url, `<form method="post" action="/contact" data-toll="write" data-toll-checkbox="true"><input name="m"><button type="submit">Send</button></form>`);
+    await shown(page, "button.btn"); await scan(page, "5 checkbox");
+    await page.evaluate(() => (document.querySelector("toll-gate") as any).shadowRoot.querySelector("button.btn").click());
+    await page.waitForFunction(() => (document.querySelector("toll-gate") as any).shadowRoot.querySelector("button.btn").getAttribute("aria-busy") === "true", null, { timeout: 5000 });
+    await scan(page, "6 checkbox busy");
+    await page.waitForFunction(() => (document.querySelector("toll-gate") as any).shadowRoot.querySelector("button.btn").textContent === "Verified", null, { timeout: 20000 });
+    await scan(page, "7 checkbox verified"); await ctx.close(); }
+  // 8. issuer unreachable
+  { const { page, ctx } = await open(); await page.route("**/v1/challenge*", (r) => r.abort()); await page.goto(fast.url + "/"); await shown(page, '[role="alert"]'); await scan(page, "8 error"); await ctx.close(); }
+  // 9. no JavaScript
+  { const { page, ctx } = await open({ js: false }); await page.goto(fast.url + "/"); await scan(page, "9 no-js"); await ctx.close(); }
+  // Hardened engine, while checking
+  { const { page, ctx } = await open(); await page.goto(hard.url + "/"); await page.waitForResponse((r) => r.url().includes("/v1/redeem"), { timeout: 30000 }); await scan(page, "hardened"); await ctx.close(); }
+
+  assert.deepEqual(hits, []);
+  assert.deepEqual(foreign, [], "no request leaves the site's origin");
+  // The scan saw the states it claims to have seen.
+  assert.match(seen["2 checking"], /Checking…/);
+  assert.match(seen["3 verified"], /Verified/);
+  assert.match(seen["5 checkbox"], /Verify before sending/);
+  assert.match(seen["8 error"], /Couldn't check this form\./);
+  assert.match(seen["9 no-js"], /This form needs JavaScript\./);
+  // The list really is non-empty and catches a vendor name if one leaked.
+  assert.ok(res.length >= 5 && res.some(({ re }) => { re.lastIndex = 0; return re.test("Protected by ALTCHA"); }));
 });

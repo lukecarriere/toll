@@ -38,7 +38,7 @@ export class Metrics {
     return (this.byTag[k] ??= { redeems_ok: 0, pass_accept: 0 });
   }
 
-  challengeMinted(f: { cls: string; client: string; ua_class: string; span: number; expected_iterations: number; velocity_mult: number; source: string }): void {
+  challengeMinted(f: { cls: string; client: string; ua_class: string; mode: string; alg: string; counter_max: number; expected_tries: number; velocity_mult: number; source: string }): void {
     this.c.challenges_minted++;
     this.emit("challenge_minted", f);
   }

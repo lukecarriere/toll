@@ -12,3 +12,6 @@ bench/dist/
 
 # Planning inputs
 /AMENDMENT_1.md
+
+# Composer installs (lock file is committed)
+packages/server-php/vendor/

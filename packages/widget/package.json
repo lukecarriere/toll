@@ -1,3 +1,14 @@
-{ "name": "@toll/widget", "private": true, "version": "0.1.0", "type": "module",
-  "description": "toll.js: the invisible check for forms.",
-  "dependencies": { "@toll/protocol": "0.1.0" } }
+{
+  "name": "@toll/widget",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "toll.js: the invisible check for forms. Solves with the ALTCHA v2 solver and its prebuilt workers, bundled and self-hosted.",
+  "dependencies": {
+    "@toll/protocol": "0.1.0",
+    "@toll/work-adapter": "0.1.0"
+  },
+  "devDependencies": {
+    "altcha": "3.2.4"
+  }
+}

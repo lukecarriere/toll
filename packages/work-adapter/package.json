@@ -1,0 +1,16 @@
+{
+  "name": "@toll/work-adapter",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Work engine adapter: issues and verifies ALTCHA v2 proof-of-work (self-hosted, no network calls) behind the Toll /v1 facade.",
+  "license": "UNLICENSED",
+  "dependencies": {
+    "altcha-lib": "2.5.0",
+    "hash-wasm": "4.12.0"
+  },
+  "exports": {
+    ".": "./src/index.ts",
+    "./browser": "./src/browser.ts"
+  }
+}

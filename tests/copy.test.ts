@@ -93,3 +93,30 @@ test("demo pages: the action class in each card description is in code style, li
   const hammer = hammerPage({ host: "localhost:8787" }).replace(/<[^>]+>/g, "");
   for (const v of [COPY.hammerTitle, COPY.hammerLede, COPY.runWithoutSub, COPY.runWithSub, COPY.agentSub, COPY.phase2, COPY.legendPending]) assert.ok(hammer.includes(v), v);
 });
+
+test("vendor names (docs/adapters.md list) are caught on public surfaces and allowed only in adapters.md, package.json and licence notices", async () => {
+  // @ts-ignore plain JS helper
+  const { vendorList, lintVendor, isVendorAllowed } = await import("../scripts/copy-lib.mjs");
+  const { exact, any } = vendorList();
+  for (const t of ["ALTCHA", "Aperture", "Sentinel", "Cap Cloud", "Turnstile", "reCAPTCHA", "hCaptcha"]) assert.ok(any.includes(t), t);
+  assert.deepEqual(exact, ["Cap"]);
+  const leak = "Protected by ALTCHA. Powered by Cap. Settled via Aperture. Try Turnstile or hcaptcha.";
+  for (const f of ["README.md", "demo/pages.ts", "packages/widget/src/strings.gen.ts", "packages/widget/dist/toll.js", "packages/wp-toll-gate/admin/screen.php", "toll.example.yaml", "commit-subject"]) {
+    const terms = lintVendor(f, leak).map((h: any) => h.term).sort();
+    assert.deepEqual(terms, ["vendor: ALTCHA", "vendor: Aperture", "vendor: Cap", "vendor: Turnstile", "vendor: hCaptcha"], f);
+  }
+  for (const f of ["docs/adapters.md", "package.json", "packages/work-adapter/package.json", "packages/server-php/composer.json", "packages/widget/dist/LICENSES.txt"]) {
+    assert.ok(isVendorAllowed(f), f);
+    assert.deepEqual(lintVendor(f, leak), [], f);
+  }
+  // Ordinary English "cap" (the 8 s cap, max_units cap) is not the vendor.
+  assert.deepEqual(lintVendor("README.md", "after the 8 s cap; worst-case cap per check; caps; capture"), []);
+  // The whole repo's public surfaces are clean.
+  assert.equal(runLint().hits.length, 0, JSON.stringify(runLint().hits));
+});
+
+test("the widget dist names no captcha or risk-score service and loads nothing from a CDN", () => {
+  const js = ["toll.js", "toll.worker.js", "toll.worker-argon2id.js"].map((f) => readFileSync(new URL("../packages/widget/dist/" + f, import.meta.url), "utf8")).join("\n");
+  assert.doesNotMatch(js, /turnstile|recaptcha|hcaptcha|sentinel|jsdelivr|unpkg|cdnjs|trycap/i);
+  assert.doesNotMatch(js, /https?:\/\/(?!www\.w3\.org)/);
+});

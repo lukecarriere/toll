@@ -9,9 +9,9 @@ import { COPY } from "./strings.ts";
 
 const here = fileURLToPath(new URL(".", import.meta.url));
 
-export function createDemo(o: { config?: TollConfig; metrics?: Metrics; store?: MemoryStore; host?: string } = {}) {
+export function createDemo(o: { config?: TollConfig; metrics?: Metrics; store?: MemoryStore; host?: string; pickCounter?: (counter_max: number) => number } = {}) {
   const config = o.config ?? loadConfig(here + "toll.yaml");
-  const toll = createToll(config, { metrics: o.metrics, store: o.store });
+  const toll = createToll(config, { metrics: o.metrics, store: o.store, pickCounter: o.pickCounter });
   const app = express();
   app.disable("x-powered-by");
   const comments: Comment[] = [
@@ -72,8 +72,11 @@ if (import.meta.url === `file://${process.argv[1]}`) {
   }
   const port = Number(process.env.PORT ?? 8787);
   const bind = process.env.HOST ?? "127.0.0.1";
-  const { app, toll } = createDemo();
-  app.listen(port, bind, () => console.error(`[demo] Toll demo on http://localhost:${port}  (issuer + widget, work-only)`));
+  const config = loadConfig(here + "toll.yaml");
+  // TOLL_WORK_MODE=hardened switches the demo to the memory-hard mode (docs/policy.md).
+  if (process.env.TOLL_WORK_MODE === "hardened" || process.env.TOLL_WORK_MODE === "standard") config.work.mode = process.env.TOLL_WORK_MODE;
+  const { app, toll } = createDemo({ config });
+  app.listen(port, bind, () => console.error(`[demo] Toll demo on http://localhost:${port}  (issuer + widget, work-only, ${config.work.mode} mode)`));
   const t = setInterval(() => toll.metrics.flush(), 60_000);
   t.unref();
   for (const sig of ["SIGINT", "SIGTERM"] as const) process.on(sig, () => { toll.metrics.flush(); process.exit(0); });

@@ -159,7 +159,7 @@ Never log preimages, macaroons, invoices after payment (bolt11), NWC URIs or nod
 
 ## 15. Decisions and open questions
 
-Decision log, 2026-09-30 (CT). Amendment 1 (in force 7:55 PM CT) changes how this rail is built: Toll wraps an existing settlement engine (Aperture, or direct L402 over NWC/LND) instead of writing its own. The rest of this draft is the pre-amendment design and will be revised against the chosen engine (`docs/adapters.md`).
+Decision log, 2026-09-30 (CT). Amendment 1 (in force 7:55 PM CT) changes how this rail is built: Toll wraps an existing settlement engine instead of writing its own. The engine is now chosen: the L402 reverse proxy described in `docs/adapters.md` §2, with Toll as its price source. In this build `packages/settlement-ln` holds only the `SettlementEngine` interface, a stub engine, and a proxy client that refuses anything but stub mode. The former `offer.ts` HMAC token survives only as the stub engine's sealed test credential, not as a macaroon. The rest of this draft is the pre-amendment design and will be revised against that engine.
 
 - **Q1. Macaroon format: DECIDED by Amendment 1 (Luke).** The settlement engine supplies the macaroon (Amendment 1 §B and §F: no new macaroon format). The Toll HMAC token in `packages/settlement-ln` is retired with the from-scratch stack. The library survey the EM asked for was stopped when the amendment landed and is not needed.
 - **Q2. 402 vs 403: DECIDED (PM).** A request that identifies as an agent (`Toll-Client: agent` header or `client=agent`) gets `402` with `WWW-Authenticate: L402`. Everything else gets `403 {"error":"toll_required"}`.

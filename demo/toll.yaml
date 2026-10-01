@@ -5,7 +5,6 @@ secret: env:TOLL_SECRET
 issuer_public_url: http://localhost:8787
 allowed_origins: [http://localhost:8787, http://127.0.0.1:8787]
 defaults:
-  algos: [pbkdf2-sha256]
   pass_ttl_s: 900
   pass_uses: 20
   challenge_ttl_s: 120

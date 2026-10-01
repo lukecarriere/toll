@@ -71,3 +71,23 @@ test("USD display follows docs/copy.md money rules and hides when FX is stale", 
   assert.equal(usdDisplay(1000, fx, now + 16 * 60), null);
   assert.equal(usdDisplay(1000, null, now), null);
 });
+
+test("engine interface: the stub engine and the proxy client (stub mode) pay and verify through L402 headers; live mode refuses", async () => {
+  const { StubEngine, ProxySettlementEngine, parseL402Authorization, l402Challenge, priceForPath } = await import("../packages/settlement-ln/src/index.ts");
+  assert.throws(() => new ProxySettlementEngine({ mode: "live" }), /only stub mode/);
+  const stub = new StubEngine({ secret: SECRET });
+  for (const engine of [stub, new ProxySettlementEngine({ mode: "stub", stub })]) {
+    const { amount_msat } = priceForPath({ cls: "write" });
+    const offer = await engine.offer({ site: "s", cls: "write", amount_msat, now });
+    assert.match(l402Challenge(offer), /^L402 macaroon="[^"]+", invoice="lnstub1/);
+    const auth = `L402 ${offer.macaroon}:${stub.settler.pay(offer.invoice)}`;
+    const proof = parseL402Authorization(auth, offer.id)!;
+    const firstUse = guard();
+    const paid = await engine.verifyPaid({ site: "s", proof, now: now + 1, firstUse });
+    assert.deepEqual([paid.cls, paid.amount_msat, paid.payment_ref.length], ["write", 10000, 64]);
+    await assert.rejects(engine.verifyPaid({ site: "s", proof, now: now + 2, firstUse }), (e: any) => e.code === "replay");
+  }
+  assert.equal(parseL402Authorization("Bearer x", "o"), null);
+  // Price source rounds up to a whole base unit (settlement.md Q3).
+  assert.deepEqual(priceForPath({ cls: "search", velocity_mult: 1.25 }), { amount_msat: 3000, price_base_units: 3 });
+});

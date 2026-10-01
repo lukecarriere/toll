@@ -8,10 +8,11 @@ Status: draft written with phase 1. The full threat model is a phase 3 deliverab
 - The site secret never reaches a browser.
 
 ## 1. GPU farms vs work (why settlement exists)
-PBKDF2-SHA256 is cheap on GPUs. The findings memo estimates a rented RTX 4090 grinds a default-size challenge for a tiny fraction of a cent, far below the write offer price. Work therefore stops cheap scripts and casual spam (it costs real CPU per request and per pass, see the bench numbers in docs/policy.md) but does not stop a funded operator. What does: per-request latency that grows with velocity and memory-hard argon2id (phase 3), and the settlement rail, where a funded client's spending becomes the site owner's income. Today (phase 1) velocity escalation exists in the policy code but is off by default.
+PBKDF2-SHA256 is cheap on GPUs. The findings memo estimates a rented RTX 4090 grinds a default-size challenge for a tiny fraction of a cent, far below the write offer price. Work therefore stops cheap scripts and casual spam (it costs real CPU per request and per pass, see the bench numbers in docs/policy.md) but does not stop a funded operator. What does: per-request latency that grows with velocity, the hardened mode (memory-hard Argon2id, available now as `work.mode: hardened`, off by default), and the settlement rail, where a funded client's spending becomes the site owner's income. Today (phase 1) velocity escalation exists in the policy code but is off by default.
 
 ## 2. Pre-computation and replay
-- Every challenge has a fresh 16-byte salt and id; targets cannot be precomputed.
+- Every challenge has a fresh 16-byte id and a fresh engine nonce and salt; the key prefix cannot be precomputed. The engine payload is bound to the Toll id (`data.tid`) under the engine's own HMAC and again under the Toll signature.
+- The puzzle is solved and verified by a pinned, self-hosted engine (docs/adapters.md). Neither the visitor's browser nor the issuer calls any third-party service; the widget dist build fails on any absolute URL or captcha/CDN host.
 - `challenge.id` is single use (replay store, TTL `exp - now + 60`); the id is claimed before the work check so one signed challenge costs at most one server-side verify.
 - Challenges live at most 120 s. Passes expire (900 s) and carry a use count (20) tracked per `jti`.
 - Replay store unavailable → redeem and protected writes return 503, never accept.
@@ -21,7 +22,7 @@ PBKDF2-SHA256 is cheap on GPUs. The findings memo estimates a rented RTX 4090 gr
 - Domain separation: challenge MACs cover canonical JSON (starts with `{`), pass MACs cover `b64url.b64url` (starts with `eyJ`), offer MACs are prefixed `toll-offer-v1.`.
 
 ## 4. Server cost (abuse of the issuer itself)
-- Minting a challenge costs the server `n x cost` PBKDF2 iterations (to compute targets), the same as one verify. `GET /v1/challenge` and the challenge attached to a 403 share a per-IP limit (default 60/min); over the limit the 403 carries no challenge. A distributed flood can still make the issuer spend CPU; an edge cache of pre-minted challenges or a cheaper target derivation are phase 3 options.
+- Minting a challenge costs the server one KDF call (the secret counter's key): one 5,000-iteration PBKDF2 in standard mode, one Argon2id (19 MiB, t=2) in hardened mode. Verifying costs one HMAC (the engine's key signature), so a flood of bad solutions is cheap to reject. `GET /v1/challenge` and the challenge attached to a 403 share a per-IP limit (default 60/min); over the limit the 403 carries no challenge. A distributed flood can still make the issuer spend CPU; an edge cache of pre-minted challenges is a phase 3 option, and matters most in hardened mode.
 - Bodies are capped at 1 MB; the middleware reads only urlencoded/JSON bodies.
 
 ## 5. Stolen passes and XSS

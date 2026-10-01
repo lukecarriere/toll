@@ -1,6 +1,6 @@
 # Toll wire protocol v1 (work rail)
 
-Status: phase 0/1, implemented in `packages/protocol` (TypeScript) and `packages/server-php` (PHP). Both pass [`vectors.json`](vectors.json). The paid rail is drafted separately in `docs/settlement.md` and adds no fields to anything below.
+Status: phase 0/1 as amended (Amendment 1), implemented in `packages/protocol` + `packages/work-adapter` (TypeScript) and `packages/server-php` (PHP, with the engine's PHP library). Both pass [`vectors.json`](vectors.json). The paid rail is drafted separately in `docs/settlement.md` and adds no fields to anything below.
 
 Conventions: all JSON, all times are Unix seconds, all IDs are opaque lowercase hex. Integers only (no floats anywhere that gets signed).
 
@@ -12,25 +12,38 @@ Canonical JSON: UTF-8; object keys sorted by code unit at every level; no whites
 
 ## 2. Challenge object
 
+Amendment 1: Toll owns the envelope (id, site, binding, times, signature). The puzzle itself is
+the work engine's payload, carried opaque in `work` and covered by `sig`. Engine choice, versions
+and the exact payload mapping are in [`adapters.md`](adapters.md).
+
 ```json
 {
   "v": 1,
   "id": "8f3c0000000000000000000000000001",
   "site": "site_abc123",
-  "algo": "pbkdf2-sha256",
-  "cost": 2000,
-  "n": 4,
-  "bits": 32,
-  "counter_start": 3000000000,
-  "counter_end": 3000000064,
-  "targets": ["fa0f2fdb", "a0174c6d", "19596181", "add3d808"],
-  "mem_kib": 0,
-  "parallelism": 1,
-  "salt": "AAECAwQFBgcICQoLDA0ODw==",
-  "bound": { "action": "write", "path_prefix": "/contact" },
+  "alg": "pbkdf2-sha256",
+  "work": {
+    "parameters": {
+      "algorithm": "PBKDF2/SHA-256",
+      "cost": 5000,
+      "data": {
+        "tid": "8f3c0000000000000000000000000001"
+      },
+      "keyLength": 32,
+      "keyPrefix": "9cdcd33d250393629e060363a88207a2",
+      "keySignature": "817437fac73ee1903189479e94d7bb3277ad49b8d84cf8cda94f667f5fb52d47",
+      "nonce": "a9672c76f5c19572873a77f0becd1936",
+      "salt": "d9855363f429b350586179cce92c8915"
+    },
+    "signature": "fc7649ed77867d38558561e2c42aefb955be0de3db8a30ca470f5c5e33bcfeef"
+  },
+  "bound": {
+    "action": "write",
+    "path_prefix": "/contact"
+  },
   "iat": 1790000000,
   "exp": 1790000120,
-  "sig": "C4BphBD+YoZR8ZtHUeQKVp2XGRpUPanHhJdmt9fPXlI="
+  "sig": "Ng3EqzOkeFqUiQCZKu89ZokneV+x5jF2W1FwFQcdxfw="
 }
 ```
 
@@ -39,48 +52,35 @@ This is `work[0]` from the vectors.
 | Field | Rule |
 |---|---|
 | `v` | `1` |
-| `id` | 16 random bytes, 32 hex chars. Single use. |
-| `algo` | `pbkdf2-sha256` (the only algorithm in v1.0; `argon2id` escalation is phase 3). |
-| `cost` | PBKDF2 iterations per attempt, 1..10,000,000. |
-| `n` | Independent sub-puzzles, 1..16. Default 4. |
-| `bits` | Target length in bits, multiple of 8, 8..64. Default 32. |
-| `counter_start`, `counter_end` | Search range `[counter_start, counter_end)`, span 1..2^24, end ≤ 2^53. |
-| `targets` | `n` lowercase hex strings, `bits/4` chars each. |
-| `mem_kib`, `parallelism` | `0` and `1` for pbkdf2 (kept for the argon2id envelope). |
-| `salt` | Base64 (standard, padded), 8..64 bytes. 16 random bytes in practice. |
+| `id` | 16 random bytes, 32 hex chars. Single use. Also bound inside the engine payload (`work.parameters.data.tid`). |
+| `site` | 1..128 chars. |
+| `alg` | `pbkdf2-sha256` (standard mode, default) or `argon2id` (hardened mode). Tells the client which solver worker to load; must equal the algorithm inside `work`. |
+| `work` | The engine payload, unchanged. Opaque to the origin and to the envelope code. Canonical JSON ≤ 4,096 bytes. |
 | `bound` | `action` (search, write, account, admin) and a coarse `path_prefix` from the route table (`/` if unmapped). Never the client IP. |
-| `iat`, `exp` | `0 < exp - iat ≤ 120`. Verifiers allow `iat` up to 5 s in the future. |
+| `iat`, `exp` | `0 < exp - iat ≤ 120`. Verifiers allow `iat` up to 5 s in the future. The engine payload has no expiry of its own; `exp` here governs. |
 
 Unknown fields are rejected.
 
-## 3. The work rule (deterministic effort + bits)
+## 3. The work rule
 
-For each `i` in `0..n-1`:
+The engine's rule, summarised (normative text: the engine's own spec, pinned version in adapters.md):
+the issuer picks a secret counter `x` uniformly in `[0, counter_max)`, derives
+`DK = KDF(password = nonce || uint32be(x), salt)` with the mode's KDF (PBKDF2-HMAC-SHA256 with
+`cost` iterations, or Argon2id with `cost` passes and `memoryCost` KiB), and publishes a prefix of
+`DK` (`keyPrefix`) plus an HMAC of the full key (`keySignature`). The client scans counters upward
+from 0 until the derived key starts with `keyPrefix` and returns `{ counter, derivedKey }`.
 
-```
-salt_i  = SHA256( base64decode(salt) || uint32be(i) )
-nonce_i = 16 lowercase hex chars of a uint64 counter c, counter_start <= c < counter_end
-DK_i    = PBKDF2-HMAC-SHA256( password = ASCII(nonce_i), salt = salt_i, iter = cost, dkLen = 32 )
-valid   iff hex(first bits/8 bytes of DK_i) == targets[i]
-```
-
-How the issuer builds a challenge: for each `i` it picks a secret counter `x_i` uniformly in the range, computes `DK_i` for `x_i`, and publishes its first `bits` bits as `targets[i]`. It does not store `x_i`; verification recomputes one DK per sub-puzzle.
-
-Why this formulation (spec §9.1 and §23 asked us to pick one and pin it):
-- **Bounded, predictable effort.** Each sub-puzzle takes at most `span` attempts and on average `(span+1)/2`. With `n = 4` the total is a sum of four uniforms: the worst case is exactly 2x the mean and the spread is narrow, so a phone is never handed an unlucky 30-second puzzle. Classic "leading zero bits" has an unbounded geometric tail.
-- **Policy tunes milliseconds.** The issuer sets `span` from the expected work it wants (§5); `cost` stays fixed so per-attempt overhead stays constant.
-- **Cheap to check.** Verifying costs `n x cost` iterations (8,000 by default; the issuer logs it as `verify_ms`, about 3 ms on the box), versus about `n x cost x span / 2` for the client.
-- **Any matching counter counts.** With `bits = 32` an accidental second match in range has probability about `span x 2^-32`; if it happens it is still a valid solution.
-- Not GPU-hard. PBKDF2 is the default for humans; GPU farms are handled by the settlement rail and by argon2id escalation (phase 3).
-
-Reference solver: scan counters upward from `counter_start`; the vectors' expected nonces are the lowest matching counter.
+- **Bounded, predictable effort.** At most `counter_max` tries, on average about half. `counter_max` is never sent; the client cannot tell how far it has to go.
+- **Policy tunes milliseconds.** The issuer sets `counter_max` from the expected tries it wants (policy.md §1); `cost` stays fixed per mode.
+- **Cheap to check.** Verifying is one HMAC (the key signature), falling back to one KDF call. Minting costs one KDF call (the secret counter's key).
+- **Modes.** Standard (PBKDF2) is the default for humans. Hardened (Argon2id, memory-hard) is for sites under GPU pressure; it is heavier on phones and costs the issuer one Argon2id call per challenge.
 
 ## 4. Solution and redeem
 
 Solution (from the widget):
 
 ```json
-{ "id": "8f3c…", "nonces": ["00000000b2d05e05", "…", "…", "…"], "took_ms": 412, "ua_class": "mobile" }
+{ "work": { "counter": 41, "derivedKey": "9cdc…" }, "took_ms": 412, "ua_class": "mobile" }
 ```
 
 `took_ms` and `ua_class` are hints for metrics and adaptive policy only. They are never trusted for authorization.
@@ -88,12 +88,12 @@ Solution (from the widget):
 `POST /v1/redeem`
 
 ```json
-{ "challenge_id": "8f3c…", "challenge": { …signed challenge… }, "solution": { "nonces": […], "took_ms": 412, "ua_class": "desktop" } }
+{ "challenge_id": "8f3c…", "challenge": { …signed challenge… }, "solution": { "work": { "counter": 41, "derivedKey": "…" }, "took_ms": 412, "ua_class": "desktop" } }
 ```
 
 `challenge` is optional: a stateless verifier needs it; the issuer that minted the challenge can look it up by `challenge_id`. The widget always sends it. (The paid form `{ offer_id, kind, preimage, macaroon }` returns `400 unsupported` while settlement is off.)
 
-Verification order (both implementations): shape (`malformed` / `unsupported`) → signature (`bad_sig`) → time (`not_yet_valid` / `expired`) → site (`wrong_site`) → claim the id in the replay store (`replay`) → work (`bad_solution`). The id is claimed before the work is checked, so each signed challenge can cost the server at most one verification. If the replay store is unreachable the redeem fails with 503: writes fail closed.
+Verification order (both implementations): shape (`malformed` / `unsupported`) → Toll signature (`bad_sig`) → time (`not_yet_valid` / `expired`) → site (`wrong_site`) → claim the id in the replay store (`replay`) → engine: payload algorithm equals `alg` (`malformed`), `data.tid` equals `id`, engine signature, solution (`bad_solution`). The id is claimed before the work is checked, so each signed challenge can cost the server at most one verification. If the replay store is unreachable the redeem fails with 503: writes fail closed. Then Toll mints the pass (§5).
 
 Response 200: `{ "pass": "<token>", "exp": 1790000901, "cls": "write", "rail": "work" }`, plus `Set-Cookie: toll_pass=…; Path=/; Max-Age=900; HttpOnly; SameSite=Lax` (and `Secure` over HTTPS). An existing valid cookie for a higher class is not overwritten by a lower one.
 
@@ -141,8 +141,9 @@ Protected routes (middleware): a request without a valid pass gets `403 {"error"
 
 [`vectors.json`](vectors.json) (regenerate with `npm run vectors`; output is deterministic):
 
-- `work[]`: challenge, canonical `signing_input`, `sub_salt_hex`, expected `solution.nonces`, the full 32-byte `dk_hex` for each nonce, the issuer's `secret_counters`, and the `pass` (claims → token) a redeem at `now` produces with fixed `sub`/`jti`.
-- `work_invalid[]`: tampered field, unsigned, wrong secret, expired, future `iat`, wrong / out-of-range / missing / malformed nonces, TTL over 120 s, unsupported algo, each with the expected error code.
+- `engine_secrets`: the engine's two HMAC secrets derived from the Toll secret (`HMAC-SHA256(secret, "toll/work-adapter/v1/challenge" | ".../key")`, hex).
+- `work[]`: engine-issued fixtures (standard write, standard search, hardened account): challenge, canonical `signing_input`, the issuer's `secret_counter`, the `solution`, and the `pass` (claims → token) a redeem at `now` produces with fixed `sub`/`jti`.
+- `work_invalid[]` (15): tampered envelope or engine payload, unsigned, wrong secret, expired, future `iat`, wrong key, wrong counter, solution for another challenge, engine payload bound to another id, broken engine signature, missing solution, TTL over 120 s, unsupported alg, each with the expected error code.
 - `pass[]`, `pass_invalid[]`, `pass_valid_checks[]`.
 
-The vectors use a test-only secret. Node: `tests/protocol.test.ts`. PHP: `php tests/php/run-vectors.php`.
+The vectors use a test-only secret. Node: `tests/protocol.test.ts`. PHP: `php tests/php/run-vectors.php` (after `composer install` in `packages/server-php`). The browser test also checks the shipped workers reproduce each fixture.

@@ -51,10 +51,20 @@ The wire protocol, the work rule and shared test vectors are in [docs/protocol.m
 
 ## Run it locally
 
-Node 22.18 or newer (TypeScript runs directly with Node's type stripping). PHP 8.1+ for the PHP vector test.
+Node 22.18 or newer (TypeScript runs directly with Node's type stripping). PHP 8.1+ with Composer for the PHP vector test (ext-sodium for hardened mode).
 
 ```sh
 npm install
-npm run demo        # http://localhost:8787
+(cd packages/server-php && composer install)
+npm run demo        # http://localhost:8787  (TOLL_WORK_MODE=hardened for the memory-hard mode)
 npm test            # build, typecheck, copy lint, all tests, PHP vectors
+npm run bench       # solve times, standard and hardened, desktop and phone-like
 ```
+
+## Internal notes
+
+For the team; review before any public release.
+
+- **Engines (Amendment 1, 2026-09-30).** Toll keeps the `/v1` API, the signed envelope, policy, passes, `<toll-gate>` and the agent SDK. The proof-of-work puzzle comes from a pinned, MIT-licensed, self-hosted engine, which runs only as a headless solver in workers behind `<toll-gate>`. It never renders UI and never calls a network service. Payments, when they arrive, go through an MIT-licensed reverse proxy, and this build has only a stub of it. The picks, pinned versions, licences, measured sizes and the reasoning are in [docs/adapters.md](docs/adapters.md). The copy lint keeps vendor names out of this README and every visitor-facing surface.
+- **Modes.** `work.mode: standard` (PBKDF2, the default) or `hardened` (Argon2id, memory-hard). Measured solve times for both modes are in [docs/policy.md](docs/policy.md) §3.
+- **Widget size.** The default path is 7.5 KB gzipped (`toll.js` plus one worker). Hardened mode adds a 14.5 KB gzipped worker, loaded only in that mode. Third-party notices ship as `/toll/v1/LICENSES.txt`.

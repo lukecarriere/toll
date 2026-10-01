@@ -1,10 +1,14 @@
 // toll.js: invisible check for forms (spec §10, design handoff §1).
-// - All grinding happens in toll.worker.js. Nothing is hashed on the page's main thread.
+// - The puzzle is the work engine's (docs/adapters.md), solved headless with the engine's solver in
+//   its prebuilt workers (toll.worker.js, toll.worker-argon2id.js), served from the issuer. Nothing
+//   is hashed on the page's main thread and the engine never renders any UI: this element and
+//   toll-gate.css are the only visible surface.
 // - Never reads or sends form field values. Only adds a hidden "toll-pass" input.
 // - Renders inside a shadow root with the designer's toll-gate.css; inherits host font and colour.
 
 import CSS from "./toll-gate.css";
 import { S } from "./strings.gen.ts";
+import { solveWithWorkers } from "@toll/work-adapter/browser";
 
 type Cls = "search" | "write" | "account" | "admin";
 const RANK: Record<string, number> = { read: 0, search: 1, write: 4, account: 8, admin: 16 };
@@ -19,7 +23,11 @@ const script = document.currentScript as HTMLScriptElement | null;
 const scriptUrl = new URL(script?.src || location.href, location.href);
 const ds = script?.dataset ?? {};
 const ISSUER = (ds.issuer || scriptUrl.origin).replace(/\/$/, "");
-const WORKER_URL = new URL("toll.worker.js", scriptUrl).href;
+const WORKER_URLS: Record<string, string> = {
+  "pbkdf2-sha256": new URL("toll.worker.js", scriptUrl).href,
+  argon2id: new URL("toll.worker-argon2id.js", scriptUrl).href,
+};
+const CONCURRENCY = Math.max(1, Math.min(4, navigator.hardwareConcurrency || 2));
 const SITE = ds.site || "";
 const MAX_SOLVE_MS = Number(ds.maxSolveMs) > 0 ? Number(ds.maxSolveMs) : 8000;
 const UA_CLASS = /Mobi|Android|iPhone|iPad/i.test(navigator.userAgent) ? "mobile" : "desktop";
@@ -55,43 +63,28 @@ async function validPass(action: string): Promise<Pass | null> {
   return c && covers(c, action) ? c : null;
 }
 
-// ---- worker ------------------------------------------------------------------------------------
-let worker: Worker | null = null;
-let seq = 0;
-const waiting = new Map<number, { ok: (v: any) => void; ko: (e: Error) => void }>();
-
-function getWorker(): Worker {
-  if (!worker) {
-    worker = new Worker(WORKER_URL);
-    worker.onmessage = (e) => {
-      const w = waiting.get(e.data.id);
-      if (!w) return;
-      waiting.delete(e.data.id);
-      e.data.ok ? w.ok(e.data) : w.ko(new Error(e.data.error));
-    };
-    worker.onerror = () => {
-      for (const w of waiting.values()) w.ko(new Error("worker failed"));
-      waiting.clear();
-      worker = null;
-    };
-  }
-  return worker;
-}
+// ---- solver ------------------------------------------------------------------------------------
+let current: AbortController | null = null;
 
 /** Stop any in-flight solve (used at the time cap). */
 function stopWorker() {
-  if (worker) worker.terminate();
-  worker = null;
-  for (const w of waiting.values()) w.ko(new Error("stopped"));
-  waiting.clear();
+  current?.abort();
+  current = null;
 }
 
-function solveInWorker(challenge: unknown): Promise<{ nonces: string[]; took_ms: number }> {
-  return new Promise((ok, ko) => {
-    const id = ++seq;
-    waiting.set(id, { ok, ko });
-    getWorker().postMessage({ id, challenge });
-  });
+interface Solved { work: { counter: number; derivedKey: string }; took_ms: number }
+
+/** Solve the engine payload in `alg`'s workers. Workers are spawned per solve and terminated after. */
+async function solveInWorker(challenge: any): Promise<Solved> {
+  const url = WORKER_URLS[challenge?.alg];
+  if (!url) throw new Error("unsupported");
+  const ctl = new AbortController();
+  current = ctl;
+  const t0 = performance.now();
+  const sol = await solveWithWorkers({ challenge: challenge.work, concurrency: CONCURRENCY, controller: ctl, createWorker: () => new Worker(url), timeout: 90_000 });
+  if (current === ctl) current = null;
+  if (!sol) throw new Error("stopped");
+  return { work: { counter: sol.counter, derivedKey: sol.derivedKey }, took_ms: Math.round(performance.now() - t0) };
 }
 
 async function fetchChallenge(action: string): Promise<any> {
@@ -102,12 +95,12 @@ async function fetchChallenge(action: string): Promise<any> {
   return (await r.json()).challenge;
 }
 
-async function redeem(challenge: any, sol: { nonces: string[]; took_ms: number }): Promise<Pass> {
+async function redeem(challenge: any, sol: Solved): Promise<Pass> {
   const r = await fetch(ISSUER + "/v1/redeem", {
     method: "POST",
     credentials: "include",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ challenge_id: challenge.id, challenge, solution: { nonces: sol.nonces, took_ms: sol.took_ms, ua_class: UA_CLASS } }),
+    body: JSON.stringify({ challenge_id: challenge.id, challenge, solution: { work: sol.work, took_ms: sol.took_ms, ua_class: UA_CLASS } }),
   });
   if (!r.ok) throw new Error("redeem " + r.status);
   const j = await r.json();
@@ -241,7 +234,7 @@ class TollGate extends HTMLElement {
       if (!this.boxMode) this.setView("checking");
     }, SHOW_AFTER_MS);
     // The cap applies to background checks only. Once the visitor presses "Verify before sending"
-    // the check runs to the end (the issuer's max_iterations still bounds it).
+    // the check runs to the end (the issuer's max_units cap still bounds it).
     const capTimer = setTimeout(() => {
       if (id !== this.runId || this.boxMode) return;
       // Owner's longest check reached: stop and offer the checkbox (design handoff §1.2.6).
