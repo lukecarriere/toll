@@ -21,7 +21,7 @@ const demoUp = await up(DEMO + "/v1/health");
 const wpUp = (await up(WP + "/wp-json/toll/v1/health")) && existsSync(WPCLI);
 const edgeUp = demoUp && (await up(EDGE + "/v1/health"));
 
-const HEADERS = [
+const HEADERS: Record<string, string>[] = [
   { accept: "text/html", "user-agent": "Mozilla/5.0 (reader)" },
   { accept: "application/json", "toll-client": "agent", "user-agent": "agent/1.0" },
 ];
@@ -48,8 +48,8 @@ const edgeEvents = () => existsSync(EDGE_LOG) ? (readFileSync(EDGE_LOG, "utf8").
 
 test("M10 Node demo: GET / and unmapped pages are free; challenges_minted does not move", { skip: demoUp ? false : "demo not running on " + DEMO }, async () => {
   const before = await demoMinted();
-  const r = await hammer(DEMO, ["/", "/hammer", "/blog/some-article", "/feed", "/docs/intro", "/contact", "/search?q=reads"]);
-  for (const p of ["/", "/hammer"]) assert.deepEqual(r[p], { 200: ROUNDS * 2 }, p);
+  const r = await hammer(DEMO, ["/", "/hammer", "/.well-known/toll.json", "/.well-known/agents.json", "/v1/price?action=write", "/blog/some-article", "/feed", "/docs/intro", "/contact", "/search?q=reads"]);
+  for (const p of ["/", "/hammer", "/.well-known/toll.json", "/.well-known/agents.json", "/v1/price?action=write"]) assert.deepEqual(r[p], { 200: ROUNDS * 2 }, p);
   assert.equal(await demoMinted(), before, "no challenge minted for page views");
   console.log("M10 demo", JSON.stringify(r), "challenges_minted", before, "->", await demoMinted());
 });
@@ -58,8 +58,8 @@ test("M10 WordPress: GET /, posts, feed, login page and unmapped pages are free;
   const post = await (await fetch(WP + "/wp-json/wp/v2/posts?per_page=1")).json();
   const postPath = Array.isArray(post) && post[0] ? new URL(post[0].link).pathname : "/?p=1";
   const before = wpCounters();
-  const r = await hammer(WP, ["/", postPath, "/feed/", "/?s=reads", "/wp-login.php", "/blog/some-article/"]);
-  for (const p of ["/", postPath, "/feed/", "/?s=reads", "/wp-login.php"]) assert.deepEqual(r[p], { 200: ROUNDS * 2 }, p);
+  const r = await hammer(WP, ["/", postPath, "/feed/", "/?s=reads", "/wp-login.php", "/.well-known/toll.json", "/.well-known/agents.json", "/wp-json/toll/v1/price?action=write", "/blog/some-article/"]);
+  for (const p of ["/", postPath, "/feed/", "/?s=reads", "/wp-login.php", "/.well-known/toll.json", "/.well-known/agents.json", "/wp-json/toll/v1/price?action=write"]) assert.deepEqual(r[p], { 200: ROUNDS * 2 }, p);
   const after = wpCounters();
   for (const k of ["challenges_minted", "turned_away", "pass_absent", "pass_reject", "offer_shown"]) assert.equal(after[k], before[k], k);
   console.log("M10 wp", JSON.stringify(r), "challenges_minted", before.challenges_minted, "->", after.challenges_minted);
@@ -69,7 +69,9 @@ test("M10 edge: GETs are proxied before any Toll code, even under write and acco
   const before = await demoMinted();
   const ev0 = edgeEvents();
   const paths = ["/", "/hammer", "/blog/some-article", "/feed", "/contact", "/api/things", "/wp-login.php"];
-  const r = await hammer(EDGE, paths);
+  const own = ["/.well-known/toll.json", "/.well-known/agents.json", "/v1/price?action=write"];
+  const r = await hammer(EDGE, [...paths, ...own]);
+  for (const p of own) assert.deepEqual(r[p], { 200: ROUNDS * 2 }, p + " (served by the edge itself)");
   for (const p of paths) {
     const direct = (await fetch(DEMO + p, { redirect: "manual" })).status;
     assert.deepEqual(r[p], { [direct]: ROUNDS * 2 }, `${p}: the origin's own answer (${direct})`);

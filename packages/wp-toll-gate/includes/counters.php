@@ -9,7 +9,7 @@ if (!defined('ABSPATH')) exit;
 
 // page_view_gate_confirmed: owners who confirmed the page-view warning (Amendment 2 §A), same name as
 // the Node issuer. WordPress has no page-view switch (PM, Oct 1), so it stays 0 here.
-const TOLL_GATE_COUNTERS = ['pass_accept', 'pass_reject', 'pass_absent', 'turned_away', 'offer_shown', 'paid', 'work_after_402', 'challenges_minted', 'page_view_gate_confirmed'];
+const TOLL_GATE_COUNTERS = ['pass_accept', 'pass_reject', 'pass_absent', 'turned_away', 'offer_shown', 'paid', 'work_after_402', 'challenges_minted', 'page_view_gate_confirmed', 'manifest_fetch', 'agents_json_fetch'];
 const TOLL_GATE_COUNTER_DAYS = 30;   // rows in the export
 const TOLL_GATE_COUNTER_KEEP = 90;   // days kept before the hourly cleanup drops them
 

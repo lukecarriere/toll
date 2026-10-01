@@ -76,7 +76,7 @@ async function setSettings(o: { payouts: boolean; connection: "test" | "server";
   await A.getByText("Settings saved.").waitFor();
 }
 
-const CSV_COLUMNS = ["date", "timezone", ...COUNTERS, "challenges_minted", "page_view_gate_confirmed", "since", "exported_at"];
+const CSV_COLUMNS = ["date", "timezone", ...COUNTERS, "challenges_minted", "page_view_gate_confirmed", "manifest_fetch", "agents_json_fetch", "since", "exported_at"];
 const ISO_UTC = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/;
 type CsvExport = { rows: Record<string, string>[]; today: Record<string, number> };
 
@@ -89,7 +89,7 @@ async function exportCsvFull(): Promise<CsvExport> {
   assert.match(r.headers()["content-type"], /^text\/csv/);
   assert.match(r.headers()["content-disposition"], /attachment; filename="toll-counters.csv"/);
   const [head, ...lines] = (await r.text()).trim().split(/\r\n/);
-  assert.equal(head, CSV_COLUMNS.join(","), "date, timezone, the Node counter names, challenges_minted, page_view_gate_confirmed, since, exported_at");
+  assert.equal(head, CSV_COLUMNS.join(","), "date, timezone, the Node counter names, challenges_minted, page_view_gate_confirmed, manifest_fetch, agents_json_fetch, since, exported_at");
   const rows = lines.map((l) => Object.fromEntries(l.split(",").map((v, i) => [CSV_COLUMNS[i], v])));
   const last = rows[rows.length - 1];
   assert.equal(last.date, new Date().toISOString().slice(0, 10), "last row is today in UTC");

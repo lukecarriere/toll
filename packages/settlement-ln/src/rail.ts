@@ -53,6 +53,17 @@ export function createSettlementRail(o: RailOptions) {
     degraded = true;
   }
 
+  /**
+   * Price of one paid request of class `cls`: integer msat plus the agent USD string (offerUsd,
+   * rounded UP to $0.0001; undefined when the rate is unavailable). The 402 offers, the
+   * /.well-known/toll.json manifest and GET /v1/price all use this one function (Amendment 3).
+   */
+  function price(cls: PaidClass, mults: { velocity?: number; suspicion?: number } = {}): { amount_msat: number; usd: string | undefined } {
+    const now = o.now();
+    const amount_msat = offerAmountMsat(cls, mults.velocity ?? 1, mults.suspicion ?? 1);
+    return { amount_msat, usd: offerUsd(amount_msat, o.fx.quote(now), now) };
+  }
+
   /** offers[] for an agent request. Fail soft: any engine problem means no offers, work still flows. */
   async function offers(cls: PaidClass, mults: { velocity?: number; suspicion?: number } = {}): Promise<Offer[]> {
     if (!collecting) return [];
@@ -68,10 +79,9 @@ export function createSettlementRail(o: RailOptions) {
       return [];
     }
     try {
-      const amount_msat = offerAmountMsat(cls, mults.velocity ?? 1, mults.suspicion ?? 1);
+      const { amount_msat, usd } = price(cls, mults);
       const offer = await o.engine.offer({ site: o.site, cls, amount_msat, now, ttl_s: o.offer_ttl_s });
       degraded = false;
-      const usd = offerUsd(offer.amount_msat, o.fx.quote(now), now);
       const out: Offer = { ...offer };
       if (usd) out.display = { usd, label: "per request" };
       else delete out.display; // rate unavailable: the amount stands, the USD is omitted (Q4)
@@ -138,7 +148,7 @@ export function createSettlementRail(o: RailOptions) {
     return usdDisplay(msat, o.fx.quote(now), now);
   }
 
-  return { offers, redeemPaid, status, balance, usd, setCollecting, isCollecting: () => collecting, replayRejected: () => replayRejected, ledger, recent: () => [...recent], isDegraded: () => degraded, fee_bps: o.fee_bps };
+  return { price, quote: () => o.fx.quote(o.now()), offers, redeemPaid, status, balance, usd, setCollecting, isCollecting: () => collecting, replayRejected: () => replayRejected, ledger, recent: () => [...recent], isDegraded: () => degraded, fee_bps: o.fee_bps };
 }
 
 export type SettlementRail = ReturnType<typeof createSettlementRail>;

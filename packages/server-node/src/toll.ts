@@ -33,6 +33,7 @@ import {
 } from "../../settlement-ln/src/index.ts";
 import { type TollConfig, classifyPath, PAGE_VIEW_WARNING } from "./config.ts";
 import { Metrics } from "./metrics.ts";
+import { PAID_CLASSES, type PriceTable, type PriceStatus } from "./manifest.ts";
 import { MemoryStore, type TollStore, WindowCounter } from "./stores.ts";
 
 export interface TollOptions {
@@ -320,6 +321,17 @@ export function createToll(config: TollConfig, opts: TollOptions = {}) {
     verifyPass,
     findIssued,
     classify: (path: string, method: string) => classifyPath(config.routes, path, method),
+    /**
+     * Base price of one paid request per class (Amendment 3), from the rail's price(): the same
+     * function as the 402 offer. null when this issuer makes no paid offers (settlement off or
+     * payouts switched off): the manifest then says "stub" and work only.
+     */
+    priceTable: (): PriceTable => {
+      if (!paid || !paid.rail.isCollecting()) return null;
+      return Object.fromEntries(PAID_CLASSES.map((c) => [c, paid.rail.price(c)])) as PriceTable;
+    },
+    /** "test": paid offers come from the local test backend. "stub": no paid offer here. */
+    priceStatus: (): PriceStatus => (paid && paid.rail.isCollecting() ? "test" : "stub"),
     classCovers,
   };
 }

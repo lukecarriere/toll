@@ -36,6 +36,8 @@ export interface TollConfig {
   routes: RouteRule[];
   /** The owner confirmed the page-view warning (PAGE_VIEW_WARNING) so a GET route may be gated. */
   confirm_page_view_gating: boolean;
+  /** Agent discovery (Amendment 3): public docs URL for /.well-known/toll.json, or null until there is a public host. */
+  discovery: { docs_url: string | null };
   settlement: SettlementConfig;
 }
 
@@ -140,6 +142,7 @@ export function normalizeConfig(raw: Record<string, any>, env: NodeJS.ProcessEnv
     cookie: { secure: raw.cookie?.secure ?? "auto" },
     routes,
     confirm_page_view_gating,
+    discovery: { docs_url: typeof raw.discovery?.docs_url === "string" && /^https?:\/\//.test(raw.discovery.docs_url) ? raw.discovery.docs_url : null },
     settlement,
   };
 }

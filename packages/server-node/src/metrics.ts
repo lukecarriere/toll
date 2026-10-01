@@ -26,10 +26,13 @@ export interface Counters {
   settlement_degraded: number;
   /** Times the owner confirmed the page-view warning (Amendment 2 §A); same name in WordPress. */
   page_view_gate_confirmed: number;
+  /** Agent discovery (Amendment 3, M11): GET /.well-known/toll.json and GET /.well-known/agents.json. */
+  manifest_fetch: number;
+  agents_json_fetch: number;
 }
 
 export class Metrics {
-  c = { challenges_minted: 0, redeems_ok: 0, redeems_fail: 0, pass_accept: 0, pass_reject: 0, pass_absent: 0, turned_away: 0, settled_msat: 0, offer_shown: 0, paid: 0, work_after_402: 0, settlement_degraded: 0, page_view_gate_confirmed: 0 };
+  c = { challenges_minted: 0, redeems_ok: 0, redeems_fail: 0, pass_accept: 0, pass_reject: 0, pass_absent: 0, turned_away: 0, settled_msat: 0, offer_shown: 0, paid: 0, work_after_402: 0, settlement_degraded: 0, page_view_gate_confirmed: 0, manifest_fetch: 0, agents_json_fetch: 0 };
   /** Per "rail|cls" tag counts for redeems_ok and pass_accept. */
   byTag: Record<string, { redeems_ok: number; pass_accept: number }> = {};
   private tookSum = 0;
@@ -92,6 +95,13 @@ export class Metrics {
   passAbsent(f: { action: string; status: number }): void {
     this.c.pass_absent++;
     this.emit("pass_absent", f);
+  }
+
+  /** A discovery document was fetched (M11). The event line carries no visitor fields at all. */
+  discovery(doc: "manifest" | "agents_json"): void {
+    if (doc === "manifest") this.c.manifest_fetch++;
+    else this.c.agents_json_fetch++;
+    this.emit(doc === "manifest" ? "manifest_fetch" : "agents_json_fetch");
   }
 
   /** The owner confirmed the page-view warning (config load with confirm_page_view_gating). */

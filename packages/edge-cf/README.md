@@ -32,7 +32,8 @@ throwaway origin; part of `npm test`).
 | POST/PUT/PATCH/DELETE to a gated prefix with a valid `toll_pass` cookie or `Authorization: Toll` | one pass use spent, proxied |
 | …without a pass, `Accept: application/json` | `403 {"error":"toll_required","challenge":{…}}` |
 | …without a pass, HTML | `403` interstitial: a `data-toll` form that re-sends the urlencoded fields (≤ 16 KB) after the check; `<noscript>` says "This form needs JavaScript." |
-| `/v1/challenge`, `/v1/redeem`, `/v1/status`, `/v1/health` | the Toll facade (docs/protocol.md) |
+| `GET /.well-known/toll.json`, `/.well-known/agents.json` | the agent manifest and its pointer (Amendment 3), served before any config or store is touched. The edge is work-only, so prices are null with status `stub`. Logged as `manifest_fetch` / `agents_json_fetch` |
+| `/v1/challenge`, `/v1/redeem`, `/v1/status`, `/v1/health`, `/v1/price` | the Toll facade (docs/protocol.md); `/v1/price` is always `stub` here |
 | `/v1/siteverify` | form or JSON `secret` + `response` (a pass or a redeem payload) + optional `action` → `{success, action, hostname, challenge_ts}` or `{success:false,"error-codes":[…]}` |
 | `/toll/v1/toll.js`, `/toll/v1/toll.worker.js` | the widget, same-origin |
 

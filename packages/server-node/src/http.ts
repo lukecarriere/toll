@@ -7,6 +7,14 @@ import { fileURLToPath } from "node:url";
 import { type ActionClass, TollError, isActionClass, timingSafeEqual, utf8, verifyPassToken, classCovers } from "../../protocol/src/index.ts";
 import { l402Challenge, paymentRequired, StubSettler } from "../../settlement-ln/src/index.ts";
 import type { Toll } from "./toll.ts";
+import { buildManifest, agentsPointer, priceBody, PAID_CLASSES } from "./manifest.ts";
+
+/** Origin of this request as the client sees it (for absolute URLs in the manifest). */
+function requestOrigin(req: Req): string {
+  const proto = (req.socket as any)?.encrypted ? "https" : "http";
+  const host = String(req.headers.host ?? "localhost").replace(/[^A-Za-z0-9.:\-\[\]]/g, "");
+  return `${proto}://${host}`;
+}
 
 export const VERSION = "1.0.0";
 export const PASS_COOKIE = "toll_pass";
@@ -140,6 +148,18 @@ export function tollRouter(toll: Toll) {
         else if (path.endsWith("toll.worker.js")) res.setHeader("content-security-policy", "default-src 'none'; script-src 'self'");
         return res.end(body);
       }
+      // Agent discovery (Amendment 3): free, no pass, no challenge, no payment, any client.
+      if ((path === "/.well-known/toll.json" || path === "/.well-known/agents.json") && (req.method === "GET" || req.method === "HEAD")) {
+        const origin = requestOrigin(req);
+        res.setHeader("access-control-allow-origin", "*");
+        res.setHeader("cache-control", "public, max-age=60");
+        if (path === "/.well-known/agents.json") {
+          toll.metrics.discovery("agents_json");
+          return send(res, 200, agentsPointer(origin + "/.well-known/toll.json"));
+        }
+        toll.metrics.discovery("manifest");
+        return send(res, 200, buildManifest({ api: origin + "/v1", docs: toll.config.discovery.docs_url, status: toll.priceStatus(), prices: toll.priceTable() }));
+      }
       if (!path.startsWith("/v1/")) return next();
       applyCors(toll, req, res);
       if (req.method === "OPTIONS") {
@@ -162,6 +182,15 @@ export function tollRouter(toll: Toll) {
           return res.end(`<!doctype html><meta charset="utf-8"><title>Toll status</title><h1>Toll status</h1><table>${rows}</table>`);
         }
         return send(res, 200, body);
+      }
+
+      // Price of one paid request (Amendment 3, price_write_action). Read-only: mints nothing.
+      if (path === "/v1/price" && req.method === "GET") {
+        const action = url.searchParams.get("action") ?? "write";
+        if (!(PAID_CLASSES as readonly string[]).includes(action)) return send(res, 400, { error: "bad_action" });
+        const cls = action as (typeof PAID_CLASSES)[number];
+        const table = toll.priceTable();
+        return send(res, 200, priceBody({ action: cls, status: toll.priceStatus(), p: table?.[cls] ?? null, challenge_url: toll.challengeUrl(cls, url.searchParams.get("path") ?? "/") }));
       }
 
       if (path === "/v1/challenge" && req.method === "GET") {
@@ -219,7 +248,7 @@ export function tollRouter(toll: Toll) {
       // Owner API (option A, docs/settlement.md §9): a WordPress site set to "Payment server" reads its
       // balance and sends withdrawals here, server to server, with the owner key. Off unless
       // settlement.owner_key is set. Amounts are integer msat plus the owner's USD string.
-      if (path === "/v1/owner/balance" || path === "/v1/owner/withdraw" || path === "/v1/owner/offers" || path === "/v1/owner/redeem") {
+      if (path === "/v1/owner/balance" || path === "/v1/owner/withdraw" || path === "/v1/owner/offers" || path === "/v1/owner/redeem" || path === "/v1/owner/price") {
         const key = toll.config.settlement.owner_key;
         if (!key || !toll.paid) return send(res, 404, { error: "not_found" });
         const auth = /^Bearer\s+(\S+)$/i.exec(String(req.headers.authorization ?? ""));
@@ -254,6 +283,13 @@ export function tollRouter(toll: Toll) {
         // no credential or invoice code), and forwards each paid redeem here: the settlement engine
         // checks the proof (single use) and the payment is booked in this issuer's ledger. The site
         // then mints its own one-use, 60-second pass. offers [] when paid requests are off or paused.
+        // Prices for a WordPress site's manifest: amounts plus the rate, so the site derives the USD
+        // with its own copy of the same function (Settlement::offerUsd). Read-only.
+        if (path === "/v1/owner/price" && req.method === "GET") {
+          const table = toll.priceTable();
+          const fx = paid.quote();
+          return send(res, 200, { status: toll.priceStatus(), prices: table ? Object.fromEntries(Object.entries(table).map(([c, p]) => [c, { amount_msat: p!.amount_msat }])) : null, fx: fx ? { usd_per_btc: fx.usd_per_btc, fetched_at: fx.fetched_at } : null });
+        }
         if (path === "/v1/owner/offers" && req.method === "POST") {
           const body = await readBody(req);
           const action = body?.action;

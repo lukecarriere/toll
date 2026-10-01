@@ -13,6 +13,7 @@ import { createToll } from "../../server-node/src/toll.ts";
 import { normalizeConfig } from "../../server-node/src/config.ts";
 import { Metrics } from "../../server-node/src/metrics.ts";
 import { MemoryStore } from "../../server-node/src/stores.ts";
+import { buildManifest, agentsPointer, priceBody, PAID_CLASSES } from "../../server-node/src/manifest.ts";
 import { KVStore, type KVLike } from "./kv-store.ts";
 // Widget files, bundled as text by build.mjs.
 import TOLL_JS from "../../widget/dist/toll.js";
@@ -128,11 +129,20 @@ function cookieFor(pass: string, exp: number, now: number, secure: boolean) {
   return `${PASS_COOKIE}=${encodeURIComponent(pass)}; Path=/; Max-Age=${Math.max(0, exp - now)}; HttpOnly; SameSite=Lax${secure ? "; Secure" : ""}`;
 }
 
+const discoveryMetrics = new Metrics((l) => console.log(l));
+
 export default {
   async fetch(req: Request, env: Env): Promise<Response> {
     const url = new URL(req.url);
     const path = url.pathname;
     const method = req.method.toUpperCase();
+    // Agent discovery (Amendment 3): free, served before any config or store is touched. The edge
+    // is work-only, so prices are null with status "stub".
+    if ((path === "/.well-known/toll.json" || path === "/.well-known/agents.json") && (method === "GET" || method === "HEAD")) {
+      const doc = path === "/.well-known/toll.json" ? buildManifest({ api: url.origin + "/v1", docs: null, status: "stub", prices: null }) : agentsPointer(url.origin + "/.well-known/toll.json");
+      discoveryMetrics.discovery(path === "/.well-known/toll.json" ? "manifest" : "agents_json");
+      return json(doc, 200, { "access-control-allow-origin": "*", "cache-control": "public, max-age=60" });
+    }
     // Page loads are never gated at the edge (Amendment 2 §A): proxied before any config or store
     // is touched, so a bad route list or a store outage can't block reading.
     if ((method === "GET" || method === "HEAD" || method === "OPTIONS") && !path.startsWith("/v1/") && !path.startsWith("/toll/v1/")) return proxy(req, env, url);
@@ -174,6 +184,12 @@ export default {
 async function facade(req: Request, env: Env, url: URL, toll: ReturnType<typeof createToll>): Promise<Response> {
   const path = url.pathname;
   if (path === "/v1/health") return json({ ok: true, v: "1.0.0", settlement: "off", edge: true });
+  if (path === "/v1/price" && req.method === "GET") {
+    const action = url.searchParams.get("action") ?? "write";
+    if (!(PAID_CLASSES as readonly string[]).includes(action)) return json({ error: "bad_action" }, 400);
+    const cls = action as (typeof PAID_CLASSES)[number];
+    return json(priceBody({ action: cls, status: "stub", p: null, challenge_url: toll.challengeUrl(cls, url.searchParams.get("path") ?? "/") }));
+  }
   if (path === "/v1/challenge" && req.method === "GET") {
     const action = url.searchParams.get("action") ?? "write";
     if (!isActionClass(action) || action === "read") return json({ error: "bad_action" }, 400);

@@ -27,6 +27,7 @@ function toll_gate_register_routes(): void
     register_rest_route('toll/v1', '/redeem', ['methods' => 'POST', 'callback' => 'toll_gate_rest_redeem', 'permission_callback' => $open]);
     register_rest_route('toll/v1', '/status', ['methods' => 'GET', 'callback' => 'toll_gate_rest_status', 'permission_callback' => $open]);
     register_rest_route('toll/v1', '/health', ['methods' => 'GET', 'callback' => 'toll_gate_rest_health', 'permission_callback' => $open]);
+    register_rest_route('toll/v1', '/price', ['methods' => 'GET', 'callback' => 'toll_gate_rest_price', 'permission_callback' => $open]);
     register_rest_route('toll/v1', '/siteverify', ['methods' => 'POST', 'callback' => 'toll_gate_rest_siteverify', 'permission_callback' => $open]);
 }
 

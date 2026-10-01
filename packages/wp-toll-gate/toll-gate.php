@@ -29,6 +29,7 @@ require_once __DIR__ . '/includes/store.php';
 require_once __DIR__ . '/includes/issuer.php';
 require_once __DIR__ . '/includes/gate.php';
 require_once __DIR__ . '/includes/payouts.php';
+require_once __DIR__ . '/includes/discovery.php';
 require_once __DIR__ . '/includes/admin.php';
 
 register_activation_hook(__FILE__, 'toll_gate_activate');
@@ -50,4 +51,5 @@ add_action('toll_gate_cleanup', 'toll_gate_store_cleanup');
 add_action('toll_gate_cleanup', 'toll_gate_counters_cleanup');
 add_action('rest_api_init', 'toll_gate_register_routes');
 add_action('init', 'toll_gate_init_gate');
+add_action('init', 'toll_gate_discovery_serve', 0);
 if (is_admin()) toll_gate_admin_init();
