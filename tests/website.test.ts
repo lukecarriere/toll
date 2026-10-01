@@ -19,6 +19,7 @@ const html = (f: string) => readFileSync(OUT + f + ".html", "utf8");
 const norm = (s: string) => s.replace(/\s+/g, " ").trim();
 const decode = (s: string) => s.replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&amp;/g, "&");
 const A2 = ROOT + "AMENDMENT_2.md";
+const A3 = ROOT + "AMENDMENT_3.md";
 
 /** Visible text of a markdown page: title, then each paragraph or list item. */
 function mdText(src: string) {
@@ -30,18 +31,34 @@ function htmlText(src: string) {
   return [...main.matchAll(/<(h1|p|li)\b[^>]*>([\s\S]*?)<\/\1>/g)].map((m) => norm(decode(m[2])));
 }
 
-test("website/*.md and docs/positioning.md are Amendment 2 §E and §B as written", { skip: existsSync(A2) ? false : "AMENDMENT_2.md not present" }, () => {
+test("website/*.md and docs/positioning.md are Amendment 2 §E and §B as written, plus the Amendment 3 ecosystem paragraph", { skip: existsSync(A2) ? false : "AMENDMENT_2.md not present" }, () => {
   const a = readFileSync(A2, "utf8");
   const sec = (start: string) => { const i = a.indexOf(start) + start.length; return a.slice(i, a.indexOf("\n---\n", i)).trim(); };
   const e = sec("## E. Website copy (publish as written)\n").split(/^### /m).filter(Boolean);
   assert.equal(e.length, 4);
+  // Amendment 3 adds one paragraph to ecosystem.md, right before the closing line; nothing else changes.
+  const a3 = existsSync(A3) ? /^> (Agents that need a write-gate[^\n]+)$/m.exec(readFileSync(A3, "utf8"))![1] : null;
   for (const [i, part] of e.entries()) {
     const [title, ...rest] = part.split("\n");
     const page = PAGES[i];
-    assert.equal(norm(md(page.file)), norm(`# ${title}\n\n${rest.join("\n")}`), page.file + ".md");
+    let body = rest.join("\n").trim();
+    if (page.file === "ecosystem" && a3) {
+      const close = "Leave the front door open. Lock the counter.";
+      assert.ok(body.endsWith(close));
+      body = body.slice(0, -close.length) + a3 + "\n\n" + close;
+    }
+    assert.equal(norm(md(page.file)), norm(`# ${title}\n\n${body}`), page.file + ".md");
+  }
+  if (a3) {
+    assert.ok(readFileSync(ROOT + "docs/copy.md", "utf8").includes(`"${a3}"`), "same paragraph as docs/copy.md");
+    const eco = htmlText(html("ecosystem"));
+    assert.deepEqual(eco.slice(-2), [a3, "Leave the front door open. Lock the counter."], "plain paragraph right before the closing line");
+    assert.match(html("ecosystem"), new RegExp(`<p>${a3.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}</p>\n<p class="close">`), "a plain <p>, no heading");
   }
   assert.equal(PAGES[3].nav, "Where Toll fits");
-  assert.ok(norm(readFileSync(ROOT + "docs/positioning.md", "utf8")).endsWith(norm(sec("## B. Where Toll sits (for the team, not the homepage)\n"))), "positioning.md ends with §B verbatim");
+  const pos = norm(readFileSync(ROOT + "docs/positioning.md", "utf8"));
+  assert.ok(pos.includes(norm(sec("## B. Where Toll sits (for the team, not the homepage)\n"))), "positioning.md carries §B verbatim");
+  assert.match(pos, /## Discovery .*AMENDMENT_3\.md/, "discovery note points at Amendment 3");
 });
 
 test("built pages carry exactly the markdown text: header, nav with aria-current, list for values, closing line set off", () => {
@@ -113,8 +130,8 @@ test("in a browser each page makes only same-origin requests (the page and site.
   }
 });
 
-test("copy lint covers website/ and docs/positioning.md, and they pass as written", () => {
-  const r = runLint();
+test("copy lint covers website/ and docs/positioning.md, and they pass as written", async () => {
+  const r = await runLint();
   assert.deepEqual(r.hits.filter((h: any) => h.file.startsWith("website/") || h.file === "docs/positioning.md"), []);
   assert.ok(md("values").includes("We do not score visitors as human or not."), "Luke's one use of 'human' stays");
 });

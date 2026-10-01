@@ -96,3 +96,18 @@ Product: Toll. WordPress plugin: `toll-gate`. Widget file: `toll.js`, element `<
 - Never on any public surface: crawler allow, charge, or block features, or "block training bots".
 - No page-view switch in WordPress (PM call, Oct 1): nothing there can gate a page view, so the warning has nothing to attach to.
 - Routes editor confirm (when deleting `/` or raising a GET path above read): body is the §A warning above. Buttons: "Keep pages open" (focused, default) and "Gate page views" (destructive).
+
+## Amendment 3: agent discovery (Oct 1, 2026)
+Luke's wording, verbatim, do not edit:
+- `website/ecosystem.md`, new section added after the existing text: "Agents that need a write-gate can find Toll in public tool catalogs. The article stays free. The tool call is priced. Being quoted in an answer is not the same as being chosen as the tool."
+- Manifest and MCP `description` (147 characters): "Invisible check for writes. A person does not notice. A program that fires thousands of writes pays for each one, or stops. Public pages stay free."
+
+Tool names and descriptions (PM copy; the description is the ranking signal, so it must state each tool's job and what it does not do):
+- `price_write_action`: "Returns the current USD price, and the work alternative, for one write on a Toll-protected site: a comment, signup, login, form post, or state-changing API call. Use it before a write to choose between paying and doing the work. Not for page views, which are free and need no call. Does not identify the caller."
+- `gate_form_write`: "Gets a one-use pass for one write on a Toll-protected site. With no payment it returns the payment offer and a work challenge. With proof of payment it returns the pass. Use only for writes. Does not block public reads, does not detect who the caller is, and does not license or price content."
+- `verify_write_pass`: "For the site's own server: checks that a pass sent with a write is valid, unused, and for this site and action. Returns valid or invalid with a reason. Does not score the caller or say whether it is a person or a program."
+- `not_for`, exact: ["page views", "crawler blocking", "citation licensing"]. `reads_free`: true.
+
+Price and payment honesty:
+- Until a real offer exists, every price carries a status beside it: `"status": "test"` (test or testnet rail) or `"status": "stub"`. The USD display is computed from `amount_msat` and the configured rate, rounded up to $0.0001 exactly like the 402 offer (never typed by hand), and reads like "$0.0100 (test)" for a write at the demo rate. It never stands alone as a bare number. The demo's fixed test rate is not a market price.
+- Lint scope: the manifest and MCP files are for machines, so only their `payment` objects may name the payment method (Amendment 3). Every `description` string and all website pages stay under the full lint list.

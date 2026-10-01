@@ -15,3 +15,7 @@ Toll's job is the fourth one: make high-volume *writes* expensive, without askin
 Putting Toll on page views fights discovery. Putting Toll on comments does not.
 
 A site can use both. Allow answering crawlers on public pages. Block or license training crawlers somewhere else. Put Toll on the form. They clash only if Toll taxes the read.
+
+## Discovery
+
+Agents find Toll as a tool, not as a page: see AMENDMENT_3.md. Each host serves `/.well-known/toll.json` (free, no check) and a local MCP server exposes the same three write tools. The website stays the human front door; the manifest is what an agent installs. Catalog status: docs/catalogs.md.

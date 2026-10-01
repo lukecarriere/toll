@@ -10,4 +10,6 @@ Tools that sit in front of the whole site can allow a known crawler, charge it f
 
 Toll serves the write. It does not ask the caller to identify itself. It does not charge for a public article. It does not replace a crawler deal, a license, or a pay-per-citation program. A publisher can use those and still put Toll on the comment box.
 
+Agents that need a write-gate can find Toll in public tool catalogs. The article stays free. The tool call is priced. Being quoted in an answer is not the same as being chosen as the tool.
+
 Leave the front door open. Lock the counter.
