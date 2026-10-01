@@ -1,0 +1,144 @@
+# agent-pay: 20 paid writes against the demo (local test backend, no real money)
+# started: 2026-09-30 21:32:51 CDT (America/Chicago)
+# repo: 4f887ad · demo: http://localhost:8787 · demo/toll.yaml: fee_bps 1000, pass 1 use / 60 s, fixed test rate 100000 (not a market price)
+# command: npm run agent-pay -- --writes 20 --json
+# The run includes one replay attempt (the last write's offer + preimage again) and one spent-pass reuse.
+# Paid writes do no work, so there is no client solve time; client timings are pay / redeem / total,
+# and the server's verify_ms is on each redeem_ok line. Server lines carry UTC timestamps (Z).
+
+## 1. agent-pay output
+write 1: 200 via paid · 10000 msat · $0.0100 · rail=settle cls=write · pass 1 use / 60s · pay 8.3 ms · redeem 5.2 ms · total 28.5 ms
+write 2: 200 via paid · 10000 msat · $0.0100 · rail=settle cls=write · pass 1 use / 60s · pay 2.4 ms · redeem 2.8 ms · total 14.3 ms
+write 3: 200 via paid · 10000 msat · $0.0100 · rail=settle cls=write · pass 1 use / 60s · pay 2 ms · redeem 2.4 ms · total 10.5 ms
+write 4: 200 via paid · 10000 msat · $0.0100 · rail=settle cls=write · pass 1 use / 60s · pay 1.6 ms · redeem 1.7 ms · total 8.2 ms
+write 5: 200 via paid · 10000 msat · $0.0100 · rail=settle cls=write · pass 1 use / 60s · pay 1.4 ms · redeem 1.8 ms · total 8.8 ms
+write 6: 200 via paid · 10000 msat · $0.0100 · rail=settle cls=write · pass 1 use / 60s · pay 1.3 ms · redeem 1.7 ms · total 7.9 ms
+write 7: 200 via paid · 10000 msat · $0.0100 · rail=settle cls=write · pass 1 use / 60s · pay 1 ms · redeem 1.4 ms · total 8.1 ms
+write 8: 200 via paid · 10000 msat · $0.0100 · rail=settle cls=write · pass 1 use / 60s · pay 1 ms · redeem 2 ms · total 8 ms
+write 9: 200 via paid · 10000 msat · $0.0100 · rail=settle cls=write · pass 1 use / 60s · pay 1.8 ms · redeem 1.8 ms · total 10.2 ms
+write 10: 200 via paid · 10000 msat · $0.0100 · rail=settle cls=write · pass 1 use / 60s · pay 1.2 ms · redeem 1.4 ms · total 7.3 ms
+write 11: 200 via paid · 10000 msat · $0.0100 · rail=settle cls=write · pass 1 use / 60s · pay 1.2 ms · redeem 1.8 ms · total 8 ms
+write 12: 200 via paid · 10000 msat · $0.0100 · rail=settle cls=write · pass 1 use / 60s · pay 1.4 ms · redeem 1.7 ms · total 7.4 ms
+write 13: 200 via paid · 10000 msat · $0.0100 · rail=settle cls=write · pass 1 use / 60s · pay 1.4 ms · redeem 1.9 ms · total 7.7 ms
+write 14: 200 via paid · 10000 msat · $0.0100 · rail=settle cls=write · pass 1 use / 60s · pay 1.2 ms · redeem 1.7 ms · total 7.9 ms
+write 15: 200 via paid · 10000 msat · $0.0100 · rail=settle cls=write · pass 1 use / 60s · pay 1 ms · redeem 2 ms · total 7.4 ms
+write 16: 200 via paid · 10000 msat · $0.0100 · rail=settle cls=write · pass 1 use / 60s · pay 1.1 ms · redeem 2 ms · total 8.4 ms
+write 17: 200 via paid · 10000 msat · $0.0100 · rail=settle cls=write · pass 1 use / 60s · pay 1.1 ms · redeem 1.9 ms · total 7.1 ms
+write 18: 200 via paid · 10000 msat · $0.0100 · rail=settle cls=write · pass 1 use / 60s · pay 1.1 ms · redeem 1.4 ms · total 6.7 ms
+write 19: 200 via paid · 10000 msat · $0.0100 · rail=settle cls=write · pass 1 use / 60s · pay 1.3 ms · redeem 1.2 ms · total 6.7 ms
+write 20: 200 via paid · 10000 msat · $0.0100 · rail=settle cls=write · pass 1 use / 60s · pay 1 ms · redeem 1.2 ms · total 6 ms
+replayed payment (offer off_0ed135abbd8e5a4d6e6f16a3): 401 replay -> rejected
+spent pass reused: 402 -> refused
+ledger (this run): gross 200000 msat · fee held 20000 msat · net 180000 msat
+ledger (site total): gross 200000 msat · fee held 20000 msat · available 180000 msat · USD collected $0.20 · available $0.18
+server (this run): offer_shown 21 · paid 20 · settled_msat 200000 · passes accepted: work 0, settle 20
+20/20 writes accepted (20 paid, 0 work) · replay rejected · spent pass refused -> OK
+{"base":"http://localhost:8787","writes":[{"i":1,"status":200,"via":"paid","rail":"settle","cls":"write","timings":{"pay_ms":8.3,"redeem_ms":5.2,"total_ms":28.5},"pass_n":1,"pass_ttl_s":60,"offer_id":"off_338ff0a673b8756b68b08123","amount_msat":10000,"usd":"0.0100"},{"i":2,"status":200,"via":"paid","rail":"settle","cls":"write","timings":{"pay_ms":2.4,"redeem_ms":2.8,"total_ms":14.3},"pass_n":1,"pass_ttl_s":60,"offer_id":"off_27932bc81750bd94619e3ada","amount_msat":10000,"usd":"0.0100"},{"i":3,"status":200,"via":"paid","rail":"settle","cls":"write","timings":{"pay_ms":2,"redeem_ms":2.4,"total_ms":10.5},"pass_n":1,"pass_ttl_s":60,"offer_id":"off_dc889266b02ab127f91da310","amount_msat":10000,"usd":"0.0100"},{"i":4,"status":200,"via":"paid","rail":"settle","cls":"write","timings":{"pay_ms":1.6,"redeem_ms":1.7,"total_ms":8.2},"pass_n":1,"pass_ttl_s":60,"offer_id":"off_5aebeb91926e0e925b06a2fc","amount_msat":10000,"usd":"0.0100"},{"i":5,"status":200,"via":"paid","rail":"settle","cls":"write","timings":{"pay_ms":1.4,"redeem_ms":1.8,"total_ms":8.8},"pass_n":1,"pass_ttl_s":60,"offer_id":"off_015718c819113dd364290a29","amount_msat":10000,"usd":"0.0100"},{"i":6,"status":200,"via":"paid","rail":"settle","cls":"write","timings":{"pay_ms":1.3,"redeem_ms":1.7,"total_ms":7.9},"pass_n":1,"pass_ttl_s":60,"offer_id":"off_dbd166c687d53cbc749cb28e","amount_msat":10000,"usd":"0.0100"},{"i":7,"status":200,"via":"paid","rail":"settle","cls":"write","timings":{"pay_ms":1,"redeem_ms":1.4,"total_ms":8.1},"pass_n":1,"pass_ttl_s":60,"offer_id":"off_283e90dc36dceae5e461a1dc","amount_msat":10000,"usd":"0.0100"},{"i":8,"status":200,"via":"paid","rail":"settle","cls":"write","timings":{"pay_ms":1,"redeem_ms":2,"total_ms":8},"pass_n":1,"pass_ttl_s":60,"offer_id":"off_f1308047875e9df046058d11","amount_msat":10000,"usd":"0.0100"},{"i":9,"status":200,"via":"paid","rail":"settle","cls":"write","timings":{"pay_ms":1.8,"redeem_ms":1.8,"total_ms":10.2},"pass_n":1,"pass_ttl_s":60,"offer_id":"off_fdbecc50d0c15ad68cc27bab","amount_msat":10000,"usd":"0.0100"},{"i":10,"status":200,"via":"paid","rail":"settle","cls":"write","timings":{"pay_ms":1.2,"redeem_ms":1.4,"total_ms":7.3},"pass_n":1,"pass_ttl_s":60,"offer_id":"off_41b8ff306187e79411dc0c57","amount_msat":10000,"usd":"0.0100"},{"i":11,"status":200,"via":"paid","rail":"settle","cls":"write","timings":{"pay_ms":1.2,"redeem_ms":1.8,"total_ms":8},"pass_n":1,"pass_ttl_s":60,"offer_id":"off_6dd4fe87c1ccc29bb407b1c6","amount_msat":10000,"usd":"0.0100"},{"i":12,"status":200,"via":"paid","rail":"settle","cls":"write","timings":{"pay_ms":1.4,"redeem_ms":1.7,"total_ms":7.4},"pass_n":1,"pass_ttl_s":60,"offer_id":"off_2d56920a53ded897d1d705ae","amount_msat":10000,"usd":"0.0100"},{"i":13,"status":200,"via":"paid","rail":"settle","cls":"write","timings":{"pay_ms":1.4,"redeem_ms":1.9,"total_ms":7.7},"pass_n":1,"pass_ttl_s":60,"offer_id":"off_77dc65d0ae0abb401bc395cc","amount_msat":10000,"usd":"0.0100"},{"i":14,"status":200,"via":"paid","rail":"settle","cls":"write","timings":{"pay_ms":1.2,"redeem_ms":1.7,"total_ms":7.9},"pass_n":1,"pass_ttl_s":60,"offer_id":"off_4836681af4b913fcfb41b1be","amount_msat":10000,"usd":"0.0100"},{"i":15,"status":200,"via":"paid","rail":"settle","cls":"write","timings":{"pay_ms":1,"redeem_ms":2,"total_ms":7.4},"pass_n":1,"pass_ttl_s":60,"offer_id":"off_cb2121730adf3f0615a572dd","amount_msat":10000,"usd":"0.0100"},{"i":16,"status":200,"via":"paid","rail":"settle","cls":"write","timings":{"pay_ms":1.1,"redeem_ms":2,"total_ms":8.4},"pass_n":1,"pass_ttl_s":60,"offer_id":"off_771e821fba613cf1f9c083e3","amount_msat":10000,"usd":"0.0100"},{"i":17,"status":200,"via":"paid","rail":"settle","cls":"write","timings":{"pay_ms":1.1,"redeem_ms":1.9,"total_ms":7.1},"pass_n":1,"pass_ttl_s":60,"offer_id":"off_1c7d9151085abb026f2e012d","amount_msat":10000,"usd":"0.0100"},{"i":18,"status":200,"via":"paid","rail":"settle","cls":"write","timings":{"pay_ms":1.1,"redeem_ms":1.4,"total_ms":6.7},"pass_n":1,"pass_ttl_s":60,"offer_id":"off_1f8eeaa6737f1e924427077c","amount_msat":10000,"usd":"0.0100"},{"i":19,"status":200,"via":"paid","rail":"settle","cls":"write","timings":{"pay_ms":1.3,"redeem_ms":1.2,"total_ms":6.7},"pass_n":1,"pass_ttl_s":60,"offer_id":"off_2f1d8307f1584122ca68be78","amount_msat":10000,"usd":"0.0100"},{"i":20,"status":200,"via":"paid","rail":"settle","cls":"write","timings":{"pay_ms":1,"redeem_ms":1.2,"total_ms":6},"pass_n":1,"pass_ttl_s":60,"offer_id":"off_0ed135abbd8e5a4d6e6f16a3","amount_msat":10000,"usd":"0.0100"}],"accepted":20,"paid":20,"work":0,"replay":{"status":401,"error":"replay","rejected":true},"pass_reuse":{"status":402,"rejected":true},"paid_total_msat":200000,"ledger_before":{"gross_msat":0,"fee_held_msat":0,"net_credited_msat":0,"withdrawn_msat":0,"available_msat":0},"ledger_after":{"gross_msat":200000,"fee_held_msat":20000,"net_credited_msat":180000,"withdrawn_msat":0,"available_msat":180000},"ledger_delta":{"gross_msat":200000,"fee_held_msat":20000,"net_credited_msat":180000,"withdrawn_msat":0,"available_msat":180000},"usd_after":{"collected":"$0.20","available":"$0.18"},"server_delta":{"offer_shown":21,"paid":20,"settled_msat":200000,"passes_work":0,"passes_settle":20},"ok":true}
+exit=0
+
+## 2. demo server metrics lines from the start of the run (raw JSON lines, incl. the next counters line with settled_msat)
+{"ts":"2026-10-01T02:32:51.528Z","event":"pass_reject","reason":"missing","action":"write"}
+{"ts":"2026-10-01T02:32:51.532Z","event":"challenge_minted","cls":"write","client":"agent","ua_class":"desktop","mode":"standard","alg":"pbkdf2-sha256","counter_max":512,"expected_tries":256.5,"velocity_mult":1,"source":"middleware"}
+{"ts":"2026-10-01T02:32:51.533Z","event":"offer_shown","cls":"write","amount_msat":10000,"offers":1}
+{"ts":"2026-10-01T02:32:51.547Z","event":"redeem_ok","rail":"settle","cls":"write","took_ms":null,"ua_class":null,"client":"agent","verify_ms":1.35}
+{"ts":"2026-10-01T02:32:51.550Z","event":"pass_accept","rail":"settle","cls":"write","action":"write","remaining":0}
+{"ts":"2026-10-01T02:32:51.553Z","event":"pass_reject","reason":"missing","action":"write"}
+{"ts":"2026-10-01T02:32:51.555Z","event":"challenge_minted","cls":"write","client":"agent","ua_class":"desktop","mode":"standard","alg":"pbkdf2-sha256","counter_max":512,"expected_tries":256.5,"velocity_mult":1,"source":"middleware"}
+{"ts":"2026-10-01T02:32:51.556Z","event":"offer_shown","cls":"write","amount_msat":10000,"offers":1}
+{"ts":"2026-10-01T02:32:51.562Z","event":"redeem_ok","rail":"settle","cls":"write","took_ms":null,"ua_class":null,"client":"agent","verify_ms":0.68}
+{"ts":"2026-10-01T02:32:51.565Z","event":"pass_accept","rail":"settle","cls":"write","action":"write","remaining":0}
+{"ts":"2026-10-01T02:32:51.567Z","event":"pass_reject","reason":"missing","action":"write"}
+{"ts":"2026-10-01T02:32:51.569Z","event":"challenge_minted","cls":"write","client":"agent","ua_class":"desktop","mode":"standard","alg":"pbkdf2-sha256","counter_max":512,"expected_tries":256.5,"velocity_mult":1,"source":"middleware"}
+{"ts":"2026-10-01T02:32:51.569Z","event":"offer_shown","cls":"write","amount_msat":10000,"offers":1}
+{"ts":"2026-10-01T02:32:51.574Z","event":"redeem_ok","rail":"settle","cls":"write","took_ms":null,"ua_class":null,"client":"agent","verify_ms":0.7}
+{"ts":"2026-10-01T02:32:51.576Z","event":"pass_accept","rail":"settle","cls":"write","action":"write","remaining":0}
+{"ts":"2026-10-01T02:32:51.577Z","event":"pass_reject","reason":"missing","action":"write"}
+{"ts":"2026-10-01T02:32:51.579Z","event":"challenge_minted","cls":"write","client":"agent","ua_class":"desktop","mode":"standard","alg":"pbkdf2-sha256","counter_max":512,"expected_tries":256.5,"velocity_mult":1,"source":"middleware"}
+{"ts":"2026-10-01T02:32:51.580Z","event":"offer_shown","cls":"write","amount_msat":10000,"offers":1}
+{"ts":"2026-10-01T02:32:51.583Z","event":"redeem_ok","rail":"settle","cls":"write","took_ms":null,"ua_class":null,"client":"agent","verify_ms":0.5}
+{"ts":"2026-10-01T02:32:51.584Z","event":"pass_accept","rail":"settle","cls":"write","action":"write","remaining":0}
+{"ts":"2026-10-01T02:32:51.586Z","event":"pass_reject","reason":"missing","action":"write"}
+{"ts":"2026-10-01T02:32:51.588Z","event":"challenge_minted","cls":"write","client":"agent","ua_class":"desktop","mode":"standard","alg":"pbkdf2-sha256","counter_max":512,"expected_tries":256.5,"velocity_mult":1,"source":"middleware"}
+{"ts":"2026-10-01T02:32:51.588Z","event":"offer_shown","cls":"write","amount_msat":10000,"offers":1}
+{"ts":"2026-10-01T02:32:51.591Z","event":"redeem_ok","rail":"settle","cls":"write","took_ms":null,"ua_class":null,"client":"agent","verify_ms":0.4}
+{"ts":"2026-10-01T02:32:51.593Z","event":"pass_accept","rail":"settle","cls":"write","action":"write","remaining":0}
+{"ts":"2026-10-01T02:32:51.595Z","event":"pass_reject","reason":"missing","action":"write"}
+{"ts":"2026-10-01T02:32:51.596Z","event":"challenge_minted","cls":"write","client":"agent","ua_class":"desktop","mode":"standard","alg":"pbkdf2-sha256","counter_max":512,"expected_tries":256.5,"velocity_mult":1,"source":"middleware"}
+{"ts":"2026-10-01T02:32:51.596Z","event":"offer_shown","cls":"write","amount_msat":10000,"offers":1}
+{"ts":"2026-10-01T02:32:51.599Z","event":"redeem_ok","rail":"settle","cls":"write","took_ms":null,"ua_class":null,"client":"agent","verify_ms":0.57}
+{"ts":"2026-10-01T02:32:51.601Z","event":"pass_accept","rail":"settle","cls":"write","action":"write","remaining":0}
+{"ts":"2026-10-01T02:32:51.603Z","event":"pass_reject","reason":"missing","action":"write"}
+{"ts":"2026-10-01T02:32:51.604Z","event":"challenge_minted","cls":"write","client":"agent","ua_class":"desktop","mode":"standard","alg":"pbkdf2-sha256","counter_max":512,"expected_tries":256.5,"velocity_mult":1,"source":"middleware"}
+{"ts":"2026-10-01T02:32:51.605Z","event":"offer_shown","cls":"write","amount_msat":10000,"offers":1}
+{"ts":"2026-10-01T02:32:51.608Z","event":"redeem_ok","rail":"settle","cls":"write","took_ms":null,"ua_class":null,"client":"agent","verify_ms":0.37}
+{"ts":"2026-10-01T02:32:51.609Z","event":"pass_accept","rail":"settle","cls":"write","action":"write","remaining":0}
+{"ts":"2026-10-01T02:32:51.611Z","event":"pass_reject","reason":"missing","action":"write"}
+{"ts":"2026-10-01T02:32:51.612Z","event":"challenge_minted","cls":"write","client":"agent","ua_class":"desktop","mode":"standard","alg":"pbkdf2-sha256","counter_max":512,"expected_tries":256.5,"velocity_mult":1,"source":"middleware"}
+{"ts":"2026-10-01T02:32:51.613Z","event":"offer_shown","cls":"write","amount_msat":10000,"offers":1}
+{"ts":"2026-10-01T02:32:51.616Z","event":"redeem_ok","rail":"settle","cls":"write","took_ms":null,"ua_class":null,"client":"agent","verify_ms":0.42}
+{"ts":"2026-10-01T02:32:51.618Z","event":"pass_accept","rail":"settle","cls":"write","action":"write","remaining":0}
+{"ts":"2026-10-01T02:32:51.619Z","event":"pass_reject","reason":"missing","action":"write"}
+{"ts":"2026-10-01T02:32:51.621Z","event":"challenge_minted","cls":"write","client":"agent","ua_class":"desktop","mode":"standard","alg":"pbkdf2-sha256","counter_max":512,"expected_tries":256.5,"velocity_mult":1,"source":"middleware"}
+{"ts":"2026-10-01T02:32:51.622Z","event":"offer_shown","cls":"write","amount_msat":10000,"offers":1}
+{"ts":"2026-10-01T02:32:51.626Z","event":"redeem_ok","rail":"settle","cls":"write","took_ms":null,"ua_class":null,"client":"agent","verify_ms":0.61}
+{"ts":"2026-10-01T02:32:51.628Z","event":"pass_accept","rail":"settle","cls":"write","action":"write","remaining":0}
+{"ts":"2026-10-01T02:32:51.630Z","event":"pass_reject","reason":"missing","action":"write"}
+{"ts":"2026-10-01T02:32:51.631Z","event":"challenge_minted","cls":"write","client":"agent","ua_class":"desktop","mode":"standard","alg":"pbkdf2-sha256","counter_max":512,"expected_tries":256.5,"velocity_mult":1,"source":"middleware"}
+{"ts":"2026-10-01T02:32:51.631Z","event":"offer_shown","cls":"write","amount_msat":10000,"offers":1}
+{"ts":"2026-10-01T02:32:51.634Z","event":"redeem_ok","rail":"settle","cls":"write","took_ms":null,"ua_class":null,"client":"agent","verify_ms":0.43}
+{"ts":"2026-10-01T02:32:51.635Z","event":"pass_accept","rail":"settle","cls":"write","action":"write","remaining":0}
+{"ts":"2026-10-01T02:32:51.637Z","event":"pass_reject","reason":"missing","action":"write"}
+{"ts":"2026-10-01T02:32:51.638Z","event":"challenge_minted","cls":"write","client":"agent","ua_class":"desktop","mode":"standard","alg":"pbkdf2-sha256","counter_max":512,"expected_tries":256.5,"velocity_mult":1,"source":"middleware"}
+{"ts":"2026-10-01T02:32:51.639Z","event":"offer_shown","cls":"write","amount_msat":10000,"offers":1}
+{"ts":"2026-10-01T02:32:51.642Z","event":"redeem_ok","rail":"settle","cls":"write","took_ms":null,"ua_class":null,"client":"agent","verify_ms":0.68}
+{"ts":"2026-10-01T02:32:51.643Z","event":"pass_accept","rail":"settle","cls":"write","action":"write","remaining":0}
+{"ts":"2026-10-01T02:32:51.645Z","event":"pass_reject","reason":"missing","action":"write"}
+{"ts":"2026-10-01T02:32:51.646Z","event":"challenge_minted","cls":"write","client":"agent","ua_class":"desktop","mode":"standard","alg":"pbkdf2-sha256","counter_max":512,"expected_tries":256.5,"velocity_mult":1,"source":"middleware"}
+{"ts":"2026-10-01T02:32:51.647Z","event":"offer_shown","cls":"write","amount_msat":10000,"offers":1}
+{"ts":"2026-10-01T02:32:51.650Z","event":"redeem_ok","rail":"settle","cls":"write","took_ms":null,"ua_class":null,"client":"agent","verify_ms":0.34}
+{"ts":"2026-10-01T02:32:51.651Z","event":"pass_accept","rail":"settle","cls":"write","action":"write","remaining":0}
+{"ts":"2026-10-01T02:32:51.652Z","event":"pass_reject","reason":"missing","action":"write"}
+{"ts":"2026-10-01T02:32:51.654Z","event":"challenge_minted","cls":"write","client":"agent","ua_class":"desktop","mode":"standard","alg":"pbkdf2-sha256","counter_max":512,"expected_tries":256.5,"velocity_mult":1,"source":"middleware"}
+{"ts":"2026-10-01T02:32:51.654Z","event":"offer_shown","cls":"write","amount_msat":10000,"offers":1}
+{"ts":"2026-10-01T02:32:51.657Z","event":"redeem_ok","rail":"settle","cls":"write","took_ms":null,"ua_class":null,"client":"agent","verify_ms":0.54}
+{"ts":"2026-10-01T02:32:51.659Z","event":"pass_accept","rail":"settle","cls":"write","action":"write","remaining":0}
+{"ts":"2026-10-01T02:32:51.660Z","event":"pass_reject","reason":"missing","action":"write"}
+{"ts":"2026-10-01T02:32:51.662Z","event":"challenge_minted","cls":"write","client":"agent","ua_class":"desktop","mode":"standard","alg":"pbkdf2-sha256","counter_max":512,"expected_tries":256.5,"velocity_mult":1,"source":"middleware"}
+{"ts":"2026-10-01T02:32:51.662Z","event":"offer_shown","cls":"write","amount_msat":10000,"offers":1}
+{"ts":"2026-10-01T02:32:51.665Z","event":"redeem_ok","rail":"settle","cls":"write","took_ms":null,"ua_class":null,"client":"agent","verify_ms":0.33}
+{"ts":"2026-10-01T02:32:51.667Z","event":"pass_accept","rail":"settle","cls":"write","action":"write","remaining":0}
+{"ts":"2026-10-01T02:32:51.668Z","event":"pass_reject","reason":"missing","action":"write"}
+{"ts":"2026-10-01T02:32:51.670Z","event":"challenge_minted","cls":"write","client":"agent","ua_class":"desktop","mode":"standard","alg":"pbkdf2-sha256","counter_max":512,"expected_tries":256.5,"velocity_mult":1,"source":"middleware"}
+{"ts":"2026-10-01T02:32:51.670Z","event":"offer_shown","cls":"write","amount_msat":10000,"offers":1}
+{"ts":"2026-10-01T02:32:51.673Z","event":"redeem_ok","rail":"settle","cls":"write","took_ms":null,"ua_class":null,"client":"agent","verify_ms":0.5}
+{"ts":"2026-10-01T02:32:51.674Z","event":"pass_accept","rail":"settle","cls":"write","action":"write","remaining":0}
+{"ts":"2026-10-01T02:32:51.676Z","event":"pass_reject","reason":"missing","action":"write"}
+{"ts":"2026-10-01T02:32:51.677Z","event":"challenge_minted","cls":"write","client":"agent","ua_class":"desktop","mode":"standard","alg":"pbkdf2-sha256","counter_max":512,"expected_tries":256.5,"velocity_mult":1,"source":"middleware"}
+{"ts":"2026-10-01T02:32:51.677Z","event":"offer_shown","cls":"write","amount_msat":10000,"offers":1}
+{"ts":"2026-10-01T02:32:51.681Z","event":"redeem_ok","rail":"settle","cls":"write","took_ms":null,"ua_class":null,"client":"agent","verify_ms":0.52}
+{"ts":"2026-10-01T02:32:51.683Z","event":"pass_accept","rail":"settle","cls":"write","action":"write","remaining":0}
+{"ts":"2026-10-01T02:32:51.684Z","event":"pass_reject","reason":"missing","action":"write"}
+{"ts":"2026-10-01T02:32:51.686Z","event":"challenge_minted","cls":"write","client":"agent","ua_class":"desktop","mode":"standard","alg":"pbkdf2-sha256","counter_max":512,"expected_tries":256.5,"velocity_mult":1,"source":"middleware"}
+{"ts":"2026-10-01T02:32:51.686Z","event":"offer_shown","cls":"write","amount_msat":10000,"offers":1}
+{"ts":"2026-10-01T02:32:51.689Z","event":"redeem_ok","rail":"settle","cls":"write","took_ms":null,"ua_class":null,"client":"agent","verify_ms":0.6}
+{"ts":"2026-10-01T02:32:51.690Z","event":"pass_accept","rail":"settle","cls":"write","action":"write","remaining":0}
+{"ts":"2026-10-01T02:32:51.691Z","event":"pass_reject","reason":"missing","action":"write"}
+{"ts":"2026-10-01T02:32:51.693Z","event":"challenge_minted","cls":"write","client":"agent","ua_class":"desktop","mode":"standard","alg":"pbkdf2-sha256","counter_max":512,"expected_tries":256.5,"velocity_mult":1,"source":"middleware"}
+{"ts":"2026-10-01T02:32:51.693Z","event":"offer_shown","cls":"write","amount_msat":10000,"offers":1}
+{"ts":"2026-10-01T02:32:51.696Z","event":"redeem_ok","rail":"settle","cls":"write","took_ms":null,"ua_class":null,"client":"agent","verify_ms":0.27}
+{"ts":"2026-10-01T02:32:51.697Z","event":"pass_accept","rail":"settle","cls":"write","action":"write","remaining":0}
+{"ts":"2026-10-01T02:32:51.698Z","event":"pass_reject","reason":"missing","action":"write"}
+{"ts":"2026-10-01T02:32:51.699Z","event":"challenge_minted","cls":"write","client":"agent","ua_class":"desktop","mode":"standard","alg":"pbkdf2-sha256","counter_max":512,"expected_tries":256.5,"velocity_mult":1,"source":"middleware"}
+{"ts":"2026-10-01T02:32:51.700Z","event":"offer_shown","cls":"write","amount_msat":10000,"offers":1}
+{"ts":"2026-10-01T02:32:51.702Z","event":"redeem_ok","rail":"settle","cls":"write","took_ms":null,"ua_class":null,"client":"agent","verify_ms":0.27}
+{"ts":"2026-10-01T02:32:51.704Z","event":"pass_accept","rail":"settle","cls":"write","action":"write","remaining":0}
+{"ts":"2026-10-01T02:32:51.705Z","event":"pass_reject","reason":"missing","action":"write"}
+{"ts":"2026-10-01T02:32:51.706Z","event":"challenge_minted","cls":"write","client":"agent","ua_class":"desktop","mode":"standard","alg":"pbkdf2-sha256","counter_max":512,"expected_tries":256.5,"velocity_mult":1,"source":"middleware"}
+{"ts":"2026-10-01T02:32:51.706Z","event":"offer_shown","cls":"write","amount_msat":10000,"offers":1}
+{"ts":"2026-10-01T02:32:51.709Z","event":"redeem_ok","rail":"settle","cls":"write","took_ms":null,"ua_class":null,"client":"agent","verify_ms":0.27}
+{"ts":"2026-10-01T02:32:51.710Z","event":"pass_accept","rail":"settle","cls":"write","action":"write","remaining":0}
+{"ts":"2026-10-01T02:32:51.711Z","event":"redeem_fail","reason":"replay","rail":"settle"}
+{"ts":"2026-10-01T02:32:51.713Z","event":"pass_reject","reason":"exhausted","action":"write"}
+{"ts":"2026-10-01T02:32:51.714Z","event":"challenge_minted","cls":"write","client":"agent","ua_class":"desktop","mode":"standard","alg":"pbkdf2-sha256","counter_max":512,"expected_tries":256.5,"velocity_mult":1,"source":"middleware"}
+{"ts":"2026-10-01T02:32:51.714Z","event":"offer_shown","cls":"write","amount_msat":10000,"offers":1}
+{"ts":"2026-10-01T02:33:38.708Z","event":"counters","challenges_minted":21,"redeems_ok":20,"redeems_fail":1,"pass_accept":20,"pass_reject":21,"settled_msat":200000,"offer_shown":21,"paid":20,"settlement_degraded":0,"avg_took_ms":null,"took_ms_p50":null,"took_ms_p95":null,"took_ms_n":0,"by_tag":{"settle|write":{"redeems_ok":20,"pass_accept":20}}}
