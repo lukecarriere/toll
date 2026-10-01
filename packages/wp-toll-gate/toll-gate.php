@@ -5,6 +5,8 @@
  * Version: 0.1.0
  * Requires at least: 6.5
  * Requires PHP: 8.1
+ * License: GPL-2.0-or-later
+ * License URI: https://www.gnu.org/licenses/gpl-2.0.html
  * Text Domain: toll-gate
  */
 // toll-gate (spec §13). Protects comments, login and any form with data-toll using an invisible

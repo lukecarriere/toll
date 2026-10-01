@@ -47,4 +47,8 @@ To try **Payment server**: start the Node demo (`npm run demo`, stub backend), t
 
 ## Before any release (not done)
 
-A release zip would bundle `packages/server-php` (src + vendor) under `lib/server-php` and copy the widget files in place of the `assets/widget` link. Not built: publishing waits on the Android timing run and on Luke's licence decision (wordpress.org requires a GPL-compatible licence; packages/server-php is marked proprietary and the plugin header has no License line yet).
+A release zip would bundle `packages/server-php` (src + vendor) under `lib/server-php` and copy the widget files in place of the `assets/widget` link. Not built: publishing waits on the Android timing run.
+
+## Licence
+
+This plugin and `packages/server-php` are GPL-2.0-or-later (Luke, Oct 1, 2026): the plugin header carries `License: GPL-2.0-or-later` and the GPL-2.0 URI, `packages/server-php/composer.json` says `GPL-2.0-or-later`, and each package has the full GPL-2.0 text in `LICENSE`. The bundled third-party code is MIT, which is GPL-compatible: the pinned work engine PHP library and Composer's autoloader in `server-php/vendor` (names and versions in docs/adapters.md), and the widget's solver and workers (notices in `assets/widget/LICENSES.txt`). The Node packages and the hosted service stay proprietary.
