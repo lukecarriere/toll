@@ -19,7 +19,7 @@ bot score, human, AI, crypto, token (except the code name `toll-pass`), mining, 
 - Stop form spam and automated abuse
 - High-volume clients pay more; a person pays once
 - Invisible check for real visitors
-- No puzzles, no tracking pixels
+- No puzzles, no tracking pixels (ON HOLD Oct 1: "puzzle" is banned by brand/BRAND_BRIEF.md; do not use on new surfaces until Luke rules)
 - Collected usage value is paid out to you
 - Agents can pay per request instead of grinding
 
