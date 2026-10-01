@@ -89,6 +89,17 @@ function toll_gate_server_down_reset(): void
 }
 
 /**
+ * Request body for the payment server with the visitor's coarse network (network.php) added as `net`,
+ * so the server prices the offer for that network's load like its own 402. Left out when it cannot be
+ * worked out. The network is only sent: it is not stored, logged or cached here.
+ */
+function toll_gate_with_net(array $body): array
+{
+    $net = toll_gate_visitor_net();
+    return $net === null ? $body : $body + ['net' => $net];
+}
+
+/**
  * Offers for an agent request, minted by the owner's payment server (POST /v1/owner/offers).
  * Returns ['offers' => list, 'www_authenticate' => header value] to relay as they are, or null:
  * not configured, no offers, or the server is down, slow or answers wrongly. On a failure, agents
@@ -97,7 +108,7 @@ function toll_gate_server_down_reset(): void
 function toll_gate_relay_offers(string $action): ?array
 {
     if (!toll_gate_offers_configured() || get_transient('toll_gate_server_down')) return null;
-    $r = toll_gate_server_call('POST', '/v1/owner/offers', ['action' => $action], TOLL_GATE_OFFER_TIMEOUT_S);
+    $r = toll_gate_server_call('POST', '/v1/owner/offers', toll_gate_with_net(['action' => $action]), TOLL_GATE_OFFER_TIMEOUT_S);
     if ($r === null || $r['status'] !== 200) {
         set_transient('toll_gate_server_down', 1, TOLL_GATE_DOWN_CACHE_S);
         return null;
@@ -122,7 +133,8 @@ function toll_gate_offer_shape_ok(mixed $o): bool
 
 /**
  * Forward a paid redeem to the payment server (POST /v1/owner/redeem), which checks the payment
- * proof, books it, and refuses a second use. Returns [status, body]. Never a 500: a server that
+ * proof, books it, and refuses a second use. The visitor's network goes with it, so the payment
+ * counts toward that network's load there. Returns [status, body]. Never a 500: a server that
  * doesn't answer is 503.
  */
 function toll_gate_relay_redeem(array $b): array
@@ -133,6 +145,7 @@ function toll_gate_relay_redeem(array $b): array
         if (!is_string($b[$k] ?? null) || $b[$k] === '' || strlen($b[$k]) > 4096) return [400, ['error' => 'malformed']];
         $fwd[$k] = $b[$k];
     }
+    $fwd = toll_gate_with_net($fwd);
     $r = toll_gate_server_call('POST', '/v1/owner/redeem', $fwd);
     if ($r === null || $r['status'] === 503) return [503, ['error' => 'unavailable']];
     $body = $r['body'];

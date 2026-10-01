@@ -27,6 +27,7 @@ require_once __DIR__ . '/includes/options.php';
 require_once __DIR__ . '/includes/counters.php';
 require_once __DIR__ . '/includes/store.php';
 require_once __DIR__ . '/includes/issuer.php';
+require_once __DIR__ . '/includes/network.php';
 require_once __DIR__ . '/includes/gate.php';
 require_once __DIR__ . '/includes/payouts.php';
 require_once __DIR__ . '/includes/discovery.php';

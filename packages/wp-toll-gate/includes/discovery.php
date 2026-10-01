@@ -62,8 +62,9 @@ function toll_gate_input_schemas(): array
 /**
  * docs/copy.md "Base price label" (PM, verbatim): every manifest price is basis "base". The note is
  * shown only when this site's offers can rise: the payment server reports load_pricing true for a
- * priced class (its relayed offers apply a load multiplier). Today the relay applies none, so the
- * note is omitted; it comes back on its own once the payment server reports load pricing.
+ * priced class. This plugin sends each visitor's coarse network with relayed offers and redeems and
+ * says so (GET /v1/owner/price?net=1); the server reports true only then, and only when it applies
+ * a load multiplier (velocity on). Otherwise the note is omitted.
  */
 const TOLL_GATE_BASE_PRICE_NOTE = 'Base price. The 402 offer is the price that applies, and it can go up while the site is under load.';
 
@@ -84,22 +85,23 @@ function toll_gate_payment(string $status, bool $paid): array
  * Price table from the payment server: ['status' => 'test'|'stub', 'prices' => [cls => [amount_msat, usd]] | null,
  * 'load' => [cls => bool]] (load: the server's load_pricing, true only when it says so for that class).
  * Only when the site makes paid offers (payouts on, Payment server, address set, server up).
+ * The answer is cached site-wide (one key, no visitor data). It is always asked for with net=1, and
+ * a cached answer without the net_declared mark (from an older plugin that did not send networks)
+ * is fetched again, so a declared and an undeclared answer are never mixed.
  */
 function toll_gate_price_table(): array
 {
     $none = ['status' => 'stub', 'prices' => null, 'load' => []];
     if (!toll_gate_lib_ok() || !toll_gate_offers_configured() || get_transient('toll_gate_server_down')) return $none;
     $r = get_transient('toll_gate_price_cache');
-    if (!is_array($r)) {
-        $res = toll_gate_server_call('GET', '/v1/owner/price', null, TOLL_GATE_OFFER_TIMEOUT_S);
+    if (!is_array($r) || ($r['net_declared'] ?? null) !== true) {
+        $res = toll_gate_server_call('GET', '/v1/owner/price?net=1', null, TOLL_GATE_OFFER_TIMEOUT_S);
         if ($res === null || $res['status'] !== 200) return $none;
-        $r = $res['body'];
+        $r = ['net_declared' => true] + $res['body'];
         set_transient('toll_gate_price_cache', $r, TOLL_GATE_PRICE_CACHE_S);
     }
     if (($r['status'] ?? null) !== 'test' || !is_array($r['prices'] ?? null)) return $none;
-    $fx = is_array($r['fx'] ?? null) ? $r['fx'] : [];
-    $rate = is_int($fx['usd_per_btc'] ?? null) || is_float($fx['usd_per_btc'] ?? null) ? (float) $fx['usd_per_btc'] : null;
-    $at = is_int($fx['fetched_at'] ?? null) ? $fx['fetched_at'] : null;
+    [$rate, $at] = toll_gate_fx($r['fx'] ?? null);
     $out = [];
     $load = [];
     foreach (TOLL_GATE_PAID_CLASSES as $c) {
@@ -109,6 +111,32 @@ function toll_gate_price_table(): array
         $load[$c] = ($r['load_pricing'][$c] ?? false) === true;
     }
     return ['status' => 'test', 'prices' => $out, 'load' => $load];
+}
+
+/** [usd_per_btc, fetched_at] from a payment server's fx object, nulls when absent. */
+function toll_gate_fx(mixed $fx): array
+{
+    $fx = is_array($fx) ? $fx : [];
+    $rate = is_int($fx['usd_per_btc'] ?? null) || is_float($fx['usd_per_btc'] ?? null) ? (float) $fx['usd_per_btc'] : null;
+    $at = is_int($fx['fetched_at'] ?? null) ? $fx['fetched_at'] : null;
+    return [$rate, $at];
+}
+
+/**
+ * The price that applies now for this visitor, from the payment server (POST /v1/owner/quote with
+ * the visitor's network): ['amount_msat', 'usd', 'load_multiplier'], or null when the server does
+ * not answer or answers wrongly. Read-only on the server: it mints and counts nothing.
+ */
+function toll_gate_quote(string $action): ?array
+{
+    $r = toll_gate_server_call('POST', '/v1/owner/quote', toll_gate_with_net(['action' => $action]), TOLL_GATE_OFFER_TIMEOUT_S);
+    if ($r === null || $r['status'] !== 200) return null;
+    $b = $r['body'];
+    $m = $b['amount_msat'] ?? null;
+    $mult = $b['load_multiplier'] ?? null;
+    if (($b['status'] ?? null) !== 'test' || !is_int($m) || $m <= 0 || !(is_int($mult) || is_float($mult)) || $mult < 1) return null;
+    [$rate, $at] = toll_gate_fx($b['fx'] ?? null);
+    return ['amount_msat' => $m, 'usd' => Settlement::offerUsd($m, $rate, $at, time()), 'load_multiplier' => $mult];
 }
 
 function toll_gate_api_base(): string
@@ -186,8 +214,10 @@ function toll_gate_manifest(): array
 /**
  * GET /wp-json/toll/v1/price?action= : the price of one paid request that applies now (basis "current")
  * plus the free work alternative. This site's 402 relays the payment server's offer. While the server
- * reports no load pricing for the class, that offer is the base amount: load_multiplier 1. If it does
- * report load pricing, this site cannot see the multiplier yet, so load_multiplier is null (unknown).
+ * reports no load pricing for the class, that offer is the base amount: load_multiplier 1. When it
+ * does, the server quotes the price for this visitor's network (the same amount its relayed 402 offer
+ * would carry) with the real load_multiplier; if that quote fails, the base amount is shown with
+ * load_multiplier null (unknown).
  */
 function toll_gate_rest_price(WP_REST_Request $req): WP_REST_Response
 {
@@ -195,8 +225,14 @@ function toll_gate_rest_price(WP_REST_Request $req): WP_REST_Response
     if (!in_array($action, TOLL_GATE_PAID_CLASSES, true)) return toll_gate_json(['error' => 'bad_action'], 400);
     $t = toll_gate_price_table();
     $p = $t['prices'][$action] ?? null;
+    $mult = $p ? 1 : null;
+    if ($p && ($t['load'][$action] ?? false)) {
+        $q = toll_gate_quote($action);
+        $p = $q ?? $p;
+        $mult = $q['load_multiplier'] ?? null;
+    }
     $price = $p ? toll_gate_price($p['amount_msat'], $p['usd'], $t['status']) : toll_gate_price(null, null, 'stub');
-    return toll_gate_json(['action' => $action] + $price + ['basis' => 'current', 'load_multiplier' => $p && !($t['load'][$action] ?? false) ? 1 : null, 'work' => ['challenge_url' => toll_gate_challenge_url($action, (string) ($req->get_param('path') ?? '/'))], 'reads_free' => true]);
+    return toll_gate_json(['action' => $action] + $price + ['basis' => 'current', 'load_multiplier' => $mult, 'work' => ['challenge_url' => toll_gate_challenge_url($action, (string) ($req->get_param('path') ?? '/'))], 'reads_free' => true]);
 }
 
 /** Serve the two discovery documents before WordPress routes the request (any visitor, no check). */
