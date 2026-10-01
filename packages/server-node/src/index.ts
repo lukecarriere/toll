@@ -1,8 +1,8 @@
 import { createToll, type Toll as TollInstance, type TollOptions } from "./toll.ts";
-import { type TollConfig, loadConfig, normalizeConfig, classifyPath, DEFAULT_WORK } from "./config.ts";
+import { type TollConfig, loadConfig, normalizeConfig, classifyPath, DEFAULT_WORK, PAGE_VIEW_WARNING, PAGE_VIEW_CONFIRM } from "./config.ts";
 import { tollRouter, protect, guardFetch, extractPass, readBody, parseCookies, PASS_COOKIE, VERSION } from "./http.ts";
 
-export { createToll, loadConfig, normalizeConfig, classifyPath, DEFAULT_WORK, tollRouter, protect, guardFetch, extractPass, readBody, parseCookies, PASS_COOKIE, VERSION };
+export { createToll, loadConfig, normalizeConfig, classifyPath, DEFAULT_WORK, PAGE_VIEW_WARNING, PAGE_VIEW_CONFIRM, tollRouter, protect, guardFetch, extractPass, readBody, parseCookies, PASS_COOKIE, VERSION };
 export type { TollInstance, TollOptions, TollConfig };
 export { Metrics } from "./metrics.ts";
 export { MemoryStore, WindowCounter, type TollStore } from "./stores.ts";

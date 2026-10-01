@@ -87,3 +87,12 @@ Then install lines (npm / composer / wp plugin / wrangler), a ten-line how it wo
 
 ## Naming
 Product: Toll. WordPress plugin: `toll-gate`. Widget file: `toll.js`, element `<toll-gate>`, form attribute `data-toll`, pass cookie `toll_pass`, header `Authorization: Toll`. Never name a public file or package after a coin or payment network (`bitcoin.js` is out); the internal rail lives in `packages/settlement-ln/`.
+
+## Amendment 2: reads stay free (Oct 1, 2026, Luke, verbatim, do not edit)
+- First screen after install (README and WordPress helper text), exact: "Toll checks writes, not page views. Leave public pages open so people and answer engines can read you. Turn Toll on for comments, forms, logins, and APIs."
+- Dashboard warning when an owner gates ordinary page views, exact, with an explicit confirm (default stays off): "This hides the site from answer engines and new readers. Toll is for writes."
+- Website pages `website/mission.md`, `vision.md`, `values.md`, `ecosystem.md`: Amendment 2 §E as written. Nobody edits the wording. The copy lint still runs on them and they pass. Their one use of "human" ("We do not score visitors as human or not.") is Luke's wording and is allowed there; it stays off the default product screens.
+- `docs/positioning.md`: Amendment 2 §B, for contributors, not a public screen.
+- Never on any public surface: crawler allow, charge, or block features, or "block training bots".
+- No page-view switch in WordPress (PM call, Oct 1): nothing there can gate a page view, so the warning has nothing to attach to.
+- Routes editor confirm (when deleting `/` or raising a GET path above read): body is the §A warning above. Buttons: "Keep pages open" (focused, default) and "Gate page views" (destructive).

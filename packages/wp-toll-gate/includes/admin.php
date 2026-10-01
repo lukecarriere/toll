@@ -109,6 +109,7 @@ function toll_gate_render_settings(): void
 <div class="wrap">
 <div class="<?php echo esc_attr(implode(' ', $classes)); ?>" id="toll-gate-settings">
 <h1><?php echo esc_html(toll_gate_s('title')); ?></h1>
+<p class="toll-lede"><?php echo esc_html(toll_gate_s('install_line')); ?></p>
 <?php if ($notice) : ?>
 <div class="notice notice-<?php echo esc_attr($notice['kind']); ?>" role="status"><p><?php echo esc_html($notice['text']); ?></p></div>
 <?php endif; ?>

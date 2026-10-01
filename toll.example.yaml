@@ -20,10 +20,16 @@ rate_limit:
   challenge_per_min: 60          # per IP
 cookie:
   secure: auto                   # Secure flag when the request is HTTPS
+# Toll checks writes, not page views (Amendment 2). Page loads (GET) are always read, cost 0.
+# A route's class applies to writes (POST and friends) under its prefix.
 routes:
+  - { prefix: "/", class: read }          # explicit, cost 0: every page view stays free
   - { prefix: "/contact", class: write }
-  - { prefix: "/search", class: search }
+  - { prefix: "/search", class: search }  # 1x; set cost: 0 to make search free
   - { prefix: "/wp-login.php", class: account }
+# Gating page views ("/" above read, or get: true on a route) refuses to load unless you also set
+# confirm_page_view_gating: true. It hides the site from answer engines and new readers.
+# confirm_page_view_gating: false
 settlement:
   enabled: false                 # paid requests for automated clients (docs/settlement.md)
   backend: stub                  # this build: "stub" only, the local test backend (no network, no real money)

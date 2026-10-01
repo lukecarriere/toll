@@ -5,6 +5,8 @@ High-volume clients pay more. People don't notice.
 
 npm / composer / wp plugin / wrangler
 
+Toll checks writes, not page views. Leave public pages open so people and answer engines can read you. Turn Toll on for comments, forms, logins, and APIs.
+
 > Not published yet. Today Toll runs from a clone (see [Run it locally](#run-it-locally)). The WordPress plugin and the edge worker run locally only (packages/wp-toll-gate, packages/edge-cf).
 
 ## How it works

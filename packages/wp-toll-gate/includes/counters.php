@@ -7,7 +7,9 @@ declare(strict_types=1);
 
 if (!defined('ABSPATH')) exit;
 
-const TOLL_GATE_COUNTERS = ['pass_accept', 'pass_reject', 'pass_absent', 'turned_away', 'offer_shown', 'paid', 'work_after_402', 'challenges_minted'];
+// page_view_gate_confirmed: owners who confirmed the page-view warning (Amendment 2 §A), same name as
+// the Node issuer. WordPress has no page-view switch (PM, Oct 1), so it stays 0 here.
+const TOLL_GATE_COUNTERS = ['pass_accept', 'pass_reject', 'pass_absent', 'turned_away', 'offer_shown', 'paid', 'work_after_402', 'challenges_minted', 'page_view_gate_confirmed'];
 const TOLL_GATE_COUNTER_DAYS = 30;   // rows in the export
 const TOLL_GATE_COUNTER_KEEP = 90;   // days kept before the hourly cleanup drops them
 
@@ -74,7 +76,7 @@ function toll_gate_counters_today(): array
 
 /**
  * CSV for the owner: one row per UTC day for the last 30 days, oldest first. Columns: date,
- * timezone (always UTC), the Node counter names, challenges_minted, since (when counting started)
+ * timezone (always UTC), the Node counter names, challenges_minted, page_view_gate_confirmed, since (when counting started)
  * and exported_at, both ISO 8601 in UTC.
  */
 function toll_gate_counters_csv(?int $now = null): string

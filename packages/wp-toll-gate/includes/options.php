@@ -13,6 +13,17 @@ const TOLL_GATE_DEFAULTS = [
     'server_url' => '',
 ];
 
+/**
+ * Routes (Amendment 2 §C). Page views are `read`, cost 0, and there is no setting to gate one: the
+ * plugin only checks form posts (comments, wp-login.php, and the opt-in forms). Search on
+ * WordPress is a page load (/?s=), so it is free too.
+ */
+const TOLL_GATE_ROUTES = [
+    ['prefix' => '/', 'class' => 'read'],
+    ['prefix' => '/wp-comments-post.php', 'class' => 'write'],
+    ['prefix' => '/wp-login.php', 'class' => 'account'],
+];
+
 function toll_gate_settings(): array
 {
     $s = get_option('toll_gate_settings', []);

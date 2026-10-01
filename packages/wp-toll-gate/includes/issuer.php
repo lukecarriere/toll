@@ -52,11 +52,14 @@ function toll_gate_allow_challenge(): bool
     return $n <= (int) apply_filters('toll_gate_challenges_per_min', TOLL_GATE_CHALLENGES_PER_MIN);
 }
 
-/** Route prefix the challenge is bound to (matches the gate's check). */
+/** Route prefix the challenge is bound to (matches the gate's check): longest write route, else "/". */
 function toll_gate_prefix(string $path): string
 {
-    foreach (['/wp-comments-post.php', '/wp-login.php'] as $p) if (str_starts_with($path, $p)) return $p;
-    return '/';
+    $best = '/';
+    foreach (TOLL_GATE_ROUTES as $r) {
+        if ($r['class'] !== 'read' && str_starts_with($path, $r['prefix']) && strlen($r['prefix']) > strlen($best)) $best = $r['prefix'];
+    }
+    return $best;
 }
 
 function toll_gate_mint(string $action, string $path, ?string $ua): array

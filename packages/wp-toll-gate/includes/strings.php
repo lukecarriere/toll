@@ -10,6 +10,8 @@ function toll_gate_s(string $k): string
     static $s = [
         'menu' => 'Toll',
         'title' => 'Toll',
+        // Amendment 2 §C, first screen after install (docs/copy.md, exact).
+        'install_line' => 'Toll checks writes, not page views. Leave public pages open so people and answer engines can read you. Turn Toll on for comments, forms, logins, and APIs.',
         'issued_today' => 'Challenges issued today: %s',
         'export' => 'Export counters',
         'export_help' => 'Downloads the counts as a CSV file. Nothing is sent anywhere.',

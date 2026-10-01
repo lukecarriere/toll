@@ -28,7 +28,7 @@ throwaway origin; part of `npm test`).
 
 | Request | Result |
 |---|---|
-| GET/HEAD/OPTIONS, `FREE_PATHS`, unmapped GET | proxied to `ORIGIN` |
+| GET/HEAD/OPTIONS outside `/v1/` and `/toll/v1/` (any prefix, even a gated one), `FREE_PATHS` | proxied to `ORIGIN` before any Toll code runs, so page views stay up even if the Toll config is broken (Amendment 2: reads stay free) |
 | POST/PUT/PATCH/DELETE to a gated prefix with a valid `toll_pass` cookie or `Authorization: Toll` | one pass use spent, proxied |
 | …without a pass, `Accept: application/json` | `403 {"error":"toll_required","challenge":{…}}` |
 | …without a pass, HTML | `403` interstitial: a `data-toll` form that re-sends the urlencoded fields (≤ 16 KB) after the check; `<noscript>` says "This form needs JavaScript." |
@@ -38,7 +38,7 @@ throwaway origin; part of `npm test`).
 
 Config: `SITE_ID`, `SITE_SECRET` (secret), `ORIGIN`, and JSON arrays `WRITE_PATHS`, `SEARCH_PATHS`,
 `ACCOUNT_PATHS`, `FREE_PATHS`; an optional KV key `toll_routes` (`[{"prefix":"/x","class":"write"}]`)
-overrides the path lists. Metrics go to the console as the same JSON lines as Node
+overrides the path lists. The default routes start with `{"prefix":"/","class":"read"}`; the worker never gates a GET, whatever the routes say. Metrics go to the console as the same JSON lines as Node
 (`challenge_minted`, `pass_absent`, `pass_reject`, …). Bodies, cookies and Authorization values are
 never logged.
 

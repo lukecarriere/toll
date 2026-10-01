@@ -3,7 +3,19 @@ import { readFileSync } from "node:fs";
 import { parse } from "yaml";
 import { type ActionClass, type WorkPolicy, DEFAULT_ESCALATE, isActionClass } from "../../protocol/src/index.ts";
 
-export interface RouteRule { prefix: string; class: ActionClass }
+/**
+ * One route rule. A rule's class applies to writes (POST, PUT, PATCH, DELETE) under the prefix.
+ * Page loads (GET, HEAD, OPTIONS) are always `read` (Amendment 2 §A) unless `get: true` is set on a
+ * rule above read, which needs `confirm_page_view_gating: true`. `cost: 0` makes the rule free
+ * (search may be set to 0 by the owner). `{ prefix: "/", class: read }` is the explicit page-view
+ * rule: it keeps every page load free and does not change the default for unmapped writes (write).
+ */
+export interface RouteRule { prefix: string; class: ActionClass; cost?: 0; get?: boolean }
+
+/** Amendment 2 §A, exact (docs/copy.md): shown before page views can be gated. */
+export const PAGE_VIEW_WARNING = "This hides the site from answer engines and new readers. Toll is for writes.";
+/** Routes editor confirm (docs/copy.md, Amendment 2): body is PAGE_VIEW_WARNING; `keep` is the focused default, `gate` is destructive. */
+export const PAGE_VIEW_CONFIRM = { keep: "Keep pages open", gate: "Gate page views" } as const;
 
 export interface TollConfig {
   site_id: string;
@@ -22,6 +34,8 @@ export interface TollConfig {
   rate_limit: { challenge_per_min: number };
   cookie: { secure: "auto" | boolean };
   routes: RouteRule[];
+  /** The owner confirmed the page-view warning (PAGE_VIEW_WARNING) so a GET route may be gated. */
+  confirm_page_view_gating: boolean;
   settlement: SettlementConfig;
 }
 
@@ -76,9 +90,19 @@ export function normalizeConfig(raw: Record<string, any>, env: NodeJS.ProcessEnv
   if (d.algos !== undefined) throw new Error("toll config: defaults.algos was replaced by work.mode (standard | hardened); see docs/adapters.md");
   const challenge_ttl_s = Number(d.challenge_ttl_s ?? 120);
   if (!(challenge_ttl_s > 0 && challenge_ttl_s <= 120)) throw new Error("toll config: challenge_ttl_s must be 1..120");
+  const confirm_page_view_gating = raw.confirm_page_view_gating === true;
   const routes: RouteRule[] = (raw.routes ?? []).map((r: any) => {
     if (typeof r?.prefix !== "string" || !r.prefix.startsWith("/") || !isActionClass(r.class)) throw new Error("toll config: bad route " + JSON.stringify(r));
-    return { prefix: r.prefix, class: r.class };
+    if (r.cost !== undefined && r.cost !== 0) throw new Error(`toll config: route ${r.prefix}: cost can only be 0 (free); leave it out for the class default`);
+    if (r.get !== undefined && typeof r.get !== "boolean") throw new Error(`toll config: route ${r.prefix}: get must be true or false`);
+    const out: RouteRule = { prefix: r.prefix, class: r.class };
+    if (r.cost === 0) out.cost = 0;
+    if (r.get === true) out.get = true;
+    // Gating page views (the "/" rule above read, or any rule that also gates GET) needs an explicit confirm.
+    const gatesPages = out.class !== "read" && out.cost !== 0 && (out.prefix === "/" || out.get === true);
+    if (gatesPages && !confirm_page_view_gating) throw new Error(`toll config: route ${out.prefix} would gate page views. ${PAGE_VIEW_WARNING} To do it anyway, set confirm_page_view_gating: true.`);
+    if (out.prefix === "/" && out.class !== "read") out.get = true;
+    return out;
   });
   const w = raw.work ?? {};
   for (const k of ["cost", "n", "bits", "unit_iterations", "max_iterations"]) if (k in w) throw new Error(`toll config: work.${k} belongs to the retired built-in miner; use work.mode and work.standard / work.hardened (docs/policy.md)`);
@@ -115,6 +139,7 @@ export function normalizeConfig(raw: Record<string, any>, env: NodeJS.ProcessEnv
     rate_limit: { challenge_per_min: Number(raw.rate_limit?.challenge_per_min ?? 60) },
     cookie: { secure: raw.cookie?.secure ?? "auto" },
     routes,
+    confirm_page_view_gating,
     settlement,
   };
 }
@@ -151,11 +176,21 @@ export function loadConfig(path: string, env: NodeJS.ProcessEnv = process.env): 
   return normalizeConfig(parse(readFileSync(path, "utf8")) ?? {}, env);
 }
 
-/** Longest matching route prefix wins. Unmapped GET = read, unmapped POST = write (spec §8.4). */
+/**
+ * Longest matching route prefix wins. Page loads (GET, HEAD, OPTIONS) are `read` unless the rule
+ * that matches them sets `get: true` (only allowed with confirm_page_view_gating). Unmapped writes
+ * are `write` (spec §8.4); the explicit `/` read rule keeps that default. `cost: 0` is `read`.
+ */
 export function classifyPath(routes: RouteRule[], path: string, method: string): { cls: ActionClass; prefix: string } {
-  let best: RouteRule | undefined;
-  for (const r of routes) if (path.startsWith(r.prefix) && (!best || r.prefix.length > best.prefix.length)) best = r;
-  if (best) return { cls: best.class, prefix: best.prefix };
   const m = method.toUpperCase();
-  return { cls: m === "GET" || m === "HEAD" || m === "OPTIONS" ? "read" : "write", prefix: "/" };
+  const page = m === "GET" || m === "HEAD" || m === "OPTIONS";
+  let best: RouteRule | undefined;
+  for (const r of routes) {
+    if (!path.startsWith(r.prefix) || (best && r.prefix.length <= best.prefix.length)) continue;
+    if (!page && r.prefix === "/" && r.class === "read") continue; // the page-view rule says nothing about writes
+    best = r;
+  }
+  if (page) return { cls: best?.get === true && best.cost !== 0 ? best.class : "read", prefix: best?.prefix ?? "/" };
+  if (best) return { cls: best.cost === 0 ? "read" : best.class, prefix: best.prefix };
+  return { cls: "write", prefix: "/" };
 }

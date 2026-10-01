@@ -46,6 +46,7 @@ async function getToll(env: Env) {
   try { routes = routesFromKv ? JSON.parse(routesFromKv) : []; } catch { routes = []; }
   if (!routes.length) {
     routes = [
+      { prefix: "/", class: "read" as const }, // explicit: page views stay free (Amendment 2 §C)
       ...list(env.WRITE_PATHS, ["/contact", "/wp-comments-post.php", "/api/"]).map((prefix) => ({ prefix, class: "write" as const })),
       ...list(env.SEARCH_PATHS, ["/search"]).map((prefix) => ({ prefix, class: "search" as const })),
       ...list(env.ACCOUNT_PATHS, ["/wp-login.php"]).map((prefix) => ({ prefix, class: "account" as const })),
@@ -130,15 +131,18 @@ function cookieFor(pass: string, exp: number, now: number, secure: boolean) {
 export default {
   async fetch(req: Request, env: Env): Promise<Response> {
     const url = new URL(req.url);
-    const { toll, free } = await getToll(env);
     const path = url.pathname;
+    const method = req.method.toUpperCase();
+    // Page loads are never gated at the edge (Amendment 2 §A): proxied before any config or store
+    // is touched, so a bad route list or a store outage can't block reading.
+    if ((method === "GET" || method === "HEAD" || method === "OPTIONS") && !path.startsWith("/v1/") && !path.startsWith("/toll/v1/")) return proxy(req, env, url);
+    const { toll, free } = await getToll(env);
     try {
       if (path === "/toll/v1/toll.js") return new Response(TOLL_JS, { headers: { "content-type": "text/javascript; charset=utf-8", "cache-control": "public, max-age=300" } });
       if (path === "/toll/v1/toll.worker.js") return new Response(TOLL_WORKER_JS, { headers: { "content-type": "text/javascript; charset=utf-8", "cache-control": "public, max-age=300" } });
       if (path.startsWith("/v1/")) return await facade(req, env, url, toll);
 
-      const method = req.method.toUpperCase();
-      if (method === "GET" || method === "HEAD" || method === "OPTIONS" || free.some((p) => path === p)) return proxy(req, env, url);
+      if (free.some((p) => path === p)) return proxy(req, env, url);
       const action = toll.classify(path, method).cls as ActionClass | "read";
       if (action === "read") return proxy(req, env, url);
 

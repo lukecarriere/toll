@@ -16,6 +16,7 @@ rate_limit:
   # per run of both buttons) can be re-run without waiting a minute.
   challenge_per_min: 300
 routes:
+  - { prefix: "/", class: read }          # explicit: page views stay free (Amendment 2)
   - { prefix: "/contact", class: write }
   - { prefix: "/comments", class: write }
   - { prefix: "/search", class: search }

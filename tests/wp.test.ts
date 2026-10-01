@@ -76,7 +76,7 @@ async function setSettings(o: { payouts: boolean; connection: "test" | "server";
   await A.getByText("Settings saved.").waitFor();
 }
 
-const CSV_COLUMNS = ["date", "timezone", ...COUNTERS, "challenges_minted", "since", "exported_at"];
+const CSV_COLUMNS = ["date", "timezone", ...COUNTERS, "challenges_minted", "page_view_gate_confirmed", "since", "exported_at"];
 const ISO_UTC = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/;
 type CsvExport = { rows: Record<string, string>[]; today: Record<string, number> };
 
@@ -89,11 +89,11 @@ async function exportCsvFull(): Promise<CsvExport> {
   assert.match(r.headers()["content-type"], /^text\/csv/);
   assert.match(r.headers()["content-disposition"], /attachment; filename="toll-counters.csv"/);
   const [head, ...lines] = (await r.text()).trim().split(/\r\n/);
-  assert.equal(head, CSV_COLUMNS.join(","), "date, timezone, the Node counter names, challenges_minted, since, exported_at");
+  assert.equal(head, CSV_COLUMNS.join(","), "date, timezone, the Node counter names, challenges_minted, page_view_gate_confirmed, since, exported_at");
   const rows = lines.map((l) => Object.fromEntries(l.split(",").map((v, i) => [CSV_COLUMNS[i], v])));
   const last = rows[rows.length - 1];
   assert.equal(last.date, new Date().toISOString().slice(0, 10), "last row is today in UTC");
-  const today = Object.fromEntries([...COUNTERS, "challenges_minted"].map((k) => [k, Number(last[k])]));
+  const today = Object.fromEntries([...COUNTERS, "challenges_minted", "page_view_gate_confirmed"].map((k) => [k, Number(last[k])]));
   return { rows, today };
 }
 async function exportCsv(): Promise<Record<string, number>> {
@@ -242,7 +242,8 @@ test("CSV: one row per UTC day for the last 30 days, oldest first; timezone colu
     assert.equal(r.timezone, "UTC");
     assert.match(r.since, ISO_UTC);
     assert.match(r.exported_at, ISO_UTC);
-    for (const k of [...COUNTERS, "challenges_minted"]) assert.match(r[k], /^\d+$/, k);
+    for (const k of [...COUNTERS, "challenges_minted", "page_view_gate_confirmed"]) assert.match(r[k], /^\d+$/, k);
+    assert.equal(r.page_view_gate_confirmed, "0", "WordPress has no page-view switch, so nobody confirms it");
   }
   assert.ok(Math.abs(Date.parse(a.rows[0].exported_at) - Date.now()) < 120000, "exported_at is now");
   assert.ok(Date.parse(a.rows[0].since) <= Date.now());
@@ -266,6 +267,22 @@ test("site key field is a text input styled like the other fields, so the unders
   // The underscore sits below the baseline: a line box of 'normal' height clips it at 1x.
   const lh = await key.evaluate((el) => { const s = getComputedStyle(el); return parseFloat(s.lineHeight) / parseFloat(s.fontSize); });
   assert.ok(lh >= 1.75, `line-height ${lh}x leaves room for the underscore`);
+});
+
+test("install line (Amendment 2 §C): a plain paragraph right under the Toll heading, before the challenges count, on every visit; no page-view switch anywhere", { skip }, async () => {
+  for (let i = 0; i < 2; i++) {
+    await A.goto(SETTINGS);
+    const lede = A.locator("#toll-gate-settings > p.toll-lede");
+    // WP's common.js moves status notices to directly after the first h1; the lede is the first thing after the heading that isn't one.
+    assert.equal(await lede.evaluate((el) => { let p = el.previousElementSibling; while (p && p.classList.contains("notice")) p = p.previousElementSibling; return p?.tagName; }), "H1");
+    assert.equal(await lede.innerText(), "Toll checks writes, not page views. Leave public pages open so people and answer engines can read you. Turn Toll on for comments, forms, logins, and APIs.");
+    assert.equal(await lede.evaluate((el) => el.closest(".notice") === null && !el.className.includes("notice")), true, "not a notice box");
+    assert.equal(await lede.evaluate((el) => getComputedStyle(el).fontSize), "14px");
+    const order = await A.locator("#toll-gate-settings").evaluate((root) => { const l = root.querySelector(".toll-lede")!; const st = root.querySelector(".toll-stat")!; return !!(l.compareDocumentPosition(st) & Node.DOCUMENT_POSITION_FOLLOWING); });
+    assert.ok(order, "before 'Challenges issued today'");
+  }
+  const text = (await A.locator("#toll-gate-settings").innerText()).toLowerCase();
+  assert.ok(!/page view(s)? (gate|switch)|gate page views|all pages/.test(text.replace("toll checks writes, not page views", "")), "no control that gates a page view");
 });
 
 // ---- Settings → Toll states (design/proto/wp-settings.html) ----------------------------------

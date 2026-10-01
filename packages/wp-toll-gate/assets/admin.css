@@ -1,5 +1,6 @@
 /* Settings → Toll. Only the balance box, the Advanced panel and the show/hide rules
    (design/proto/wp-settings.html); everything else is core WordPress admin styling. */
+.toll-root .toll-lede{font-size:14px;margin:4px 0 12px;max-width:42em}
 .toll-root .toll-stat{color:#50575e;margin:0 0 8px}
 .toll-root .toll-stat a{margin-left:4px}
 .toll-root .toll-export-help{margin-top:-4px}

@@ -31,7 +31,7 @@ import {
   stubEngineSecret,
   workChallengeUrl,
 } from "../../settlement-ln/src/index.ts";
-import { type TollConfig, classifyPath } from "./config.ts";
+import { type TollConfig, classifyPath, PAGE_VIEW_WARNING } from "./config.ts";
 import { Metrics } from "./metrics.ts";
 import { MemoryStore, type TollStore, WindowCounter } from "./stores.ts";
 
@@ -92,6 +92,9 @@ export function createToll(config: TollConfig, opts: TollOptions = {}) {
   const issued = new Map<string, { c: Challenge; until: number }>();
   const engine: WorkAdapter = createWorkAdapter(config.secret);
   const paid = config.settlement.enabled ? createPaidRail() : undefined;
+  // Amendment 2 §A: the owner confirmed gating page views. Log the warning at startup and count it.
+  const gatedPages = config.routes.filter((r) => r.get === true && r.class !== "read" && r.cost !== 0).map((r) => r.prefix);
+  if (config.confirm_page_view_gating && gatedPages.length > 0) metrics.pageViewGateConfirmed({ warning: PAGE_VIEW_WARNING, prefixes: gatedPages });
 
   /**
    * Paid requests (docs/settlement.md). Phase 2: the local stub backend only. The stub engine's key is
