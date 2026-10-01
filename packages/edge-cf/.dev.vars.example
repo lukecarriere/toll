@@ -1,0 +1,2 @@
+# Copy to .dev.vars (gitignored). Local test secret only; never reuse it anywhere real.
+SITE_SECRET="edge-local-test-secret-do-not-use-0001"

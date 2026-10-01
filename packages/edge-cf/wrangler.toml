@@ -1,0 +1,20 @@
+# Local only: `npm run dev -w packages/edge-cf` (wrangler dev --local). Do not deploy from this repo;
+# there is no account, route or zone configured on purpose.
+name = "toll-edge-local"
+main = "dist/worker.js"
+compatibility_date = "2026-09-01"
+compatibility_flags = ["nodejs_compat"]
+workers_dev = false
+
+[vars]
+SITE_ID = "site_edge_local"
+ORIGIN = "http://127.0.0.1:8787"
+WRITE_PATHS = '["/contact","/comments","/wp-comments-post.php","/api/"]'
+SEARCH_PATHS = '["/search"]'
+ACCOUNT_PATHS = '["/wp-login.php"]'
+FREE_PATHS = '["/","/blog"]'
+# SITE_SECRET comes from .dev.vars (gitignored); copy .dev.vars.example.
+
+[[kv_namespaces]]
+binding = "TOLL_KV"
+id = "toll-local-kv"

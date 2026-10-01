@@ -14,6 +14,7 @@
     "packages/widget",
     "packages/server-node",
     "packages/agent",
+    "packages/edge-cf",
     "demo"
   ],
   "scripts": {

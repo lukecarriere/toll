@@ -15,3 +15,5 @@ bench/dist/
 
 # Composer installs (lock file is committed)
 packages/server-php/vendor/
+.dev.vars
+.wrangler/
