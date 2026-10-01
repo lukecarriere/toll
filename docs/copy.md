@@ -32,13 +32,20 @@ Cleared for public use (true of the product today):
 - Built for the road with fewer cars.
 - Spam is just too much traffic.
 
-Held until the Creative Director rewords them (the claim is not true today, or uses a banned word). The lint has no exemption for the brief's own two lines that use the banned word; they get reworded instead.
-- "Less junk. Less waiting. Same website." Visitors don't wait less; the check adds a little work before a post.
-- "You get there faster when the road is quiet." Same reason. "Time saved" may only mean the owner's moderation time, with no number.
-- "People pass through. Floods do not." / "Time saved, because the junk never merges." / "One small booth. Then the road is empty." The check makes floods costly, it doesn't stop them outright, so no "never", "empty", or "do not".
-- "Beautiful drive. Almost no junk." We have no measured spam figure behind "almost no".
-- "A quieter comment box. No puzzle." Banned word.
-- Plugin one-liner "Toll keeps comment forms, logins, and write APIs quiet. Visitors read for free and post without a puzzle. Floods take another road." Banned word; "logins" stays only if QA confirms each adapter gates logins out of the box.
+Reworded by the Creative Director (Oct 1), cleared, exact:
+- Less junk. Less cleanup. Same website.
+- Quiet roads are better roads.
+- People pass through. Floods slow down.
+- Time saved, because less junk merges.
+- One small booth. Then the road is quiet.
+- Beautiful drive. Less junk.
+- A quieter comment box. Nothing to solve.
+"Time saved" and "Less cleanup" mean the owner's moderation time, with no number attached. The brief's original held lines are retired; the lint has no exemption for its banned word.
+
+Plugin one-liner (readme.txt), exact. QA's login check picks one:
+- If every adapter checks logins out of the box: "Toll keeps comment forms, logins, and write APIs quiet. Visitors read for free and post without solving anything. Floods take another road."
+- Otherwise: "Toll keeps comment forms and write APIs quiet. Visitors read for free and post without solving anything. Floods take another road."
+The same check governs "logins" in the Mission page and the README top: if it fails, drop "logins," from those lines too.
 
 Search (PM call, Oct 1): search keeps its Amendment 2 default, a check at the write price that the owner can set to 0. So "Toll only checks writes" and "Visitors read for free" must not imply search is free. Say page views and articles are free, and name search alongside writes where the line lists what Toll checks.
 
@@ -52,14 +59,14 @@ Retired (Oct 1): the SPEC §1 "allowed public framing" list. Of its lines, these
 - FX down: hide the amount. Demo shows "—" with "Rate unavailable"; WordPress shows "Balance will show again shortly".
 - Never show msat, coin units, invoices or rail names on a default surface.
 
-## README (top; Creative Director rewrites it from the brief)
-The old §20 top below is retired. "High-volume clients pay more" is a payment claim (test only today) and "People don't notice" is unmeasured until the phone run.
+## README (top, exact; Creative Director, Oct 1)
 ```
 Toll
-Invisible checks for forms, logins, and write APIs.
-High-volume clients pay more. People don't notice.
+Less traffic. Better road.
+A small check for comments, forms, logins, searches, and write APIs. Page views stay free. People post the usual way. Floods get slow and costly.
 ```
-Then install lines (npm / composer / wp plugin / wrangler), a ten-line how it works (background work, a pass, optional usage payouts for operators), privacy, and a protocol link. Optional last line only: *Machine-payable requests settle over an open payment network. Operators can withdraw.*
+Optional last line only: "Paid requests for heavy clients are in testing."
+Then install lines (npm / composer / wp plugin / wrangler), a ten-line how it works (background work, a pass, optional usage payouts for operators), privacy, and a protocol link.
 
 ## Widget strings (exact; `…` is U+2026)
 | Use | String |
@@ -112,9 +119,9 @@ Product: Toll. WordPress plugin: `toll-gate`. Widget file: `toll.js`, element `<
 
 ## Amendment 2: reads stay free (Oct 1, 2026; wording unlocked by Luke the same day)
 The meaning stays: page views stay free, Toll checks writes, and gating page views needs a warning and an explicit confirm. The Creative Director may reword every line below in the brief's voice; search is covered as described under Brand lines.
-- First screen after install (README and WordPress helper text), exact: "Toll checks writes, not page views. Leave public pages open so people and answer engines can read you. Turn Toll on for comments, forms, logins, and APIs."
+- First screen after install (README and WordPress helper text), exact (Oct 1, names search): "Toll checks writes and searches, not page views. Leave public pages open so people and answer engines can read you. Turn Toll on for comments, forms, logins, and APIs."
 - Dashboard warning when an owner gates ordinary page views, exact, with an explicit confirm (default stays off): "This hides the site from answer engines and new readers. Toll is for writes."
-- Website pages `website/mission.md`, `vision.md`, `values.md`, `ecosystem.md`: Amendment 2 §E, now being rewritten in the brief's voice (Luke, Oct 1). The full lint list, including the brief's words, runs on them. Their one use of "human" ("We do not score visitors as human or not.") is Luke's wording and is allowed there; it stays off the default product screens.
+- Website pages `website/mission.md`, `vision.md`, `values.md`, `ecosystem.md`: replaced by the Creative Director's words under "Website pages" below (Oct 1). The full lint list runs on them. Values keeps Luke's one use of "human".
 - `docs/positioning.md`: Amendment 2 §B, for contributors, not a public screen.
 - Never on any public surface: crawler allow, charge, or block features, or "block training bots".
 - No page-view switch in WordPress (PM call, Oct 1): nothing there can gate a page view, so the warning has nothing to attach to.
@@ -122,9 +129,8 @@ The meaning stays: page views stay free, Toll checks writes, and gating page vie
 
 ## Amendment 3: agent discovery (Oct 1, 2026)
 Luke's wording, unlocked Oct 1; the Creative Director may reword it:
-- `website/ecosystem.md`, new section added after the existing text: "Agents that need a write-gate can find Toll in public tool catalogs. The article stays free. The tool call is priced. Being quoted in an answer is not the same as being chosen as the tool."
-- Manifest and MCP `description` (147 characters): "Invisible check for writes. A person does not notice. A program that fires thousands of writes pays for each one, or stops. Public pages stay free."
-  - Accuracy flag (Oct 1): a heavy client can also do the work instead of paying, payment is a test backend, and "does not notice" is unmeasured on phones. Rewording goes to the Creative Director; keep it under 160 characters, with no banned words.
+- `website/ecosystem.md` catalog paragraph, HOLD until the day of the first catalog listing, then add before the closing line, exact: "Agents that need a write check can find Toll in public tool catalogs. The article stays free. The tool call has a cost. Being quoted in an answer is not the same as being chosen as the tool."
+- Manifest and MCP `description`, exact (Creative Director, Oct 1; 135 characters): "A small check for writes. Heavy clients do work on each write, or pay in test mode. Page views stay free. Does not identify the caller."
 
 Tool names and descriptions (PM copy; the description is the ranking signal, so it must state each tool's job and what it does not do):
 - `price_write_action`: "Returns the current USD price, and the work alternative, for one write on a Toll-protected site: a comment, signup, login, form post, or state-changing API call. Use it before a write to choose between paying and doing the work. Not for page views, which are free and need no call. Does not identify the caller."
@@ -136,3 +142,38 @@ Price and payment honesty:
 - Until a real offer exists, every price carries a status beside it: `"status": "test"` (test or testnet rail) or `"status": "stub"`. The USD display is computed from `amount_msat` and the configured rate, rounded up to $0.0001 exactly like the 402 offer (never typed by hand), and reads like "$0.0100 (test)" for a write at the demo rate. It never stands alone as a bare number. The demo's fixed test rate is not a market price.
 - Lint scope: the manifest and MCP files are for machines, so only their `payment` objects may name the payment method (Amendment 3). Every `description` string and all website pages stay under the full lint list.
 - Base price label (Oct 1, ~4:30 AM): the manifest price field is labelled base price, and each priced tool in the manifest carries this exact note: "Base price. The 402 offer is the price that applies, and it can go up while the site is under load." `price_write_action` returns the price that applies right now, including any load increase, so its description ("Returns the current USD price…") stays as written. Parity tests run at load multiplier 1.
+
+## Website pages (Creative Director, Oct 1, 2026; exact)
+Numbered lines are paragraphs. Lines tagged [QA] ship only after QA confirms them against the code; if a check fails, the line comes out and the Creative Director rewords it.
+
+### Mission (`website/mission`)
+Heading: Mission
+1. Less traffic. Better road.
+2. The web should stay open to read, and cost something to flood.
+3. Toll is a small check on the lane where things change: comments, forms, logins, searches, and write APIs. A person posting a comment does a little background work and goes on their way. A program firing thousands of writes does that work on every one, so a flood gets slow and costly. Spam takes another road.
+4. Page views and articles stay free. Reading is how new sites get found.
+
+### Vision (`website/vision`)
+Heading: Vision
+1. A site owner should not have to choose between closing the site and cleaning up after a flood.
+2. Toll is the quieter road for comments and forms. Public pages stay open. Writes carry a small cost. A person meets it once and keeps going. A flood meets it on every car.
+3. The sites that last are the ones people and agents can still read. When one of them has a comment box worth keeping, Toll keeps it quiet.
+
+### Values (`website/values`), list
+- Mind the traffic, not the driver. We do not score visitors as human or not.
+- Page views and articles stay free unless an owner changes that on purpose, and we warn them first. [QA: confirm where an owner can change it and that the warning exists there]
+- Nothing to solve. No tracking pixels. No selling visitor data.
+- A person should not have to learn anything new to post a comment.
+- The more a client writes, the more work it does. Floods carry their own weight.
+- If something breaks, writes wait and public pages stay open. [QA: confirm fail-closed on writes, fail-open on pages]
+- We do not block crawlers. Other tools do that. We do not pretend to be them.
+
+### Where Toll fits (`website/ecosystem`)
+Heading: Where Toll fits
+1. Machine traffic is not one thing.
+2. Some of it only reads. Some of it copies pages into a model. Some of it answers a question and may cite the page. Some of it calls an API. Some of it fills a form a thousand times.
+3. Those should not share one switch.
+4. Tools that sit in front of the whole site can allow a known crawler, charge it for the fetch, or block it. Some pay publishers later, when a page is actually used in an answer. Some let an identified agent pay per API call. Those products serve sites that already have an audience, and buyers that will say who they are.
+5. Toll looks after the writes, and searches unless the owner turns that off. It does not ask the caller to identify itself. It does not charge for a public article. It does not replace a crawler deal, a license, or a pay-per-citation program. A publisher can use those and still put Toll on the comment box.
+6. HOLD, add only on the day of the first catalog listing: "Agents that need a write check can find Toll in public tool catalogs. The article stays free. The tool call has a cost. Being quoted in an answer is not the same as being chosen as the tool."
+7. Closing line (replaces "Leave the front door open. Lock the counter."): The site stays open. Spam takes another road.
