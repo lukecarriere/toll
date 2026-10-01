@@ -1,7 +1,10 @@
 <?php
 // Counters with the same names as the Node issuer (docs/protocol.md §7), plus challenges_minted.
-// One row per UTC day and counter in the options table (toll_gate_n_<YYYYMMDD>_<name>), bumped
-// with a plain INSERT and a conditional UPDATE so concurrent requests never lose a count. Shown in
+// One row per UTC day and counter in the options table (toll_gate_n_<YYYYMMDD>_<name>). Counts are
+// batched per request: toll_gate_count() only adds to an in-memory buffer, and the buffer is written at
+// shutdown in ONE statement (multi-row INSERT ... ON DUPLICATE KEY UPDATE value = value + n, which also
+// sets toll_gate_counting_since the first time). The add happens in the database, so concurrent requests
+// never lose a count. A request that counts nothing (every read) makes no counter write at all. Shown in
 // admin and exported only when the owner clicks "Export counters". Nothing is sent anywhere.
 declare(strict_types=1);
 
@@ -33,16 +36,54 @@ function toll_gate_counting_since(): string
     return gmdate('Y-m-d\TH:i:s\Z', (int) $v);
 }
 
+/** Adds to this request's buffer. No database access; the buffer is written once at shutdown. */
 function toll_gate_count(string $name, int $by = 1): void
 {
-    global $wpdb;
     if (!in_array($name, TOLL_GATE_COUNTERS, true) || $by < 1) return;
-    toll_gate_counting_since();
-    $row = 'toll_gate_n_' . toll_gate_counter_day() . '_' . $name;
+    $buf = &toll_gate_counter_buffer();
+    if ($buf === [] && function_exists('add_action') && !has_action('shutdown', 'toll_gate_counters_flush')) {
+        add_action('shutdown', 'toll_gate_counters_flush', 0);
+    }
+    $row = 'toll_gate_n_' . toll_gate_counter_day() . '_' . $name; // day taken when counted, not when flushed
+    $buf[$row] = ($buf[$row] ?? 0) + $by;
+}
+
+/** This request's pending counts: [option_name => int]. */
+function &toll_gate_counter_buffer(): array
+{
+    static $buf = [];
+    return $buf;
+}
+
+/**
+ * Writes the buffer in one statement and empties it. Returns the number of statements run (0 or 1).
+ * Each row is added to the stored value inside the database, so two requests flushing the same row
+ * both land. toll_gate_counting_since is inserted alongside and kept if it already exists.
+ */
+function toll_gate_counters_flush(): int
+{
+    global $wpdb;
+    $buf = &toll_gate_counter_buffer();
+    if ($buf === [] || !isset($wpdb)) return 0;
+    $rows = $buf;
+    $buf = [];
+    $since = 'toll_gate_counting_since';
+    $values = [$wpdb->prepare("(%s, %s, 'off')", $since, (string) time())];
+    foreach ($rows as $name => $n) $values[] = $wpdb->prepare("(%s, %s, 'off')", $name, (string) (int) $n);
+    $sql = "INSERT INTO {$wpdb->options} (option_name, option_value, autoload) VALUES " . implode(', ', $values)
+        . $wpdb->prepare(" ON DUPLICATE KEY UPDATE option_value = CASE WHEN option_name = %s THEN option_value ELSE option_value + VALUES(option_value) END", $since);
+    // CASE, not IF(): the SQLite driver used by local and Playground sites mistranslates IF() here.
     $wpdb->suppress_errors(true);
-    $wpdb->query($wpdb->prepare("INSERT INTO {$wpdb->options} (option_name, option_value, autoload) VALUES (%s, %s, 'off')", $row, '0'));
-    $wpdb->query($wpdb->prepare("UPDATE {$wpdb->options} SET option_value = option_value + %d WHERE option_name = %s", $by, $row));
+    // Direct query on purpose: one atomic upsert for the whole request. Every value is escaped by
+    // $wpdb->prepare above; the table name is $wpdb->options. Counters are read with SQL too, never
+    // through the options cache, so there is nothing cached to invalidate except notoptions below.
+    // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.NotPrepared
+    $wpdb->query($sql);
     $wpdb->suppress_errors(false);
+    // The row may have been cached as missing earlier in this request (or in a persistent cache).
+    $no = wp_cache_get('notoptions', 'options');
+    if (is_array($no) && isset($no[$since])) { unset($no[$since]); wp_cache_set('notoptions', $no, 'options'); }
+    return 1;
 }
 
 /**
