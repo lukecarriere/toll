@@ -10,7 +10,7 @@
 // packages/wp-toll-gate/dev/setup-local-wp.sh; skipped when it isn't running.
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
-import { existsSync, readFileSync, readdirSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { createServer, type Server } from "node:http";
 import { chromium, type Browser, type Page } from "playwright";
@@ -241,8 +241,10 @@ test("(a) the plugin relays the server's offers as they are and asks the server 
   // The server says ok: a one-use, 60 s pass from this site.
   const c0 = counts();
   fakeRedeem = () => ({ status: 200, body: { ok: true, cls: "write", amount_msat: 10000, fee_msat: 1000, net_msat: 9000 } });
+  const before = fakeCalls.length;
   const ok = await redeem(pay);
   assert.equal(ok.status, 200);
+  assert.deepEqual(fakeCalls.slice(before), [{ path: "/v1/owner/redeem", body: pay }], "the pass is minted only after exactly one verify call to the payment server");
   const p: any = await ok.json();
   assert.deepEqual(Object.keys(p), ["pass", "exp", "cls", "rail"]);
   assert.equal(p.rail, "settle");
@@ -260,7 +262,7 @@ test("(a) the plugin relays the server's offers as they are and asks the server 
   assert.deepEqual(await (await redeem(pay)).json(), { error: "unsupported", detail: "paid redeem is not enabled on this issuer" });
 });
 
-test("(a) no payment code in the plugin's PHP: no proof or credential checks; no invoice parsing anywhere in packages/wp-toll-gate or packages/server-php (Amendment 1 §F)", { skip: false }, () => {
+test("(a) no payment code in the plugin's PHP: no proof or credential checks, no Settlement verification helper (preimageMatches) anywhere under packages/wp-toll-gate, paid redeem verified only by the payment server; no invoice parsing in packages/wp-toll-gate or packages/server-php (Amendment 1 §F)", { skip: false }, () => {
   const files: string[] = [];
   const walk = (dir: URL) => {
     for (const e of readdirSync(dir, { withFileTypes: true })) {
@@ -287,10 +289,44 @@ test("(a) no payment code in the plugin's PHP: no proof or credential checks; no
     assert.doesNotMatch(c, invoiceFormat, f);
     assert.doesNotMatch(c, invoiceRead, f);
   }
+  // Settlement::preimageMatches stays in server-php for the settlement vectors (PM, Oct 1), but the
+  // plugin never references it or any other Settlement verification or pricing helper: paid
+  // redeems are verified only by the payment server (POST /v1/owner/redeem).
+  const settlementSrc = readFileSync(new URL("../packages/server-php/src/Settlement.php", import.meta.url), "utf8");
+  const helpers = [...settlementSrc.matchAll(/public static function (\w+)/g)].map((m) => m[1]);
+  assert.ok(helpers.includes("preimageMatches"), "the hash check is still in server-php");
+  const display = ["feePercent", "fillFee", "usdDisplay", "offerUsd"]; // copy and USD formatting only
+  const banned = helpers.filter((h) => !display.includes(h));
+  assert.ok(banned.includes("preimageMatches") && banned.length >= 4, banned.join(","));
+  const pluginFiles: string[] = [];
+  const walkAll = (dir: string) => {
+    for (const name of readdirSync(dir)) {
+      if (name === "vendor" || name === "node_modules") continue;
+      const f = dir + "/" + name;
+      const st = statSync(f); // follows the assets/widget link too
+      if (st.isDirectory()) walkAll(f);
+      else if (st.size < 2_000_000) pluginFiles.push(f);
+    }
+  };
+  walkAll(PLUGIN.pathname.replace(/\/$/, ""));
+  assert.ok(pluginFiles.length > files.filter((f) => f.startsWith(PLUGIN.pathname)).length, "every file type, not just PHP");
+  for (const f of pluginFiles) {
+    const raw = readFileSync(f, "utf8"); // comments included: no mention at all
+    for (const h of banned) assert.ok(!raw.includes(h), `${f} references Settlement::${h}`);
+    for (const m of raw.matchAll(/Settlement::(\w+)/g)) assert.ok(display.includes(m[1]), `${f} calls Settlement::${m[1]}`);
+  }
+  // The paid redeem goes through the payment server's verify endpoint and nothing else.
+  const issuer = code(new URL("includes/issuer.php", PLUGIN).pathname);
+  const paidRedeem = issuer.slice(issuer.indexOf("function toll_gate_redeem_paid"), issuer.indexOf("function toll_gate_token_from_request"));
+  assert.match(paidRedeem, /toll_gate_relay_redeem\(\$b\)/);
+  assert.doesNotMatch(paidRedeem, /Settlement|verify|hash/i);
   // The withdraw path only trims the invoice and hands it to the payment server.
   const payouts = code(new URL("includes/payouts.php", PLUGIN).pathname);
   assert.doesNotMatch(payouts, /function toll_gate_test_invoice_msat|toll_gate_test_invoice_msat\(/);
   assert.match(payouts, /toll_gate_server_call\('POST', '\/v1\/owner\/withdraw', \['invoice' => \$invoice\]\)/);
+  const relayRedeem = payouts.slice(payouts.indexOf("function toll_gate_relay_redeem"), payouts.indexOf("function toll_gate_withdraw"));
+  assert.match(relayRedeem, /toll_gate_server_call\('POST', '\/v1\/owner\/redeem', \$fwd\)/);
+  assert.doesNotMatch(relayRedeem, /Settlement::|hash\(|hash_equals|hex2bin/, "no local check of the proof");
   // The paid path treats invoice and credential as opaque strings: only presence and size checks.
   const paidPath = payouts.slice(payouts.indexOf("function toll_gate_relay_offers"), payouts.indexOf("function toll_gate_withdraw"));
   assert.doesNotMatch(paidPath, /preg_match\([^)]*\$o\[|explode|json_decode|substr|str_starts_with/, "no parsing of offer fields");
