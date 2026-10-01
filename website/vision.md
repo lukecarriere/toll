@@ -1,7 +1,7 @@
 # Vision
 
-A site owner should not have to choose between a puzzle, a fingerprint, and an open form.
+A site owner should not have to choose between closing the site and cleaning up after a flood.
 
-Toll is the default lock on comments, logins, and write APIs. Public pages stay open. High-volume clients pay more. People pay once. Site owners can collect that usage value without learning a new ritual.
+Toll is the quieter road for comments and forms. Public pages stay open. Writes carry a small cost. A person meets it once and keeps going. A flood meets it on every car.
 
-The sites that win are the ones agents can still read. Toll is there for the day those sites have something worth defending.
+The sites that last are the ones people and agents can still read. When one of them has a comment box worth keeping, Toll keeps it quiet.

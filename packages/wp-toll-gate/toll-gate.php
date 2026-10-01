@@ -1,7 +1,7 @@
 <?php
 /**
  * Plugin Name: Toll
- * Description: Invisible checks for forms, logins, and write APIs.
+ * Description: Toll keeps comment forms, logins, and write APIs quiet. Visitors read for free and post without solving anything. Floods take another road.
  * Version: 0.1.0
  * Requires at least: 6.5
  * Requires PHP: 8.1

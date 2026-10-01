@@ -1,4 +1,4 @@
-// Amendment 2 §D/§E: the public mission pages. Wording is the copy, character for character; the
+// Amendment 2 §D/§E: the public mission pages. Wording is docs/copy.md "Website pages", character for character; the
 // built pages carry no scripts, analytics, pixels, cookies or external requests (Values: "No tracking pixels.").
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
@@ -31,33 +31,36 @@ function htmlText(src: string) {
   return [...main.matchAll(/<(h1|p|li)\b[^>]*>([\s\S]*?)<\/\1>/g)].map((m) => norm(decode(m[2])));
 }
 
-test("website/*.md and docs/positioning.md are Amendment 2 §E and §B as written, plus the Amendment 3 ecosystem paragraph", { skip: existsSync(A2) ? false : "AMENDMENT_2.md not present" }, () => {
-  const a = readFileSync(A2, "utf8");
-  const sec = (start: string) => { const i = a.indexOf(start) + start.length; return a.slice(i, a.indexOf("\n---\n", i)).trim(); };
-  const e = sec("## E. Website copy (publish as written)\n").split(/^### /m).filter(Boolean);
-  assert.equal(e.length, 4);
-  // Amendment 3 adds one paragraph to ecosystem.md, right before the closing line; nothing else changes.
-  const a3 = existsSync(A3) ? /^> (Agents that need a write-gate[^\n]+)$/m.exec(readFileSync(A3, "utf8"))![1] : null;
-  for (const [i, part] of e.entries()) {
-    const [title, ...rest] = part.split("\n");
+test("website/*.md are the Creative Director's pages in docs/copy.md, word for word; the held catalog paragraph stays out", () => {
+  // docs/copy.md "Website pages": one "### " block per page, in nav order. Numbered lines are paragraphs,
+  // "- " lines are list items. [QA: ...] tags are notes for QA, not copy; "HOLD" lines are not published.
+  const copy = readFileSync(ROOT + "docs/copy.md", "utf8");
+  const from = copy.indexOf("\n## Website pages");
+  const to = copy.indexOf("\n## ", from + 1);
+  const parts = copy.slice(from, to < 0 ? undefined : to).split(/^### /m).slice(1);
+  assert.equal(parts.length, 4);
+  for (const [i, part] of parts.entries()) {
     const page = PAGES[i];
-    let body = rest.join("\n").trim();
-    if (page.file === "ecosystem" && a3) {
-      const close = "Leave the front door open. Lock the counter.";
-      assert.ok(body.endsWith(close));
-      body = body.slice(0, -close.length) + a3 + "\n\n" + close;
-    }
-    assert.equal(norm(md(page.file)), norm(`# ${title}\n\n${body}`), page.file + ".md");
-  }
-  if (a3) {
-    assert.ok(readFileSync(ROOT + "docs/copy.md", "utf8").includes(`"${a3}"`), "same paragraph as docs/copy.md");
-    const eco = htmlText(html("ecosystem"));
-    assert.deepEqual(eco.slice(-2), [a3, "Leave the front door open. Lock the counter."], "plain paragraph right before the closing line");
-    assert.match(html("ecosystem"), new RegExp(`<p>${a3.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}</p>\n<p class="close">`), "a plain <p>, no heading");
+    const lines = part.split("\n");
+    assert.ok(lines[0].includes("`website/" + page.file + "`"), page.file);
+    const heading = lines.find((l) => l.startsWith("Heading: "))?.slice(9) ?? lines[0].split(" (")[0];
+    const items = lines.filter((l) => /^(\d+\.|-) /.test(l) && !/^\d+\. HOLD\b/.test(l))
+      .map((l) => l.replace(/^(\d+\.|-) /, "").replace(/^Closing line \([^)]*\): /, "").replace(/ \[QA:[^\]]*\]$/, ""));
+    const list = lines.some((l) => l.startsWith("- "));
+    const expected = `# ${heading}\n\n` + (list ? items.map((t) => "- " + t).join("\n") : items.join("\n\n"));
+    assert.equal(norm(md(page.file)), norm(expected), page.file + ".md");
   }
   assert.equal(PAGES[3].nav, "Where Toll fits");
+  assert.doesNotMatch(md("ecosystem"), /public tool catalogs/, "catalog paragraph is on hold");
+});
+
+test("docs/positioning.md is Amendment 2 §B as written (one banned word replaced), with the discovery note", { skip: existsSync(A2) ? false : "AMENDMENT_2.md not present" }, () => {
+  const a = readFileSync(A2, "utf8");
+  const sec = (start: string) => { const i = a.indexOf(start) + start.length; return a.slice(i, a.indexOf("\n---\n", i)).trim(); };
+  // The brand brief's lint list bans "taxes"; positioning.md is linted, so that one word is "gates" (EM, Oct 1).
+  const b = sec("## B. Where Toll sits (for the team, not the homepage)\n").replace("They clash only if Toll taxes the read.", "They clash only if Toll gates the read.");
   const pos = norm(readFileSync(ROOT + "docs/positioning.md", "utf8"));
-  assert.ok(pos.includes(norm(sec("## B. Where Toll sits (for the team, not the homepage)\n"))), "positioning.md carries §B verbatim");
+  assert.ok(pos.includes(norm(b)), "positioning.md carries §B verbatim");
   assert.match(pos, /## Discovery .*AMENDMENT_3\.md/, "discovery note points at Amendment 3");
 });
 
@@ -72,7 +75,7 @@ test("built pages carry exactly the markdown text: header, nav with aria-current
     assert.doesNotMatch(h, /<footer|<img|<svg|<picture|<video|<audio|<iframe|<form/i);
   }
   assert.match(html("values"), /<ul><li>/);
-  assert.match(html("ecosystem"), /<p class="close">Leave the front door open\. Lock the counter\.<\/p>\n<\/main>/);
+  assert.match(html("ecosystem"), /<p class="close">The site stays open\. Spam takes another road\.<\/p>\n<\/main>/);
   assert.match(readFileSync(OUT + "site.css", "utf8"), /p\.close\{[^}]*border-top:1px solid[^}]*font-weight:600/);
 });
 

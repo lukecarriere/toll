@@ -37,7 +37,7 @@ test("'sats' and 'on-chain' are caught on a public surface and ignored in exempt
 });
 
 test("whole words only: no false hits inside other words; phrases and risk-score percentages caught", () => {
-  assert.deepEqual(lintText("README.md", "Saturday satisfied amount_msat Lightningale wallets"), []);
+  assert.deepEqual(lintText("README.md", "Saturday satisfied amount_msat Lightningale walletless taxonomy unclear puzzlement"), []);
   assert.equal(lintText("README.md", "Your seed  phrase").length, 1);
   assert.equal(lintText("README.md", "Visitor is 12% human").length, 1);
   assert.equal(lintText("README.md", "bot: 97%").length, 1);

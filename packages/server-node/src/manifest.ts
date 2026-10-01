@@ -5,7 +5,7 @@
 import type { ActionClass } from "../../protocol/src/index.ts";
 
 /** Catalog description seed (Luke, verbatim, 147 characters). */
-export const MANIFEST_DESCRIPTION = "Invisible check for writes. A person does not notice. A program that fires thousands of writes pays for each one, or stops. Public pages stay free.";
+export const MANIFEST_DESCRIPTION = "A small check for writes. Heavy clients do work on each write, or pay in test mode. Page views stay free. Does not identify the caller.";
 export const NOT_FOR = ["page views", "crawler blocking", "citation licensing"] as const;
 export const PAID_CLASSES = ["write", "search", "account", "admin"] as const;
 export type PriceStatus = "test" | "stub";

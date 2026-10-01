@@ -29,9 +29,9 @@ after(async () => { mcp?.close(); await paid?.close(); await off?.close(); });
 const minted = (r: Running) => r.events.filter((e) => e.event === "challenge_minted").length;
 const agentPost = (r: Running, path: string) => fetch(r.url + path, { method: "POST", headers: { accept: "application/json", "content-type": "application/json", "toll-client": "agent" }, body: "{}" });
 
-test("copy: tool names and descriptions, the 147-character seed and not_for are docs/copy.md verbatim, in Node and WordPress", () => {
-  assert.equal(MANIFEST_DESCRIPTION.length, 147);
-  assert.ok(COPY.includes(`(147 characters): "${MANIFEST_DESCRIPTION}"`));
+test("copy: tool names and descriptions, the 135-character description and not_for are docs/copy.md verbatim, in Node and WordPress", () => {
+  assert.equal(MANIFEST_DESCRIPTION.length, 135);
+  assert.ok(COPY.includes(`135 characters): "${MANIFEST_DESCRIPTION}"`));
   for (const t of TOOLS) {
     assert.ok(COPY.includes("`" + t.name + "`: \"" + t.description + "\""), t.name);
     assert.ok(WP_DISCOVERY.includes(t.description.replace(/'/g, "'")), "WordPress carries " + t.name + " verbatim");

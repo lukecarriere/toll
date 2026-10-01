@@ -12,7 +12,7 @@ if (!defined('ABSPATH')) exit;
 
 use Toll\Settlement;
 
-const TOLL_GATE_MANIFEST_DESCRIPTION = 'Invisible check for writes. A person does not notice. A program that fires thousands of writes pays for each one, or stops. Public pages stay free.';
+const TOLL_GATE_MANIFEST_DESCRIPTION = 'A small check for writes. Heavy clients do work on each write, or pay in test mode. Page views stay free. Does not identify the caller.';
 const TOLL_GATE_NOT_FOR = ['page views', 'crawler blocking', 'citation licensing'];
 const TOLL_GATE_PAID_CLASSES = ['write', 'search', 'account', 'admin'];
 const TOLL_GATE_TOOLS = [
