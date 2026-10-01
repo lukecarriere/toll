@@ -40,6 +40,8 @@ app.use(Toll.router(toll));                                   // /v1/* and /toll
 app.post("/contact", Toll.middleware(toll, { action: "write" }), handler);
 ```
 
+Behind a reverse proxy, list it in the `TOLL_TRUSTED_PROXIES` environment variable (comma-separated addresses and CIDR ranges): it replaces Express `trust proxy`, which Toll does not read ([docs/adapters.md](docs/adapters.md) §5).
+
 ## Privacy
 
 - The check never reads or sends what people type into your forms.
