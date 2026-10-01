@@ -12,6 +12,7 @@ Exempt (may use protocol words): `docs/settlement.md`, `docs/settlement-vectors.
 From the brand brief (Oct 1): clear, clearlane, tsa, precheck, skip the line, skip-the-line, tax, taxes, taxed, taxing, surcharge, surcharges, paywall, paywalls, on-ramp, on-ramps, make ai pay, bitcoin, lightning, wallet, wallets, sats, detect ai, detects ai, human score, captcha, captchas, puzzle, puzzles.
 From §19.12: btc, satoshi, l402.
 From §1 (PRD §6 testing bar): sat, on-chain, onchain, seed phrase, orange pill, softwar, energy money, proof-of-compute, geopolitics, ai slop, we detect ai.
+From the photo source (Oct 1, the hero photo is a pine forest on California 1 near San Simeon): redwood, redwoods.
 Also fail on any percentage next to "human", "bot" or "AI" (a risk score as identity, for example "12% human").
 
 ## Avoid (review, not lint)
