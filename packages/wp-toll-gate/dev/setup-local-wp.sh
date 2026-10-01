@@ -67,6 +67,8 @@ cat > "$SITE/wp-content/mu-plugins/toll-local-dev.php" <<'PHP'
 <?php
 // Local development site for toll-gate only (written by dev/setup-local-wp.sh).
 add_filter( 'comment_flood_filter', '__return_false' );
+// The test suite fetches more than the default 60 challenges a minute from 127.0.0.1.
+add_filter( 'toll_gate_challenges_per_min', fn () => 300 );
 PHP
 
 ln -sfn "$PLUGIN_SRC" "$SITE/wp-content/plugins/toll-gate"

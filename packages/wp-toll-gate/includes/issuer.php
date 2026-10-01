@@ -44,7 +44,7 @@ function toll_gate_allow_challenge(): bool
     $key = 'toll_gate_rl_' . md5(toll_gate_ip() . '|' . gmdate('YmdHi'));
     $n = (int) get_transient($key) + 1;
     set_transient($key, $n, 120);
-    return $n <= TOLL_GATE_CHALLENGES_PER_MIN;
+    return $n <= (int) apply_filters('toll_gate_challenges_per_min', TOLL_GATE_CHALLENGES_PER_MIN);
 }
 
 /** Route prefix the challenge is bound to (matches the gate's check). */

@@ -15,7 +15,7 @@ export const TITLE_EXCEPTIONS = {
 
 // Public surfaces (docs/copy.md "Where these rules apply"). The WordPress plugin joins when it exists.
 export const SURFACES = ["README.md", "packages/widget/src", "packages/widget/dist", "demo", "packages/server-node/src", "packages/wp-toll-gate", "toll.example.yaml"];
-const TEXT = /\.(md|ts|mjs|js|html|css|php|json|yaml|yml|txt)$/;
+const TEXT = /\.(md|ts|mjs|js|html|css|php|json|yaml|yml|txt|sh)$/;
 
 function walk(rel, out = []) {
   const abs = ROOT + rel;
