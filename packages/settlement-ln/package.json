@@ -1,3 +1,3 @@
 { "name": "@toll/settlement", "private": true, "version": "0.1.0", "type": "module",
-  "description": "Toll settlement (draft): engine interface, stub engine, proxy-engine client (stub mode only), msat ledger. Not wired into the issuer in phase 1.",
+  "description": "Toll settlement: engine interface, stub engine and settler, rail facade for the issuer, msat ledger, USD display rules. Proxy-engine client is stub mode only.",
   "exports": { ".": "./src/index.ts" } }

@@ -25,4 +25,12 @@ routes:
   - { prefix: "/search", class: search }
   - { prefix: "/wp-login.php", class: account }
 settlement:
-  enabled: false                 # phase 2
+  enabled: false                 # paid requests for automated clients (docs/settlement.md)
+  backend: stub                  # this build: "stub" only, the local test backend (no network, no real money)
+  fee_bps: 1000                  # platform fee, 10%; rounded down per payment and held until phase 4
+  pass_uses: 1                   # a paid pass is good for one request ...
+  pass_ttl_s: 60                 # ... within 60 seconds (max 60)
+  offer_ttl_s: 120               # how long an offer can be paid (max 120)
+  fx:                            # USD display only; amounts are never converted
+    source: none                 # none (USD hidden) | fixed (a test value, not a market price)
+    # usd_per_btc: 100000        # required with source: fixed

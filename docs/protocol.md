@@ -1,6 +1,6 @@
 # Toll wire protocol v1 (work rail)
 
-Status: phase 0/1 as amended (Amendment 1), implemented in `packages/protocol` + `packages/work-adapter` (TypeScript) and `packages/server-php` (PHP, with the engine's PHP library). Both pass [`vectors.json`](vectors.json). The paid rail is drafted separately in `docs/settlement.md` and adds no fields to anything below.
+Status: phase 0/1 as amended (Amendment 1), implemented in `packages/protocol` + `packages/work-adapter` (TypeScript) and `packages/server-php` (PHP, with the engine's PHP library). Both pass [`vectors.json`](vectors.json). The paid rail (phase 2, local test backend) is specified in `docs/settlement.md`; it adds the paid redeem body, `offers[]` for agents and a 402 for agents, and no fields to challenges or passes.
 
 Conventions: all JSON, all times are Unix seconds, all IDs are opaque lowercase hex. Integers only (no floats anywhere that gets signed).
 
@@ -91,7 +91,7 @@ Solution (from the widget):
 { "challenge_id": "8f3c…", "challenge": { …signed challenge… }, "solution": { "work": { "counter": 41, "derivedKey": "…" }, "took_ms": 412, "ua_class": "desktop" } }
 ```
 
-`challenge` is optional: a stateless verifier needs it; the issuer that minted the challenge can look it up by `challenge_id`. The widget always sends it. (The paid form `{ offer_id, kind, preimage, macaroon }` returns `400 unsupported` while settlement is off.)
+`challenge` is optional: a stateless verifier needs it; the issuer that minted the challenge can look it up by `challenge_id`. The widget always sends it. The paid form `{ offer_id, kind: "ln402", preimage, macaroon }` (settlement.md §6) returns `{ pass, exp, cls, rail: "settle" }` with a one-use, 60 s pass when settlement is on, and `400 unsupported` while it is off.
 
 Verification order (both implementations): shape (`malformed` / `unsupported`) → Toll signature (`bad_sig`) → time (`not_yet_valid` / `expired`) → site (`wrong_site`) → claim the id in the replay store (`replay`) → engine: payload algorithm equals `alg` (`malformed`), `data.tid` equals `id`, engine signature, solution (`bad_solution`). The id is claimed before the work is checked, so each signed challenge can cost the server at most one verification. If the replay store is unreachable the redeem fails with 503: writes fail closed. Then Toll mints the pass (§5).
 
@@ -127,15 +127,15 @@ A verifier rejects a pass that is past `exp`, for another site, for a lower clas
 
 | Endpoint | Notes |
 |---|---|
-| `GET /v1/challenge?site=&action=&path=&client=widget\|agent` | `{ challenge, offers: [] }`. `site` defaults to the configured site. `action=read` is 400. Rate-limited per IP (default 60/min, 429 after). `offers` is always `[]` with settlement off. |
+| `GET /v1/challenge?site=&action=&path=&client=widget\|agent` | `{ challenge, offers }`. `site` defaults to the configured site. `action=read` is 400. Rate-limited per IP (default 60/min, 429 after). `offers` is `[]` unless the request is an agent (`client=agent` or `Toll-Client: agent`) and settlement is on and healthy (settlement.md §2, §4). |
 | `POST /v1/redeem` | §4. |
 | `POST /v1/siteverify` | Form or JSON: `secret`, `response` (a pass, or a JSON redeem payload), optional `action`. Returns `{ success, action, hostname, challenge_ts }` or `{ success: false, "error-codes": […] }`. Spends one pass use. |
 | `GET /v1/status` | Cookie or `Authorization` pass → `{ ok: true, exp, cls, n }` (n = remaining uses), else `{ ok: false }`. |
-| `GET /v1/health` | `{ ok: true, v: "1.0.0", settlement: "off" }`; a small HTML status table when the client asks for `text/html`. |
+| `GET /v1/health` | `{ ok: true, v: "1.0.0", settlement: "off" }`, or with settlement on `{ ok, v, settlement: "stub", settlement_degraded, usd_rate: "ok" \| "unavailable" }`; a small HTML status table when the client asks for `text/html`. No balances. |
 
 CORS: the request `Origin` is echoed only if it is in `allowed_origins`, with credentials allowed; never `*`.
 
-Protected routes (middleware): a request without a valid pass gets `403 {"error":"toll_required","challenge":{…}}` (JSON clients, curl), or a short HTML page saying "This form needs JavaScript." when the client prefers HTML. Over the challenge rate limit, the 403 omits the challenge. `toll.fetch` solves the challenge in the 403 and retries once.
+Protected routes (middleware): a request without a valid pass gets `403 {"error":"toll_required","challenge":{…}}` (JSON clients, curl), or a short HTML page saying "This form needs JavaScript." when the client prefers HTML. Over the challenge rate limit, the 403 omits the challenge. `toll.fetch` solves the challenge in the 403 and retries once. An agent request (`client=agent` or `Toll-Client: agent`) gets `402 {"error":"payment_required","challenge":{…},"offers":[…]}` with a `WWW-Authenticate` payment challenge instead, when an offer is available (settlement.md §4); otherwise the same 403. A 403 never carries offers.
 
 ## 8. Test vectors
 

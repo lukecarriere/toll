@@ -128,13 +128,22 @@ All 840 solves redeemed OK. Method and the full table: docs/policy.md §3 and `b
 - `proxy-client.ts`:
   - `ProxySettlementEngine({ mode: "stub" })` delegates to the stub engine. Any other mode throws: there is no live path in this build.
   - `priceForPath(...)` is the logic for the proxy's price hook, rounded up to a whole base unit (settlement.md Q3).
-- `ledger.ts` and `stub-settler.ts` are unchanged: integer msat, gross/fee/net, fee held.
-- Not wired into the issuer: offers stay `[]` (phase 1). No node, no funds, no paid service.
+- `ledger.ts` and `stub-settler.ts`: integer msat, gross/fee/net, fee held.
+- Phase 2 (built, stub only): `rail.ts` is the facade the issuer uses (`offers`, `redeemPaid`, `status`, `balance`). The issuer creates it with a `StubEngine`, so offers, the 402 to agents, paid redeem → one-use 60 s pass, and ledger booking all run end to end on the stub. No node, no funds, no paid service.
+
+### How an engine success becomes a Toll pass
+
+1. Toll prices the request (`offerAmountMsat`) and asks the engine for an offer. The engine returns an invoice and an opaque credential; Toll never parses either.
+2. The client pays and presents `{offer_id, preimage, macaroon}` at `POST /v1/redeem` (the proxy would instead verify `Authorization: L402 …` itself and forward the request).
+3. The engine's `verifyPaid` returns `{cls, amount_msat, payment_ref}` or throws. The stub checks its sealed credential and `SHA256(preimage) == payment_hash` locally; the proxy engine would do the same with a real macaroon.
+4. Toll claims the offer in the replay store (one payment, one pass), books gross/fee/net in the msat ledger with the offer id as the duplicate guard, and mints an ordinary Toll pass with `n = 1`, `exp = now + 60`, tagged `settle` for metrics.
+
+Swapping the stub for the proxy changes step 1-3 only; the pass, ledger, metrics and HTTP shapes stay the same.
 
 ### Deployment shape (documented, not built)
 
 ```
-agent ──> Aperture (L402 proxy) ──> Toll issuer (/v1/redeem-paid, phase 2)
+agent ──> Aperture (L402 proxy) ──> Toll issuer (paid redeem, phase 2 shape)
              │  dynamicprice gRPC ──> Toll price source (priceForPath)
              └─ LND (or LNC) for invoices; sqlite/postgres/etcd for its own state
 ```
@@ -148,6 +157,7 @@ what enforces one payment, one pass.
 1. **No WordPress shared hosting.** Aperture needs a Go binary, an LND (or LNC) connection and a database. It fits self-hosters who already run a node, and the phase-4 hosted processor. A WordPress site on shared hosting would rely on the hosted processor for payments. Work-only mode is unaffected.
 2. **Close call on maintenance cadence.** Aperture has a release roughly once a year (v0.5.0, March 2026). Direct L402 would avoid the extra hop but forces our own macaroon code, so the amendment decides this one, not taste.
 3. **No cost in this pass.** Aperture is MIT and free. Running it for real needs a node, which is out of scope here (stub/regtest only).
+4. **Regtest deferred in phase 2.** The optional Aperture + regtest setup needs Go, LND and bitcoind running locally. That is not cheap enough for this pass, so phase 2 ships on the stub only. Nothing remote, nothing paid.
 
 ---
 
