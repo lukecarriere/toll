@@ -74,7 +74,7 @@ final class Protocol
         }
         foreach (array_keys($c) as $k) {
             if (!in_array($k, self::FIELDS, true)) {
-                throw new TollError('malformed', "unknown field $k");
+                throw new TollError('malformed', 'unknown field');
             }
         }
         if (($c['v'] ?? null) !== 1) throw new TollError('unsupported', 'version');
