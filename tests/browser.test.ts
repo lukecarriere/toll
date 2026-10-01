@@ -169,6 +169,7 @@ test("states 2 and 3: Checking… appears at 500ms (not before), then Verified; 
   await fixture(page, slow.url, `<form id="f" method="post" action="/contact" data-toll="write" style="font-family: Georgia, serif; color: rgb(10, 20, 30)"><input name="m"><button type="submit" id="send" class="host-btn">Send</button><span id="after"></span></form>`);
   const timeline = await page.evaluate(async () => {
     const t0 = performance.now();
+    (document.querySelector('input[name="m"]') as HTMLInputElement).focus(); // gap 1: nothing shows before the visitor interacts
     const marks: { t: number; text: string; hidden: boolean }[] = [];
     let last = "";
     while (performance.now() - t0 < 12000) {
@@ -209,6 +210,7 @@ test("state 4: reduced motion keeps solving with a static bar; normal motion ani
   for (const mode of ["reduce", "no-preference"] as const) {
     const { page, ctx } = await newPage({ reducedMotion: mode });
     await page.goto(slow.url + "/");
+    await page.focus("#m"); // gap 1: nothing shows before the visitor interacts
     await page.waitForFunction(() => { const g = document.querySelector("toll-gate") as any; return g && !g.hidden && g.shadowRoot.querySelector(".bar"); }, null, { timeout: 8000 });
     const anim = await page.evaluate(() => getComputedStyle((document.querySelector("toll-gate") as any).shadowRoot.querySelector(".bar"), "::after").animationName);
     assert.equal(anim, mode === "reduce" ? "none" : "toll-slide", mode);
@@ -247,6 +249,7 @@ test("state 8: issuer unreachable shows Couldn't check this form. + Try again; t
   const posts: string[] = [];
   page.on("request", (r) => { if (r.method() === "POST" && r.url().endsWith("/contact")) posts.push(r.url()); });
   await page.goto(fast.url + "/");
+  await page.focus("#m"); // gap 1: an idle failure shows only once the visitor interacts
   await page.waitForFunction(() => { const g = document.querySelector("#contact toll-gate") as any; return g && g.shadowRoot.querySelector('[role="alert"]') && !g.shadowRoot.querySelector('[role="alert"]').hidden; }, null, { timeout: 8000 });
   const s = (await gateState(page, "#contact toll-gate"))!;
   assert.equal(s.alert, "Couldn't check this form.Try again");
@@ -265,8 +268,156 @@ test("state 8: issuer unreachable shows Couldn't check this form. + Try again; t
 test("8s cap (owner setting): a solve that runs past the cap switches to checkbox mode", async () => {
   const { page, ctx } = await newPage();
   await fixture(page, slow.url, `<form method="post" action="/contact" data-toll="write"><input name="m"><button type="submit">Send</button></form>`, 'data-max-solve-ms="700"');
+  await page.focus('input[name="m"]'); // gap 1: the checkbox shows once the visitor interacts
   await page.getByRole("button", { name: "Verify before sending" }).waitFor({ timeout: 5000 });
   await ctx.close();
+});
+
+// ---- Gap 1: an idle solve changes nothing the visitor sees until they interact with the form -----
+// Every frame, log what each <toll-gate> draws (host hidden state and box, and which of the status,
+// alert and checkbox rows show, with their text; none of them while the host is hidden). A new entry is written only when that changes.
+async function watchGates(page: Page) {
+  await page.addInitScript(() => {
+    const w = window as any;
+    w.__gateLog = [];
+    let last = "";
+    const tick = () => {
+      const gates = Array.from(document.querySelectorAll("toll-gate")) as any[];
+      if (gates.length) {
+        const sig = JSON.stringify(gates.map((g) => {
+          const r = g.shadowRoot as ShadowRoot | null;
+          // A hidden host draws none of its rows, whatever their own hidden flags say.
+          const vis = (el: Element | null | undefined) => !g.hidden && !!el && !(el as HTMLElement).hidden;
+          const s = r?.querySelector('[role="status"]'), a = r?.querySelector('[role="alert"]'), b = r?.querySelector("button.btn");
+          const box = g.getBoundingClientRect();
+          return { hidden: g.hidden, w: box.width, h: box.height, status: vis(s) ? s!.textContent : null, alert: vis(a) ? a!.textContent : null, button: vis(b) ? b!.textContent : null };
+        }));
+        if (sig !== last) { last = sig; w.__gateLog.push({ t: performance.now(), sig }); }
+      }
+      requestAnimationFrame(tick);
+    };
+    requestAnimationFrame(tick);
+  });
+}
+const gateLog = (page: Page) => page.evaluate(() => (window as any).__gateLog as { t: number; sig: string }[]);
+/** Focus a field and return the page time of that first interaction. */
+const focusAt = (page: Page, sel: string) => page.evaluate((s) => { const t = performance.now(); (document.querySelector(s) as HTMLElement).focus(); return t; }, sel);
+const FORM = `<form method="post" action="/contact" data-toll="write"><input name="m"><button type="submit">Send</button></form>`;
+const NOTHING = JSON.stringify([{ hidden: true, w: 0, h: 0, status: null, alert: null, button: null }]);
+
+test("acceptance gap 1: an idle solve that finishes leaves the widget exactly as it was on load; the first interaction draws nothing and Submit posts with the ready pass", async () => {
+  // Slow policy, so the solve runs well past 500ms: the widget never changes; after the first
+  // interaction there is nothing to show (state 1) and Submit posts with the idle pass.
+  {
+    const { page, ctx, errors } = await newPage();
+    await watchGates(page);
+    let challenges = 0;
+    page.on("request", (r) => { if (r.url().includes("/v1/challenge")) challenges++; });
+    const redeemed = page.waitForResponse((r) => r.url().includes("/v1/redeem"), { timeout: 20000 });
+    await fixture(page, slow.url, FORM);
+    assert.equal((await redeemed).status(), 200);
+    await page.waitForTimeout(700); // past any 500ms + 400ms window measured from the solve
+    const before = await gateLog(page);
+    assert.equal(before.length, 1, "no change before the first interaction: " + JSON.stringify(before));
+    assert.equal(before[0].sig, NOTHING, "on load: hidden, zero size, nothing drawn");
+    const tI = await focusAt(page, 'input[name="m"]');
+    await page.waitForTimeout(1200);
+    const afterLog = (await gateLog(page)).filter((e) => e.t >= tI);
+    assert.deepEqual(afterLog, [], "solve finished silently: the interaction draws nothing (state 1)");
+    await Promise.all([page.waitForURL(/sent=contact/, { timeout: 10000 }), page.click("button[type=submit]")]);
+    assert.equal(challenges, 1);
+    assert.deepEqual(errors, []);
+    await ctx.close();
+  }
+});
+
+test("acceptance gap 1: an idle solve that hits the cap stops the worker and shows nothing; the checkbox appears on the first interaction and works", async () => {
+  // Short owner cap: still exactly as on load after the cap, then the checkbox on focus, and it works when pressed.
+  {
+    const { page, ctx, errors } = await newPage();
+    await watchGates(page);
+    let challenges = 0, redeems = 0;
+    page.on("request", (r) => { if (r.url().includes("/v1/challenge")) challenges++; if (r.url().includes("/v1/redeem")) redeems++; });
+    await fixture(page, slow.url, FORM, 'data-max-solve-ms="700"');
+    await page.waitForTimeout(2500); // well past the 700ms cap
+    const before = await gateLog(page);
+    assert.equal(before.length, 1, "no change before the first interaction: " + JSON.stringify(before));
+    assert.equal(before[0].sig, NOTHING);
+    assert.equal(challenges, 1);
+    assert.equal(redeems, 0, "the worker stopped at the cap");
+    assert.equal(page.workers().length, 0, "no solver worker is left running after the cap");
+    await focusAt(page, 'input[name="m"]');
+    const box = page.getByRole("button", { name: "Verify before sending" });
+    await box.waitFor({ timeout: 2000 });
+    assert.deepEqual((await gateState(page))!, { hidden: false, status: null, alert: null, button: { text: "Verify before sending", busy: null, disabled: null } });
+    assert.equal(challenges, 1, "focus alone starts no new work in checkbox mode");
+    await box.click();
+    await page.waitForFunction(() => (document.querySelector("toll-gate") as any).shadowRoot.querySelector("button.btn").textContent === "Verified", null, { timeout: 20000 });
+    assert.equal(challenges, 2);
+    assert.deepEqual(errors, []);
+    await ctx.close();
+  }
+});
+
+test("gap 1: an idle challenge failure shows nothing until focus, then shows the error; the write stays blocked", async () => {
+  const { page, ctx } = await newPage();
+  await watchGates(page);
+  let challenges = 0;
+  const posts: string[] = [];
+  page.on("request", (r) => { if (r.url().includes("/v1/challenge")) challenges++; if (r.method() === "POST" && r.url().endsWith("/contact")) posts.push(r.url()); });
+  await page.route("**/v1/challenge*", (r) => r.abort());
+  const failed = page.waitForEvent("requestfailed", { predicate: (r) => r.url().includes("/v1/challenge"), timeout: 8000 });
+  await fixture(page, fast.url, FORM);
+  await failed;
+  await page.waitForTimeout(1000);
+  const log = await gateLog(page);
+  assert.equal(log.length, 1, JSON.stringify(log));
+  assert.equal(log[0].sig, NOTHING);
+  await page.focus('input[name="m"]');
+  await page.waitForFunction(() => { const g = document.querySelector("toll-gate") as any; return !g.hidden && !g.shadowRoot.querySelector('[role="alert"]').hidden; }, null, { timeout: 2000 });
+  assert.deepEqual((await gateState(page))!, { hidden: false, status: null, alert: "Couldn't check this form.Try again", button: null });
+  await page.waitForTimeout(300);
+  assert.equal(challenges, 1, "focus shows the held failure; it does not start another check");
+  await page.click("button[type=submit]");
+  await page.waitForTimeout(700);
+  assert.deepEqual(posts, [], "no POST while checks fail (fail closed)");
+  await ctx.close();
+});
+
+test("gap 1: an interaction in the middle of an idle solve shows Checking… no earlier than 480ms after the interaction, then Verified after at least 400ms", async () => {
+  const { page, ctx } = await newPage();
+  await watchGates(page);
+  const started = page.waitForRequest((r) => r.url().includes("/v1/challenge"), { timeout: 8000 });
+  await fixture(page, slow.url, FORM);
+  await started;
+  await page.waitForTimeout(1000); // the old timing would already show Checking… (500ms after solve start)
+  const tI = await focusAt(page, 'input[name="m"]');
+  await page.waitForFunction(() => (document.querySelector("toll-gate") as any).shadowRoot.querySelector('[role="status"]').textContent === "Verified", null, { timeout: 20000 });
+  const log = await gateLog(page);
+  assert.ok(log.filter((e) => e.t < tI).every((e) => e.sig === NOTHING), "nothing drawn before the interaction: " + JSON.stringify(log));
+  const checking = log.find((e) => e.sig.includes('"status":"Checking…"'));
+  const verified = log.find((e) => e.sig.includes('"status":"Verified"'));
+  assert.ok(checking && verified, JSON.stringify(log));
+  assert.ok(checking!.t - tI >= 480, `Checking… shown ${Math.round(checking!.t - tI)}ms after the interaction`);
+  assert.ok(verified!.t - checking!.t >= 390, "Checking… stays up at least 400ms before Verified");
+  await ctx.close();
+});
+
+test("gap 1: challenge fetch count is unchanged: exactly 1 per page for the demo forms page", async () => {
+  for (const [demo, label] of [[fast, "default"], [slow, "slow"]] as const) {
+    const { page, ctx } = await newPage();
+    let challenges = 0;
+    page.on("request", (r) => { if (r.url().includes("/v1/challenge")) challenges++; });
+    await page.goto(demo.url + "/");
+    // Interact with every form, early (during the idle solve on the slow policy).
+    await page.focus("#m");
+    await page.focus("#cmt");
+    await page.focus("#q");
+    await page.waitForResponse((r) => r.url().includes("/v1/redeem"), { timeout: 20000 });
+    await page.waitForTimeout(1500);
+    assert.equal(challenges, 1, label);
+    await ctx.close();
+  }
 });
 
 // Designer bug: `.btn { display: inline-flex }` beat the UA [hidden] rule, so the hidden checkbox
@@ -315,6 +466,7 @@ test("hidden widget parts take no space in any state: Checking…, Verified, err
     const { page, ctx } = await newPage();
     await sampleHidden(page);
     await fixture(page, slow.url, `<form method="post" action="/contact" data-toll="write"><input name="m"><button type="submit">Send</button></form>`);
+    await page.focus('input[name="m"]'); // gap 1: nothing shows before the visitor interacts
     await page.waitForFunction(() => { const g = document.querySelector("toll-gate") as any; return g && !g.hidden && g.shadowRoot.querySelector('[role="status"]').textContent === "Checking…"; }, null, { timeout: 8000 });
     assert.deepEqual(await btnBox(page), { hidden: true, w: 0, h: 0, display: "none" }, "during Checking…");
     await page.waitForFunction(() => { const g = document.querySelector("toll-gate") as any; return g && !g.hidden && g.shadowRoot.querySelector('[role="status"]').textContent === "Verified"; }, null, { timeout: 15000 });
@@ -335,6 +487,7 @@ test("hidden widget parts take no space in any state: Checking…, Verified, err
     await sampleHidden(page);
     await page.route("**/v1/challenge*", (r) => r.abort());
     await fixture(page, fast.url, `<form method="post" action="/contact" data-toll="write"><input name="m"><button type="submit">Send</button></form>`);
+    await page.focus('input[name="m"]'); // gap 1: an idle failure shows only once the visitor interacts
     await page.waitForFunction(() => { const g = document.querySelector("toll-gate") as any; return g && !g.shadowRoot.querySelector('[role="alert"]').hidden; }, null, { timeout: 8000 });
     await page.waitForTimeout(300);
     assert.deepEqual(await btnBox(page), { hidden: true, w: 0, h: 0, display: "none" }, "error state");
@@ -424,10 +577,10 @@ test("vendor names never reach the visitor: rendered text, shadow markup and acc
 
   // 1. fast solve: nothing rendered
   { const { page, ctx } = await open(); await page.goto(tiny.url + "/"); await page.waitForResponse((r) => r.url().includes("/v1/redeem")); await scan(page, "1 invisible"); await ctx.close(); }
-  // 2-3. slow solve: Checking…, then Verified
-  { const { page, ctx } = await open(); await page.goto(slow.url + "/"); await shown(page, '[role="status"]'); await scan(page, "2 checking"); await page.waitForResponse((r) => r.url().includes("/v1/redeem"), { timeout: 20000 }); await page.waitForTimeout(50); await scan(page, "3 verified"); await ctx.close(); }
+  // 2-3. slow solve: Checking…, then Verified (gap 1: states 2, 3, 4 and 8 show after the first interaction)
+  { const { page, ctx } = await open(); await page.goto(slow.url + "/"); await page.focus("#m"); await shown(page, '[role="status"]'); await scan(page, "2 checking"); await page.waitForResponse((r) => r.url().includes("/v1/redeem"), { timeout: 20000 }); await page.waitForTimeout(50); await scan(page, "3 verified"); await ctx.close(); }
   // 4. reduced motion
-  { const { page, ctx } = await open({ reducedMotion: "reduce" }); await page.goto(slow.url + "/"); await shown(page, ".bar"); await scan(page, "4 reduced motion"); await ctx.close(); }
+  { const { page, ctx } = await open({ reducedMotion: "reduce" }); await page.goto(slow.url + "/"); await page.focus("#m"); await shown(page, ".bar"); await scan(page, "4 reduced motion"); await ctx.close(); }
   // 5-7. checkbox mode: idle, busy, verified
   { const { page, ctx } = await open(); await fixture(page, slow.url, `<form method="post" action="/contact" data-toll="write" data-toll-checkbox="true"><input name="m"><button type="submit">Send</button></form>`);
     await shown(page, "button.btn"); await scan(page, "5 checkbox");
@@ -437,7 +590,7 @@ test("vendor names never reach the visitor: rendered text, shadow markup and acc
     await page.waitForFunction(() => (document.querySelector("toll-gate") as any).shadowRoot.querySelector("button.btn").textContent === "Verified", null, { timeout: 20000 });
     await scan(page, "7 checkbox verified"); await ctx.close(); }
   // 8. issuer unreachable
-  { const { page, ctx } = await open(); await page.route("**/v1/challenge*", (r) => r.abort()); await page.goto(fast.url + "/"); await shown(page, '[role="alert"]'); await scan(page, "8 error"); await ctx.close(); }
+  { const { page, ctx } = await open(); await page.route("**/v1/challenge*", (r) => r.abort()); await page.goto(fast.url + "/"); await page.focus("#m"); await shown(page, '[role="alert"]'); await scan(page, "8 error"); await ctx.close(); }
   // 9. no JavaScript
   { const { page, ctx } = await open({ js: false }); await page.goto(fast.url + "/"); await scan(page, "9 no-js"); await ctx.close(); }
   // Hardened engine, while checking

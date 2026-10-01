@@ -171,6 +171,13 @@ class TollGate extends HTMLElement {
   private boxMode = false;
   private started = false;
   private runId = 0;
+  // Gap 1: an idle solve stays silent until the visitor first interacts with the form. A cap or a
+  // failure reached before that is held here and shown on the first interaction.
+  private engaged = false;
+  private held: "cap" | "error" | null = null;
+  private shown = false;
+  private showTimer: ReturnType<typeof setTimeout> | undefined;
+  private triggers: AbortController | null = null;
   onRetry: (() => void) | null = null;
 
   constructor() {
@@ -211,9 +218,38 @@ class TollGate extends HTMLElement {
     if (this.boxMode || !this.form) return;
     const go = () => this.start();
     const f = this.form;
-    for (const ev of ["focusin", "input", "pointerdown"]) f.addEventListener(ev, go, { once: true, passive: true });
+    const signal = (this.triggers = new AbortController()).signal;
+    for (const ev of ["focusin", "input", "pointerdown"]) f.addEventListener(ev, () => this.engage(), { once: true, passive: true, signal });
     const ric = (window as any).requestIdleCallback as ((cb: () => void, o?: object) => number) | undefined;
     ric ? ric(go, { timeout: 2000 }) : setTimeout(go, 1);
+  }
+
+  /** The visitor interacted with the form: show what an idle solve held back, else start as before. */
+  private engage() {
+    if (!this.engaged && this.reveal()) return;
+    this.start();
+  }
+
+  /** First interaction. Returns true when a held cap or failure was shown (no new solve then). */
+  private reveal(): boolean {
+    if (this.engaged) return false;
+    this.engaged = true;
+    const h = this.held;
+    this.held = null;
+    if (h) this.triggers?.abort(); // the rest of this interaction must not restart the solve
+    if (h === "cap") this.showBox("box-ready");
+    else if (h === "error") this.setView("error");
+    else if (this.job && !this.boxMode) this.armShow(this.runId); // still solving: 500ms from now
+    return !!h;
+  }
+
+  private armShow(id: number) {
+    clearTimeout(this.showTimer);
+    this.showTimer = setTimeout(() => {
+      if (id !== this.runId) return;
+      this.shown = true;
+      if (!this.boxMode) this.setView("checking");
+    }, SHOW_AFTER_MS);
   }
 
   /** Begin a solve unless a valid pass exists or one is already running. */
@@ -226,13 +262,11 @@ class TollGate extends HTMLElement {
 
   private run(fresh: boolean): Promise<Pass> {
     const id = ++this.runId;
+    this.held = null;
     this.setView(this.boxMode ? "box-working" : "none");
-    let shown = false;
-    const showTimer = setTimeout(() => {
-      if (id !== this.runId) return;
-      shown = true;
-      if (!this.boxMode) this.setView("checking");
-    }, SHOW_AFTER_MS);
+    this.shown = false;
+    clearTimeout(this.showTimer);
+    if (this.engaged || this.boxMode) this.armShow(id);
     // The cap applies to background checks only. Once the visitor presses "Verify before sending"
     // the check runs to the end (the issuer's max_units cap still bounds it).
     const capTimer = setTimeout(() => {
@@ -241,7 +275,8 @@ class TollGate extends HTMLElement {
       this.runId++;
       this.job = null;
       stopWorker();
-      clearTimeout(showTimer);
+      clearTimeout(this.showTimer);
+      if (!this.engaged) return void (this.held = "cap");
       this.boxMode = true;
       this.showBox("box-ready");
       this.form?.removeAttribute("aria-busy");
@@ -252,13 +287,13 @@ class TollGate extends HTMLElement {
     job.then(
       (p) => {
         if (id !== this.runId) return;
-        clearTimeout(showTimer);
+        clearTimeout(this.showTimer);
         clearTimeout(capTimer);
         this.job = null;
         this.pass = p;
         if (this.boxMode) {
           this.setView("box-verified");
-        } else if (shown) {
+        } else if (this.shown) {
           // Verified only if Checking… was shown; keep Checking… up at least 400ms (handoff §1.2).
           const wait = Math.max(0, MIN_VISIBLE_MS - (performance.now() - this.checkingShownAt));
           setTimeout(() => id === this.runId && this.setView("verified"), wait);
@@ -267,11 +302,12 @@ class TollGate extends HTMLElement {
       },
       () => {
         if (id !== this.runId) return;
-        clearTimeout(showTimer);
+        clearTimeout(this.showTimer);
         clearTimeout(capTimer);
         this.job = null;
         this.pending = null;
         this.form?.removeAttribute("aria-busy");
+        if (!this.engaged) return void (this.held = "error");
         this.setView("error");
       }
     );
@@ -303,6 +339,7 @@ class TollGate extends HTMLElement {
     }
     e.preventDefault();
     e.stopImmediatePropagation();
+    this.reveal(); // a submit attempt is an interaction too
     if (this.pending) return; // swallow repeat submits: exactly one resubmit
     this.pending = { submitter: (e.submitter as HTMLElement) ?? null };
     this.form!.setAttribute("aria-busy", "true");
