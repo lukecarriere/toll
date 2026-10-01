@@ -1,18 +1,16 @@
 <?php
-// Usage payouts (option A, docs/copy.md): WordPress takes no payments itself. Test mode keeps a
-// local test ledger with no money in it; Payment server reads the balance from, and sends
-// withdrawals to, a Toll issuer the owner runs (owner API: GET /v1/owner/balance,
-// POST /v1/owner/withdraw, docs/settlement.md §9). Nothing here runs unless the owner ticks
-// "Collect usage payouts", and no request leaves this site in test mode.
+// Usage payouts (option A, docs/copy.md): WordPress takes no payments itself. Test mode is
+// work-only (no balance, no withdrawals, agents do the background check); Payment server reads the
+// balance from, and sends withdrawals to, a Toll issuer the owner runs (owner API:
+// GET /v1/owner/balance, POST /v1/owner/withdraw, docs/settlement.md §9). Nothing here runs unless
+// the owner ticks "Collect usage payouts", and no request leaves this site in test mode.
 declare(strict_types=1);
 
 if (!defined('ABSPATH')) exit;
 
-use Toll\Settlement;
 
+// Platform fee shown until a payment server reports its own.
 const TOLL_GATE_TEST_FEE_BPS = 1000;
-// Fixed test rate for test mode only, not a market price (same as demo/toll.yaml).
-const TOLL_GATE_TEST_USD_RATE = 100000.0;
 const TOLL_GATE_SERVER_TIMEOUT_S = 3;
 // Agents wait at most this long for offers before they get the work check instead.
 const TOLL_GATE_OFFER_TIMEOUT_S = 1.5;
@@ -21,7 +19,7 @@ const TOLL_GATE_DOWN_CACHE_S = 30;
 
 /**
  * Current payouts view for the settings page.
- * state: 'off' | 'test' | 'noaddr' | 'down' | 'ok'
+ * state: 'off' | 'test' | 'noaddr' | 'down' | 'ok'. 'test' (work-only) shows like 'noaddr': no balance.
  * usd: available balance string or null (hide the amount); fee_bps; paused (payments paused).
  */
 function toll_gate_payouts_view(?array $s = null): array
@@ -29,11 +27,7 @@ function toll_gate_payouts_view(?array $s = null): array
     $s ??= toll_gate_settings();
     $base = ['state' => 'off', 'usd' => null, 'fee_bps' => TOLL_GATE_TEST_FEE_BPS, 'paused' => false, 'available_msat' => null];
     if (!$s['payouts']) return $base;
-    if ($s['connection'] !== 'server') {
-        $l = toll_gate_test_ledger();
-        $now = time();
-        return ['state' => 'test', 'usd' => Settlement::usdDisplay($l['available_msat'], TOLL_GATE_TEST_USD_RATE, $now, $now), 'fee_bps' => TOLL_GATE_TEST_FEE_BPS, 'paused' => false, 'available_msat' => $l['available_msat']];
-    }
+    if ($s['connection'] !== 'server') return ['state' => 'test'] + $base;
     if (trim((string) $s['server_url']) === '') return ['state' => 'noaddr'] + $base;
     $r = toll_gate_server_call('GET', '/v1/owner/balance');
     if ($r === null || $r['status'] !== 200) return ['state' => 'down'] + $base;
@@ -151,16 +145,6 @@ function toll_gate_relay_redeem(array $b): array
     // The site's own key was refused: the site is misconfigured, not the agent's payment.
     if ($r['status'] === 401 && $err === 'unauthorized') return [503, ['error' => 'unavailable']];
     return [in_array($r['status'], [400, 401, 402, 404, 409, 410], true) ? $r['status'] : 400, ['error' => $err]];
-}
-
-/** Test-mode ledger: integer msat, starts empty. Only test payments could ever credit it. */
-function toll_gate_test_ledger(): array
-{
-    $l = get_option('toll_gate_test_ledger', []);
-    $l = is_array($l) ? $l : [];
-    $net = (int) ($l['net_msat'] ?? 0);
-    $out = (int) ($l['withdrawn_msat'] ?? 0);
-    return ['net_msat' => $net, 'withdrawn_msat' => $out, 'available_msat' => $net - $out];
 }
 
 /**

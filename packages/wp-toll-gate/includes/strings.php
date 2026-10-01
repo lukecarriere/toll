@@ -54,7 +54,7 @@ function toll_gate_s(string $k): string
         'connection' => 'Payment connection',
         'conn_test' => 'Test mode (no real money)',
         'conn_server' => 'Payment server',
-        'test_help' => 'Test mode lets clients pay with test funds so you can try payouts safely.',
+        'test_help' => 'In test mode, no real money moves and clients do the background check instead of paying. To try payouts, choose Payment server and add the address of a server running in test mode.',
         'server_addr' => 'Payment server address',
         'server_addr_ph' => 'https://pay.example.com',
         'server_addr_help' => 'Payouts need a server that can take payments. Paste its address here. Protection keeps working on this site without it.',

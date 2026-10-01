@@ -76,6 +76,7 @@ Then install lines (npm / composer / wp plugin / wrangler), a ten-line how it wo
 - **Usage payouts.** Collect usage payouts · helper "High-volume clients can pay per request. You withdraw from the dashboard." (§18, verbatim) · Balance "$12.40" over "available to withdraw, after the {fee}% platform fee" · "To withdraw, open Advanced settlement below."
 - **Advanced settlement** (collapsed on every load) · note "Payment connection, fee and withdrawals"
   - Payment connection (Luke picked option A, Oct 1, 2026): Test mode (no real money) · Payment server. The old NWC and LND REST options are gone, because WordPress doesn't take payments itself.
+  - Test mode help (Oct 1, 2026; replaces "Test mode lets clients pay with test funds so you can try payouts safely."): "In test mode, no real money moves and clients do the background check instead of paying. To try payouts, choose Payment server and add the address of a server running in test mode." With payouts ticked, the Balance row shows "Payouts start once a payment server address is added." and Withdraw is disabled.
   - Payment server address: placeholder "https://pay.example.com" · help "Payouts need a server that can take payments. Paste its address here. Protection keeps working on this site without it."
   - Payment server key help: "Stored on this server only. Never sent to visitors' browsers."
   - Ticked with no address: "Payouts start once a payment server address is added."

@@ -1,5 +1,5 @@
-// Settings → Toll: live show/hide for the payouts rows (before saving), Withdraw disabled while
-// there is no address or the payment server is down, and Show/Hide for the secret.
+// Settings → Toll: live show/hide for the payouts rows (before saving), Withdraw disabled in Test
+// mode, while there is no address, or while the payment server is down, and Show/Hide for the secret.
 (function () {
   var root = document.getElementById('toll-gate-settings');
   if (!root) return;
@@ -14,7 +14,7 @@
     root.classList.toggle('down', wasDown && pay.checked && srv && !!psa.value.trim());
     root.classList.toggle('payouts', pay.checked);
     root.classList.toggle('server', srv);
-    root.classList.toggle('noaddr', srv && !psa.value.trim());
+    root.classList.toggle('noaddr', !srv || !psa.value.trim()); // Test mode is work-only: no balance
     var off = root.classList.contains('noaddr') || root.classList.contains('down');
     inv.disabled = off;
     wd.disabled = off;

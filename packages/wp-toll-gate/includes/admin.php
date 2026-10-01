@@ -95,7 +95,8 @@ function toll_gate_render_settings(): void
     $p = toll_gate_payouts_view($s);
     $c = toll_gate_counters_today();
     $server = $s['connection'] === 'server';
-    $noaddr = $server && trim((string) $s['server_url']) === '';
+    // Test mode is work-only: like Payment server with no address, it has no balance to show.
+    $noaddr = !$server || trim((string) $s['server_url']) === '';
     $down = $p['state'] === 'down';
     $classes = array_filter(['toll-root', $s['payouts'] ? 'payouts' : '', $server ? 'server' : '', $noaddr ? 'noaddr' : '', $down ? 'down' : '']);
     $fee = Settlement::feePercent((int) $p['fee_bps']);

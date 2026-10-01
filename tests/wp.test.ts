@@ -18,6 +18,8 @@ const DEMO = process.env.TOLL_DEMO_URL ?? "http://127.0.0.1:8787";
 const DEMO_KEY_FILE = new URL("../demo/.owner-key", import.meta.url);
 const DEAD = "http://127.0.0.1:8799"; // nothing listens here: the "server down" state
 const RENDERS = process.env.TOLL_RENDERS;
+// docs/copy.md, Test mode help (PM, Oct 1, 2026).
+const TEST_HELP = "In test mode, no real money moves and clients do the background check instead of paying. To try payouts, choose Payment server and add the address of a server running in test mode.";
 const COUNTERS = ["pass_accept", "pass_reject", "pass_absent", "turned_away", "offer_shown", "paid", "work_after_402"];
 
 async function up(url: string) {
@@ -282,23 +284,38 @@ test("settings default: payouts off, no Balance row, Advanced collapsed, Test mo
   await shot(A, "wp-settings-default");
 });
 
-test("settings test mode: Balance $0.00 with the fee line, never the no-address warning; address and key rows hidden; withdraw checks the balance", { skip }, async () => {
+test("settings test mode (work-only, like no address): the Balance row holds the no-address warning instead of a balance; Withdraw disabled; address and key rows hidden; test help from docs/copy.md", { skip }, async () => {
   await setSettings({ payouts: true, connection: "test", url: "" });
   await A.click("details.toll-adv > summary");
-  assert.equal(await visible(A, "tr.needs-noaddr"), false);
-  assert.equal(await A.locator(".toll-bal.not-down strong").innerText(), "$0.00");
-  assert.equal(await A.locator(".toll-bal.not-down span").innerText(), "available to withdraw, after the 10% platform fee");
-  assert.ok(await visible(A, "text=To withdraw, open Advanced settlement below."));
-  assert.ok(await visible(A, "text=Test mode lets clients pay with test funds so you can try payouts safely."));
+  const warn = A.locator("tr.needs-noaddr .notice.notice-warning.inline");
+  assert.ok(await warn.isVisible());
+  assert.equal(await warn.innerText(), "Payouts start once a payment server address is added.");
+  assert.equal(await visible(A, "tr.has-addr"), false, "no balance shown that the plugin can't back up");
+  assert.equal(await visible(A, ".toll-bal"), false);
+  assert.equal(await visible(A, "text=To withdraw, open Advanced settlement below."), false);
+  assert.ok(readFileSync(new URL("../docs/copy.md", import.meta.url), "utf8").includes(`"${TEST_HELP}"`), "same words as docs/copy.md");
+  assert.ok(await visible(A, "text=" + TEST_HELP));
+  assert.equal(await visible(A, "text=Test mode lets clients pay with test funds"), false, "the old line is gone");
   assert.equal(await visible(A, "#toll-server-url"), false);
   assert.equal(await visible(A, "#toll-server-key"), false);
-  assert.equal(await A.locator("#toll-invoice").getAttribute("placeholder"), "Paste a payout invoice for up to $0.00");
-  assert.equal(await A.isEnabled("#toll-withdraw"), true);
+  assert.equal(await A.isDisabled("#toll-withdraw"), true);
+  assert.equal(await A.isDisabled("#toll-invoice"), true);
+  assert.equal(await A.locator("#toll-invoice").getAttribute("placeholder"), null, "no amount the plugin can't back up");
+  assert.ok(await visible(A, "text=10% · recorded on each payment"));
   await shot(A, "wp-settings-test-mode");
-  // Withdrawals go only through a payment server: in Test mode any invoice is refused unread.
-  await A.fill("#toll-invoice", "lnstub11000m1" + "a".repeat(64) + "b".repeat(16));
+  // A forged withdraw post in Test mode is refused unread: withdrawals go only through a payment server.
+  await A.evaluate(() => { for (const id of ["toll-invoice", "toll-withdraw"]) (document.getElementById(id) as HTMLInputElement).disabled = false; });
+  await A.fill("#toll-invoice", "anything");
   await A.click("#toll-withdraw");
   await A.getByText("That invoice couldn't be paid. Check the amount and try again.").waitFor();
+  // Switching to Payment server with an address clears the warning before saving; back to Test mode brings it back.
+  await A.click("details.toll-adv > summary");
+  await A.selectOption("#toll-connection", "server");
+  await A.fill("#toll-server-url", "https://pay.example.com");
+  assert.equal(await warn.isVisible(), false);
+  await A.selectOption("#toll-connection", "test");
+  assert.equal(await warn.isVisible(), true);
+  assert.equal(await A.isDisabled("#toll-withdraw"), true);
 });
 
 test("settings Payment server, no address: inline warning in the Balance row, Withdraw disabled; typing an address clears it before saving", { skip }, async () => {
@@ -313,15 +330,15 @@ test("settings Payment server, no address: inline warning in the Balance row, Wi
   assert.equal(await A.locator("#toll-server-url").getAttribute("placeholder"), "https://pay.example.com");
   assert.ok(await visible(A, "text=Payouts need a server that can take payments. Paste its address here. Protection keeps working on this site without it."));
   assert.ok(await visible(A, "text=Stored on this server only. Never sent to visitors' browsers."));
-  assert.equal(await visible(A, "text=Test mode lets clients pay with test funds so you can try payouts safely."), false);
+  assert.equal(await visible(A, "text=" + TEST_HELP), false, "the test help shows only in Test mode");
   await shot(A, "wp-settings-no-address");
   await A.fill("#toll-server-url", "https://pay.example.com");
   assert.equal(await warn.isVisible(), false);
   assert.equal(await A.isEnabled("#toll-withdraw"), true);
-  // Back to Test mode: the warning never shows there.
+  // Back to Test mode: still no balance, so the warning shows again (Test mode is work-only).
   await A.fill("#toll-server-url", "");
   await A.selectOption("#toll-connection", "test");
-  assert.equal(await warn.isVisible(), false);
+  assert.equal(await warn.isVisible(), true);
 });
 
 test("settings Payment server down: notice-warning at the top, '—' over 'Balance will show again shortly', Withdraw disabled", { skip }, async () => {
