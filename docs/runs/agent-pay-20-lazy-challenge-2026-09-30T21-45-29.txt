@@ -1,0 +1,128 @@
+# agent-pay: 20 paid writes against the restarted demo (local test backend, no real money)
+# started: 2026-09-30 21:45:20 CDT (America/Chicago)
+# repo: 51f793f (lazy work challenge: the 402 links challenge_url, nothing minted unless fetched) · demo: http://localhost:8787, payouts toggle ticked
+# command: npm run agent-pay -- --writes 20
+# Includes one replay attempt and one spent-pass reuse. Server lines carry UTC timestamps (Z).
+
+## 1. agent-pay output
+write 1: 200 via paid · 10000 msat · $0.0100 · rail=settle cls=write · pass 1 use / 60s · pay 9.1 ms · redeem 5.5 ms · total 28.6 ms
+write 2: 200 via paid · 10000 msat · $0.0100 · rail=settle cls=write · pass 1 use / 60s · pay 2.9 ms · redeem 3.1 ms · total 12.4 ms
+write 3: 200 via paid · 10000 msat · $0.0100 · rail=settle cls=write · pass 1 use / 60s · pay 2.2 ms · redeem 2.4 ms · total 10.3 ms
+write 4: 200 via paid · 10000 msat · $0.0100 · rail=settle cls=write · pass 1 use / 60s · pay 1.7 ms · redeem 2.1 ms · total 7.2 ms
+write 5: 200 via paid · 10000 msat · $0.0100 · rail=settle cls=write · pass 1 use / 60s · pay 1.3 ms · redeem 1.9 ms · total 7.1 ms
+write 6: 200 via paid · 10000 msat · $0.0100 · rail=settle cls=write · pass 1 use / 60s · pay 1.4 ms · redeem 1.6 ms · total 6.6 ms
+write 7: 200 via paid · 10000 msat · $0.0100 · rail=settle cls=write · pass 1 use / 60s · pay 1.3 ms · redeem 1.9 ms · total 6.8 ms
+write 8: 200 via paid · 10000 msat · $0.0100 · rail=settle cls=write · pass 1 use / 60s · pay 1.2 ms · redeem 1.9 ms · total 6.5 ms
+write 9: 200 via paid · 10000 msat · $0.0100 · rail=settle cls=write · pass 1 use / 60s · pay 1.3 ms · redeem 1.8 ms · total 6.3 ms
+write 10: 200 via paid · 10000 msat · $0.0100 · rail=settle cls=write · pass 1 use / 60s · pay 1.4 ms · redeem 1.8 ms · total 6.9 ms
+write 11: 200 via paid · 10000 msat · $0.0100 · rail=settle cls=write · pass 1 use / 60s · pay 1.2 ms · redeem 2 ms · total 7.2 ms
+write 12: 200 via paid · 10000 msat · $0.0100 · rail=settle cls=write · pass 1 use / 60s · pay 1.6 ms · redeem 2 ms · total 6.9 ms
+write 13: 200 via paid · 10000 msat · $0.0100 · rail=settle cls=write · pass 1 use / 60s · pay 1.4 ms · redeem 2.1 ms · total 6.8 ms
+write 14: 200 via paid · 10000 msat · $0.0100 · rail=settle cls=write · pass 1 use / 60s · pay 1.3 ms · redeem 1.8 ms · total 6.4 ms
+write 15: 200 via paid · 10000 msat · $0.0100 · rail=settle cls=write · pass 1 use / 60s · pay 1.3 ms · redeem 2 ms · total 6.4 ms
+write 16: 200 via paid · 10000 msat · $0.0100 · rail=settle cls=write · pass 1 use / 60s · pay 1.4 ms · redeem 1.7 ms · total 7.5 ms
+write 17: 200 via paid · 10000 msat · $0.0100 · rail=settle cls=write · pass 1 use / 60s · pay 2.5 ms · redeem 2.2 ms · total 8.2 ms
+write 18: 200 via paid · 10000 msat · $0.0100 · rail=settle cls=write · pass 1 use / 60s · pay 1.2 ms · redeem 1.5 ms · total 6.1 ms
+write 19: 200 via paid · 10000 msat · $0.0100 · rail=settle cls=write · pass 1 use / 60s · pay 1.2 ms · redeem 1.4 ms · total 5.3 ms
+write 20: 200 via paid · 10000 msat · $0.0100 · rail=settle cls=write · pass 1 use / 60s · pay 1.5 ms · redeem 1.4 ms · total 5.5 ms
+replayed payment (offer off_3b5ad050053d6e782dd2b1b4): 401 replay -> rejected
+spent pass reused: 402 -> refused
+ledger (this run): gross 200000 msat · fee held 20000 msat · net 180000 msat
+ledger (site total): gross 200000 msat · fee held 20000 msat · available 180000 msat · USD collected $0.20 · available $0.18
+server (this run): offer_shown 21 · paid 20 · challenges minted 0 · settled_msat 200000 · passes accepted: work 0, settle 20
+20/20 writes accepted (20 paid, 0 work) · replay rejected · spent pass refused -> OK
+
+## 2. server event counts during the run
+challenge_minted: 0
+offer_shown: 21
+pass_absent: 20
+pass_reject: 1
+pass_accept: 20
+redeem_ok: 20
+redeem_fail: 1
+pass_reject reasons: 1 reason:exhausted
+
+## 3. server event lines
+{"ts":"2026-10-01T02:45:20.633Z","event":"offer_shown","cls":"write","amount_msat":10000,"offers":1}
+{"ts":"2026-10-01T02:45:20.633Z","event":"pass_absent","action":"write","status":402}
+{"ts":"2026-10-01T02:45:20.648Z","event":"redeem_ok","rail":"settle","cls":"write","took_ms":null,"ua_class":null,"client":"agent","verify_ms":1.94}
+{"ts":"2026-10-01T02:45:20.651Z","event":"pass_accept","rail":"settle","cls":"write","action":"write","remaining":0}
+{"ts":"2026-10-01T02:45:20.655Z","event":"offer_shown","cls":"write","amount_msat":10000,"offers":1}
+{"ts":"2026-10-01T02:45:20.655Z","event":"pass_absent","action":"write","status":402}
+{"ts":"2026-10-01T02:45:20.661Z","event":"redeem_ok","rail":"settle","cls":"write","took_ms":null,"ua_class":null,"client":"agent","verify_ms":0.56}
+{"ts":"2026-10-01T02:45:20.664Z","event":"pass_accept","rail":"settle","cls":"write","action":"write","remaining":0}
+{"ts":"2026-10-01T02:45:20.668Z","event":"offer_shown","cls":"write","amount_msat":10000,"offers":1}
+{"ts":"2026-10-01T02:45:20.668Z","event":"pass_absent","action":"write","status":402}
+{"ts":"2026-10-01T02:45:20.673Z","event":"redeem_ok","rail":"settle","cls":"write","took_ms":null,"ua_class":null,"client":"agent","verify_ms":0.56}
+{"ts":"2026-10-01T02:45:20.675Z","event":"pass_accept","rail":"settle","cls":"write","action":"write","remaining":0}
+{"ts":"2026-10-01T02:45:20.677Z","event":"offer_shown","cls":"write","amount_msat":10000,"offers":1}
+{"ts":"2026-10-01T02:45:20.677Z","event":"pass_absent","action":"write","status":402}
+{"ts":"2026-10-01T02:45:20.681Z","event":"redeem_ok","rail":"settle","cls":"write","took_ms":null,"ua_class":null,"client":"agent","verify_ms":0.42}
+{"ts":"2026-10-01T02:45:20.682Z","event":"pass_accept","rail":"settle","cls":"write","action":"write","remaining":0}
+{"ts":"2026-10-01T02:45:20.684Z","event":"offer_shown","cls":"write","amount_msat":10000,"offers":1}
+{"ts":"2026-10-01T02:45:20.684Z","event":"pass_absent","action":"write","status":402}
+{"ts":"2026-10-01T02:45:20.688Z","event":"redeem_ok","rail":"settle","cls":"write","took_ms":null,"ua_class":null,"client":"agent","verify_ms":0.53}
+{"ts":"2026-10-01T02:45:20.690Z","event":"pass_accept","rail":"settle","cls":"write","action":"write","remaining":0}
+{"ts":"2026-10-01T02:45:20.692Z","event":"offer_shown","cls":"write","amount_msat":10000,"offers":1}
+{"ts":"2026-10-01T02:45:20.692Z","event":"pass_absent","action":"write","status":402}
+{"ts":"2026-10-01T02:45:20.695Z","event":"redeem_ok","rail":"settle","cls":"write","took_ms":null,"ua_class":null,"client":"agent","verify_ms":0.4}
+{"ts":"2026-10-01T02:45:20.696Z","event":"pass_accept","rail":"settle","cls":"write","action":"write","remaining":0}
+{"ts":"2026-10-01T02:45:20.699Z","event":"offer_shown","cls":"write","amount_msat":10000,"offers":1}
+{"ts":"2026-10-01T02:45:20.699Z","event":"pass_absent","action":"write","status":402}
+{"ts":"2026-10-01T02:45:20.702Z","event":"redeem_ok","rail":"settle","cls":"write","took_ms":null,"ua_class":null,"client":"agent","verify_ms":0.53}
+{"ts":"2026-10-01T02:45:20.703Z","event":"pass_accept","rail":"settle","cls":"write","action":"write","remaining":0}
+{"ts":"2026-10-01T02:45:20.705Z","event":"offer_shown","cls":"write","amount_msat":10000,"offers":1}
+{"ts":"2026-10-01T02:45:20.705Z","event":"pass_absent","action":"write","status":402}
+{"ts":"2026-10-01T02:45:20.708Z","event":"redeem_ok","rail":"settle","cls":"write","took_ms":null,"ua_class":null,"client":"agent","verify_ms":0.47}
+{"ts":"2026-10-01T02:45:20.710Z","event":"pass_accept","rail":"settle","cls":"write","action":"write","remaining":0}
+{"ts":"2026-10-01T02:45:20.712Z","event":"offer_shown","cls":"write","amount_msat":10000,"offers":1}
+{"ts":"2026-10-01T02:45:20.712Z","event":"pass_absent","action":"write","status":402}
+{"ts":"2026-10-01T02:45:20.715Z","event":"redeem_ok","rail":"settle","cls":"write","took_ms":null,"ua_class":null,"client":"agent","verify_ms":0.54}
+{"ts":"2026-10-01T02:45:20.717Z","event":"pass_accept","rail":"settle","cls":"write","action":"write","remaining":0}
+{"ts":"2026-10-01T02:45:20.718Z","event":"offer_shown","cls":"write","amount_msat":10000,"offers":1}
+{"ts":"2026-10-01T02:45:20.718Z","event":"pass_absent","action":"write","status":402}
+{"ts":"2026-10-01T02:45:20.721Z","event":"redeem_ok","rail":"settle","cls":"write","took_ms":null,"ua_class":null,"client":"agent","verify_ms":0.43}
+{"ts":"2026-10-01T02:45:20.723Z","event":"pass_accept","rail":"settle","cls":"write","action":"write","remaining":0}
+{"ts":"2026-10-01T02:45:20.726Z","event":"offer_shown","cls":"write","amount_msat":10000,"offers":1}
+{"ts":"2026-10-01T02:45:20.726Z","event":"pass_absent","action":"write","status":402}
+{"ts":"2026-10-01T02:45:20.729Z","event":"redeem_ok","rail":"settle","cls":"write","took_ms":null,"ua_class":null,"client":"agent","verify_ms":0.48}
+{"ts":"2026-10-01T02:45:20.731Z","event":"pass_accept","rail":"settle","cls":"write","action":"write","remaining":0}
+{"ts":"2026-10-01T02:45:20.733Z","event":"offer_shown","cls":"write","amount_msat":10000,"offers":1}
+{"ts":"2026-10-01T02:45:20.733Z","event":"pass_absent","action":"write","status":402}
+{"ts":"2026-10-01T02:45:20.736Z","event":"redeem_ok","rail":"settle","cls":"write","took_ms":null,"ua_class":null,"client":"agent","verify_ms":0.44}
+{"ts":"2026-10-01T02:45:20.738Z","event":"pass_accept","rail":"settle","cls":"write","action":"write","remaining":0}
+{"ts":"2026-10-01T02:45:20.740Z","event":"offer_shown","cls":"write","amount_msat":10000,"offers":1}
+{"ts":"2026-10-01T02:45:20.740Z","event":"pass_absent","action":"write","status":402}
+{"ts":"2026-10-01T02:45:20.743Z","event":"redeem_ok","rail":"settle","cls":"write","took_ms":null,"ua_class":null,"client":"agent","verify_ms":0.71}
+{"ts":"2026-10-01T02:45:20.745Z","event":"pass_accept","rail":"settle","cls":"write","action":"write","remaining":0}
+{"ts":"2026-10-01T02:45:20.747Z","event":"offer_shown","cls":"write","amount_msat":10000,"offers":1}
+{"ts":"2026-10-01T02:45:20.747Z","event":"pass_absent","action":"write","status":402}
+{"ts":"2026-10-01T02:45:20.750Z","event":"redeem_ok","rail":"settle","cls":"write","took_ms":null,"ua_class":null,"client":"agent","verify_ms":0.58}
+{"ts":"2026-10-01T02:45:20.751Z","event":"pass_accept","rail":"settle","cls":"write","action":"write","remaining":0}
+{"ts":"2026-10-01T02:45:20.753Z","event":"offer_shown","cls":"write","amount_msat":10000,"offers":1}
+{"ts":"2026-10-01T02:45:20.753Z","event":"pass_absent","action":"write","status":402}
+{"ts":"2026-10-01T02:45:20.757Z","event":"redeem_ok","rail":"settle","cls":"write","took_ms":null,"ua_class":null,"client":"agent","verify_ms":0.53}
+{"ts":"2026-10-01T02:45:20.758Z","event":"pass_accept","rail":"settle","cls":"write","action":"write","remaining":0}
+{"ts":"2026-10-01T02:45:20.760Z","event":"offer_shown","cls":"write","amount_msat":10000,"offers":1}
+{"ts":"2026-10-01T02:45:20.760Z","event":"pass_absent","action":"write","status":402}
+{"ts":"2026-10-01T02:45:20.763Z","event":"redeem_ok","rail":"settle","cls":"write","took_ms":null,"ua_class":null,"client":"agent","verify_ms":0.39}
+{"ts":"2026-10-01T02:45:20.765Z","event":"pass_accept","rail":"settle","cls":"write","action":"write","remaining":0}
+{"ts":"2026-10-01T02:45:20.768Z","event":"offer_shown","cls":"write","amount_msat":10000,"offers":1}
+{"ts":"2026-10-01T02:45:20.768Z","event":"pass_absent","action":"write","status":402}
+{"ts":"2026-10-01T02:45:20.772Z","event":"redeem_ok","rail":"settle","cls":"write","took_ms":null,"ua_class":null,"client":"agent","verify_ms":0.84}
+{"ts":"2026-10-01T02:45:20.774Z","event":"pass_accept","rail":"settle","cls":"write","action":"write","remaining":0}
+{"ts":"2026-10-01T02:45:20.776Z","event":"offer_shown","cls":"write","amount_msat":10000,"offers":1}
+{"ts":"2026-10-01T02:45:20.776Z","event":"pass_absent","action":"write","status":402}
+{"ts":"2026-10-01T02:45:20.779Z","event":"redeem_ok","rail":"settle","cls":"write","took_ms":null,"ua_class":null,"client":"agent","verify_ms":0.33}
+{"ts":"2026-10-01T02:45:20.780Z","event":"pass_accept","rail":"settle","cls":"write","action":"write","remaining":0}
+{"ts":"2026-10-01T02:45:20.782Z","event":"offer_shown","cls":"write","amount_msat":10000,"offers":1}
+{"ts":"2026-10-01T02:45:20.782Z","event":"pass_absent","action":"write","status":402}
+{"ts":"2026-10-01T02:45:20.784Z","event":"redeem_ok","rail":"settle","cls":"write","took_ms":null,"ua_class":null,"client":"agent","verify_ms":0.29}
+{"ts":"2026-10-01T02:45:20.786Z","event":"pass_accept","rail":"settle","cls":"write","action":"write","remaining":0}
+{"ts":"2026-10-01T02:45:20.787Z","event":"offer_shown","cls":"write","amount_msat":10000,"offers":1}
+{"ts":"2026-10-01T02:45:20.787Z","event":"pass_absent","action":"write","status":402}
+{"ts":"2026-10-01T02:45:20.790Z","event":"redeem_ok","rail":"settle","cls":"write","took_ms":null,"ua_class":null,"client":"agent","verify_ms":0.27}
+{"ts":"2026-10-01T02:45:20.791Z","event":"pass_accept","rail":"settle","cls":"write","action":"write","remaining":0}
+{"ts":"2026-10-01T02:45:20.793Z","event":"redeem_fail","reason":"replay","rail":"settle"}
+{"ts":"2026-10-01T02:45:20.794Z","event":"pass_reject","reason":"exhausted","action":"write"}
+{"ts":"2026-10-01T02:45:20.795Z","event":"offer_shown","cls":"write","amount_msat":10000,"offers":1}
