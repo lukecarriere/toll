@@ -167,8 +167,8 @@ function toll_gate_discovery_serve(): void
 {
     $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
     if ($method !== 'GET' && $method !== 'HEAD') return;
-    $path = (string) parse_url((string) ($_SERVER['REQUEST_URI'] ?? '/'), PHP_URL_PATH);
-    $home = rtrim((string) parse_url(home_url('/'), PHP_URL_PATH), '/');
+    $path = (string) wp_parse_url((string) ($_SERVER['REQUEST_URI'] ?? '/'), PHP_URL_PATH);
+    $home = rtrim((string) wp_parse_url(home_url('/'), PHP_URL_PATH), '/');
     if ($path === $home . '/.well-known/agents.json') {
         toll_gate_count('agents_json_fetch');
         $body = ['manifest' => home_url('/.well-known/toll.json')];

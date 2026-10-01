@@ -16,22 +16,22 @@ function toll_gate_init_gate(): void
         add_filter('preprocess_comment', 'toll_gate_check_comment', 1);
     }
     if ($f['login']) {
-        add_action('login_form', fn () => print(toll_gate_element('account')));
+        add_action('login_form', fn () => toll_gate_print_element('account'));
         // Before the password is checked (known user), and as a catch-all after the core checks.
         add_filter('wp_authenticate_user', 'toll_gate_check_login', 1, 1);
         add_filter('authenticate', 'toll_gate_check_login', 30, 1);
     }
     if ($f['register']) {
-        add_action('register_form', fn () => print(toll_gate_element('account')));
+        add_action('register_form', fn () => toll_gate_print_element('account'));
         add_filter('registration_errors', 'toll_gate_check_wp_error', 10, 1);
     }
     if ($f['lostpassword']) {
-        add_action('lostpassword_form', fn () => print(toll_gate_element('account')));
+        add_action('lostpassword_form', fn () => toll_gate_print_element('account'));
         add_action('lostpassword_post', 'toll_gate_check_wp_error', 10, 1);
     }
     if ($f['login'] || $f['register'] || $f['lostpassword']) add_action('login_enqueue_scripts', 'toll_gate_enqueue');
     if ($f['woo'] && toll_gate_woo_active()) {
-        add_action('woocommerce_review_order_before_submit', fn () => print(toll_gate_element('write')));
+        add_action('woocommerce_review_order_before_submit', fn () => toll_gate_print_element('write'));
         add_action('woocommerce_after_checkout_validation', 'toll_gate_check_woo', 10, 2);
     }
     if ($f['cf7'] && toll_gate_cf7_active()) {
@@ -63,6 +63,15 @@ function toll_gate_element(string $action): string
 {
     $box = toll_gate_settings()['visible_check'] ? ' data-toll-checkbox="true"' : '';
     return sprintf('<toll-gate action="%s"%s></toll-gate><noscript><p>%s</p></noscript>', esc_attr($action), $box, esc_html(toll_gate_s('no_js')));
+}
+
+/** The only markup toll_gate_element() makes, for printing it through wp_kses. */
+const TOLL_GATE_ELEMENT_HTML = ['toll-gate' => ['action' => true, 'data-toll-checkbox' => true], 'noscript' => [], 'p' => []];
+
+/** Prints the element in action hooks (login, registration, lost password, checkout). */
+function toll_gate_print_element(string $action): void
+{
+    echo wp_kses(toll_gate_element($action), TOLL_GATE_ELEMENT_HTML);
 }
 
 /**

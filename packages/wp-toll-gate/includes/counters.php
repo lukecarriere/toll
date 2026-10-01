@@ -56,7 +56,9 @@ function &toll_gate_counter_buffer(): array
 }
 
 /**
- * Writes the buffer in one statement and empties it. Returns the number of statements run (0 or 1).
+ * Writes the buffer in one statement and empties it. Returns the number of statements written: 1, or 0
+ * when there was nothing to write or the write failed. A failed write logs one line to the PHP error
+ * log and its counts are dropped (never retried, so a count is never added twice).
  * Each row is added to the stored value inside the database, so two requests flushing the same row
  * both land. toll_gate_counting_since is inserted alongside and kept if it already exists.
  */
@@ -78,8 +80,19 @@ function toll_gate_counters_flush(): int
     // $wpdb->prepare above; the table name is $wpdb->options. Counters are read with SQL too, never
     // through the options cache, so there is nothing cached to invalidate except notoptions below.
     // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.NotPrepared
-    $wpdb->query($sql);
+    $ok = $wpdb->query($sql);
+    $err = (string) $wpdb->last_error;
     $wpdb->suppress_errors(false);
+    if ($ok === false || $err !== '') {
+        // One line per failed flush, so an owner can find lost counts in the PHP error log. The SQLite
+        // driver reports errors as an HTML block (query, backtrace); keep only its SQLSTATE cause.
+        $msg = $err !== '' ? $err : 'query returned false';
+        if (preg_match('/SQLSTATE\[\w+\][^<\r\n]*/', $msg, $m)) $msg = $m[0];
+        $msg = mb_substr(trim((string) preg_replace('/\s+/', ' ', wp_strip_all_tags($msg))), 0, 300);
+        // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log
+        error_log('Toll: counter flush failed: ' . $msg);
+        return 0;
+    }
     // The row may have been cached as missing earlier in this request (or in a persistent cache).
     $no = wp_cache_get('notoptions', 'options');
     if (is_array($no) && isset($no[$since])) { unset($no[$since]); wp_cache_set('notoptions', $no, 'options'); }

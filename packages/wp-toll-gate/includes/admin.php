@@ -84,7 +84,9 @@ function toll_gate_handle_export(): void
     nocache_headers();
     header('Content-Type: text/csv; charset=utf-8');
     header('Content-Disposition: attachment; filename="toll-counters.csv"');
-    echo toll_gate_counters_csv(); // dates, integers, ISO times and fixed column names
+    // A CSV file download, not HTML: dates, integers, ISO times and fixed column names only, so there
+    // is nothing to escape and HTML escaping would be the wrong encoding for this file.
+    echo toll_gate_counters_csv(); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
     exit;
 }
 
@@ -104,7 +106,6 @@ function toll_gate_render_settings(): void
     $wd_off = $noaddr || $down;
     $notice = toll_gate_take_notice();
     $export = wp_nonce_url(admin_url('admin-post.php?action=toll_gate_export'), 'toll_gate_export');
-    $chk = fn ($on) => $on ? ' checked' : '';
     ?>
 <div class="wrap">
 <div class="<?php echo esc_attr(implode(' ', $classes)); ?>" id="toll-gate-settings">
@@ -129,21 +130,21 @@ function toll_gate_render_settings(): void
 <table class="form-table" role="presentation"><tbody>
 <tr><th scope="row"><?php echo esc_html(toll_gate_s('forms')); ?></th><td><fieldset><legend class="screen-reader-text"><?php echo esc_html(toll_gate_s('forms')); ?></legend>
 <?php foreach (['comments', 'login', 'register', 'lostpassword'] as $f) : ?>
-<label><input type="checkbox" name="toll_gate[forms][<?php echo esc_attr($f); ?>]" value="1"<?php echo $chk($s['forms'][$f]); ?>> <?php echo esc_html(toll_gate_s($f)); ?></label><br>
+<label><input type="checkbox" name="toll_gate[forms][<?php echo esc_attr($f); ?>]" value="1"<?php echo $s['forms'][$f] ? ' checked' : ''; ?>> <?php echo esc_html(toll_gate_s($f)); ?></label><br>
 <?php endforeach; ?>
 <?php if (toll_gate_woo_active()) : ?>
-<label><input type="checkbox" name="toll_gate[forms][woo]" value="1"<?php echo $chk($s['forms']['woo']); ?>> <?php echo esc_html(toll_gate_s('woo')); ?> <span class="toll-muted"><?php echo esc_html(toll_gate_s('woo_active')); ?></span></label><br>
+<label><input type="checkbox" name="toll_gate[forms][woo]" value="1"<?php echo $s['forms']['woo'] ? ' checked' : ''; ?>> <?php echo esc_html(toll_gate_s('woo')); ?> <span class="toll-muted"><?php echo esc_html(toll_gate_s('woo_active')); ?></span></label><br>
 <?php endif; ?>
 <?php if (toll_gate_cf7_active()) : ?>
-<label><input type="checkbox" name="toll_gate[forms][cf7]" value="1"<?php echo $chk($s['forms']['cf7']); ?>> <?php echo esc_html(toll_gate_s('cf7')); ?> <span class="toll-muted"><?php echo esc_html(toll_gate_s('cf7_active')); ?></span></label><br>
+<label><input type="checkbox" name="toll_gate[forms][cf7]" value="1"<?php echo $s['forms']['cf7'] ? ' checked' : ''; ?>> <?php echo esc_html(toll_gate_s('cf7')); ?> <span class="toll-muted"><?php echo esc_html(toll_gate_s('cf7_active')); ?></span></label><br>
 <?php endif; ?>
 <label><input type="checkbox" checked disabled> <?php echo wp_kses(toll_gate_s('any_form'), ['code' => []]); ?></label><br>
 <p class="description"><?php echo wp_kses(toll_gate_s('any_form_help'), ['code' => []]); ?></p>
 </fieldset></td></tr>
-<tr><th scope="row"><?php echo esc_html(toll_gate_s('visible_h')); ?></th><td><label><input type="checkbox" name="toll_gate[visible_check]" value="1"<?php echo $chk($s['visible_check']); ?>> <?php echo esc_html(toll_gate_s('visible_label')); ?></label>
+<tr><th scope="row"><?php echo esc_html(toll_gate_s('visible_h')); ?></th><td><label><input type="checkbox" name="toll_gate[visible_check]" value="1"<?php echo $s['visible_check'] ? ' checked' : ''; ?>> <?php echo esc_html(toll_gate_s('visible_label')); ?></label>
 <p class="description"><?php echo esc_html(toll_gate_s('visible_help')); ?></p></td></tr>
 <tr><th scope="row"><label for="toll-longest"><?php echo esc_html(toll_gate_s('longest_h')); ?></label></th><td><select id="toll-longest" name="toll_gate[longest_s]">
-<?php foreach ([4, 8, 12] as $n) : ?><option value="<?php echo $n; ?>"<?php selected($s['longest_s'], $n); ?>><?php echo esc_html(sprintf(toll_gate_s('seconds'), $n)); ?></option><?php endforeach; ?>
+<?php foreach ([4, 8, 12] as $n) : ?><option value="<?php echo (int) $n; ?>"<?php selected($s['longest_s'], $n); ?>><?php echo esc_html(sprintf(toll_gate_s('seconds'), $n)); ?></option><?php endforeach; ?>
 </select>
 <p class="description"><?php echo esc_html(toll_gate_s('longest_help')); ?></p></td></tr>
 </tbody></table>
@@ -158,7 +159,7 @@ function toll_gate_render_settings(): void
 
 <h2 class="title"><?php echo esc_html(toll_gate_s('payouts_h')); ?></h2>
 <table class="form-table" role="presentation"><tbody>
-<tr><th scope="row"><?php echo esc_html(toll_gate_s('payouts')); ?></th><td><label><input type="checkbox" class="pay-toggle" id="toll-payouts" name="toll_gate[payouts]" value="1"<?php echo $chk($s['payouts']); ?>> <?php echo esc_html(toll_gate_s('collect')); ?></label>
+<tr><th scope="row"><?php echo esc_html(toll_gate_s('payouts')); ?></th><td><label><input type="checkbox" class="pay-toggle" id="toll-payouts" name="toll_gate[payouts]" value="1"<?php echo $s['payouts'] ? ' checked' : ''; ?>> <?php echo esc_html(toll_gate_s('collect')); ?></label>
 <p class="description"><?php echo esc_html(toll_gate_s('collect_help')); ?></p></td></tr>
 <tr class="needs-payouts needs-noaddr"><th scope="row"><?php echo esc_html(toll_gate_s('balance')); ?></th><td><div class="notice notice-warning inline"><p><?php echo esc_html(toll_gate_s('no_addr')); ?></p></div></td></tr>
 <tr class="needs-payouts has-addr"><th scope="row"><?php echo esc_html(toll_gate_s('balance')); ?></th><td><?php if ($usd !== null) : ?><div class="toll-bal not-down"><strong><?php echo esc_html($usd); ?></strong><span><?php echo esc_html(Settlement::fillFee(toll_gate_s('balance_line'), (int) $p['fee_bps'])); ?></span></div><?php else : ?><div class="toll-bal not-down"><strong>—</strong><span><?php echo esc_html(toll_gate_s('balance_later')); ?></span></div><?php endif; ?><div class="toll-bal needs-down"><strong>—</strong><span><?php echo esc_html(toll_gate_s('balance_later')); ?></span></div>

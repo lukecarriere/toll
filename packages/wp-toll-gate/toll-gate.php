@@ -1,6 +1,6 @@
 <?php
 /**
- * Plugin Name: Toll
+ * Plugin Name: Toll for WordPress
  * Description: Toll keeps comment forms, logins, and write APIs quiet. Visitors read for free and post without solving anything. Floods take another road.
  * Version: 0.1.0
  * Requires at least: 6.5

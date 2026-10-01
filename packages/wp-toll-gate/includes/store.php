@@ -21,7 +21,7 @@ function toll_gate_first_use(string $id, int $exp): bool
     if ($ok === 1) return true;
     // A duplicate key is a replay; anything else is a store failure.
     $exists = $wpdb->get_var($wpdb->prepare("SELECT COUNT(*) FROM {$wpdb->options} WHERE option_name = %s", $name));
-    if ($exists === null) throw new Toll_Gate_Store_Error($err ?: 'store unavailable');
+    if ($exists === null) throw new Toll_Gate_Store_Error(esc_html($err ?: 'store unavailable')); // never shown; the caller answers 'unavailable'
     return false;
 }
 
