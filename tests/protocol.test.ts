@@ -79,17 +79,22 @@ test("canonical JSON: sorted keys, no whitespace, JSON.stringify escaping, integ
   assert.throws(() => canonicalJson({ a: 1.5 }));
 });
 
-test("19.6 adaptive work cost is non-decreasing under burst (velocity on), in both modes", () => {
+test("19.6 adaptive work cost is non-decreasing under burst (velocity on), in both modes; escalation never lowers it", () => {
   for (const mode of ["standard", "hardened"] as const) {
     const pol = { ...DEFAULT_WORK, mode };
     let prev = 0;
+    let prevAlg = "";
     for (let count = 0; count <= 400; count += 5) {
       const p = workParams(pol, "write", { ua_class: "desktop", recent_redeems: count, velocity_enabled: true });
-      assert.ok(p.expected_tries >= prev, `${mode} count ${count}: ${p.expected_tries} < ${prev}`);
-      assert.ok(p.counter_max <= pol.max_units * pol[mode].unit_tries, "cap respected");
-      prev = p.expected_tries;
+      // Units are comparable across engines; an escalation also makes each try far heavier (Argon2id).
+      assert.ok(p.units >= prev, `${mode} count ${count}: ${p.units} units < ${prev}`);
+      if (prevAlg === "argon2id") assert.equal(p.alg, "argon2id", "never de-escalates as the burst grows");
+      const eng = p.alg === "argon2id" ? pol.hardened : pol.standard;
+      assert.ok(p.counter_max <= pol.max_units * eng.unit_tries, "cap respected");
+      prev = p.units;
+      prevAlg = p.alg;
     }
-    assert.ok(prev > workParams(pol, "write", { ua_class: "desktop", recent_redeems: 0, velocity_enabled: true }).expected_tries);
+    assert.ok(prev > workParams(pol, "write", { ua_class: "desktop", recent_redeems: 0, velocity_enabled: true }).units);
   }
   assert.deepEqual([0, 19, 20, 40, 80, 160, 1000].map((c) => velocityMult(DEFAULT_WORK, c)), [1, 1, 2, 4, 8, 16, 16]);
 });

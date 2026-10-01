@@ -192,7 +192,7 @@ export function tollRouter(toll: Toll) {
         if (body && body.offer_id !== undefined) {
           if (!toll.paid) return send(res, 400, { error: "unsupported", detail: "paid redeem is not enabled on this issuer" });
           // Paid pass: short (Q6), for the client's Authorization header. No cookie: agents carry it themselves.
-          const r = await toll.redeemPaid(body);
+          const r = await toll.redeemPaid(body, { ip: clientIp(req) });
           return send(res, 200, { pass: r.pass, exp: r.exp, cls: r.cls, rail: r.rail });
         }
         if (!body || typeof body.challenge_id !== "string" || typeof body.solution !== "object" || body.solution === null) return send(res, 400, { error: "malformed" });

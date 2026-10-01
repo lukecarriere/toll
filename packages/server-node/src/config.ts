@@ -1,7 +1,7 @@
 // toll.yaml loader (spec §14). Values of the form "env:NAME" are read from the environment.
 import { readFileSync } from "node:fs";
 import { parse } from "yaml";
-import { type ActionClass, type WorkPolicy, isActionClass } from "../../protocol/src/index.ts";
+import { type ActionClass, type WorkPolicy, DEFAULT_ESCALATE, isActionClass } from "../../protocol/src/index.ts";
 
 export interface RouteRule { prefix: string; class: ActionClass }
 
@@ -83,7 +83,9 @@ export function normalizeConfig(raw: Record<string, any>, env: NodeJS.ProcessEnv
     standard: { ...DEFAULT_WORK.standard, ...(w.standard ?? {}), alg: "pbkdf2-sha256" },
     hardened: { ...DEFAULT_WORK.hardened, ...(w.hardened ?? {}), alg: "argon2id" },
     device_mult: { ...DEFAULT_WORK.device_mult, ...(w.device_mult ?? {}) },
+    escalate: { ...DEFAULT_ESCALATE, ...(w.escalate ?? {}) },
   };
+  if (!(work.escalate!.at_velocity >= 1) || !Array.isArray(work.escalate!.classes) || !work.escalate!.classes.every((c) => isActionClass(c) && c !== "read")) throw new Error("toll config: work.escalate needs at_velocity >= 1 and classes from search, write, account, admin");
   if (work.mode !== "standard" && work.mode !== "hardened") throw new Error("toll config: work.mode must be standard or hardened");
   for (const m of [work.standard, work.hardened]) {
     if (!(Number.isInteger(m.cost) && m.cost >= 1)) throw new Error("toll config: work cost must be a positive integer");
@@ -118,8 +120,10 @@ function normalizeSettlement(s: Record<string, any>): SettlementConfig {
   if (enabled && backend !== "stub") throw new Error(`toll config: settlement.backend "${backend}" is not available in this build (only "stub", the local test backend)`);
   const fee_bps = Number(s.fee_bps ?? 1000);
   if (!(Number.isInteger(fee_bps) && fee_bps >= 0 && fee_bps <= 10000)) throw new Error("toll config: settlement.fee_bps must be an integer 0..10000");
+  // Phase 3 (spec §18): the settle pass is single-use. Spec §8.6.4 allows "n = 1 or exp <= 60 s";
+  // Toll does both, so pass_uses is fixed at 1 and pass_ttl_s is 1..60.
   const pass_uses = Number(s.pass_uses ?? 1);
-  if (!(Number.isInteger(pass_uses) && pass_uses >= 1 && pass_uses <= 100)) throw new Error("toll config: settlement.pass_uses must be an integer 1..100");
+  if (pass_uses !== 1) throw new Error("toll config: settlement.pass_uses must be 1 (a paid pass is single-use)");
   const pass_ttl_s = Number(s.pass_ttl_s ?? 60);
   if (!(Number.isInteger(pass_ttl_s) && pass_ttl_s >= 1 && pass_ttl_s <= 60)) throw new Error("toll config: settlement.pass_ttl_s must be 1..60");
   const offer_ttl_s = Number(s.offer_ttl_s ?? 120);

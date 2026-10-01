@@ -203,6 +203,7 @@ export function createToll(config: TollConfig, opts: TollOptions = {}) {
       counter_max: wp.counter_max,
       expected_tries: wp.expected_tries,
       velocity_mult: wp.mults.velocity,
+      escalated: wp.escalated,
       source: input.source ?? "sdk",
     });
     return { challenge, velocity_mult: wp.mults.velocity };
@@ -242,7 +243,7 @@ export function createToll(config: TollConfig, opts: TollOptions = {}) {
    * Paid redeem (settlement.md §6): the settlement engine checks the proof, the rail books it in the
    * msat ledger, then a short settle pass is minted (Q6 default: one use, 60 s).
    */
-  async function redeemPaid(body: unknown): Promise<PaidRedeemResult> {
+  async function redeemPaid(body: unknown, ctx: { ip?: string } = {}): Promise<PaidRedeemResult> {
     if (!paid) throw new TollError("unsupported", "paid redeem is not enabled on this issuer");
     const t0 = performance.now();
     try {
@@ -251,6 +252,8 @@ export function createToll(config: TollConfig, opts: TollOptions = {}) {
       const claims = newPassClaims({ site: config.site_id, cls: r.cls, n: s.pass_uses, ttl_s: s.pass_ttl_s, now: now() });
       await store.setTag("pass:" + claims.jti, "settle", s.pass_ttl_s + 60);
       const pass = await signPass(config.secret, claims);
+      // A paid redeem is a redeem: it counts toward velocity, so a paying swarm's price rises too (phase 3).
+      velocity.hit(coarseKey(config.site_id, ctx.ip ?? "?", r.cls));
       metrics.redeemOk({ rail: "settle", cls: r.cls, took_ms: null, ua_class: null, client: "agent", verify_ms: Math.round((performance.now() - t0) * 100) / 100 });
       return { pass, exp: claims.exp, cls: claims.cls, rail: "settle", claims, amount_msat: r.amount_msat, fee_msat: r.fee_msat, net_msat: r.net_msat };
     } catch (e) {

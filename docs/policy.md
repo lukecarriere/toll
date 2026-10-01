@@ -34,7 +34,8 @@ of one try is fixed per mode. `docs/protocol.md` §3 has the rule.
 | `device_mult` | mobile 0.6, desktop 1.0 | `work.device_mult` | Spec §9.5. A phone gets 60% of the desktop work. |
 | `max_units` | 28 | `work.max_units` | Cap on the worst case of any one challenge (`counter_max ≤ 28 units`, so 14 units expected at most). With velocity at its top step a write would expect 64 units; the cap holds it to 28 worst case. The widget also has an 8 s wall-clock cap (`defaults.max_solve_ms`, §9.5): past it, the widget stops and shows the checkbox state. |
 | `velocity_steps` | 20→x2, 40→x4, 80→x8, 160→x16 per 60 s | `work.velocity_steps` | Spec §9.3 and §9.5. Keyed by site + /24 (IPv4) or /48 (IPv6) + action. Raises cost only; never blocks. |
-| `adaptive.velocity` | `false` | `adaptive.velocity` | Off by default in phase 1. The multiplier is implemented and tested, but the right thresholds need real traffic (phase 3 work). |
+| `adaptive.velocity` | `false` | `adaptive.velocity` | Off by default. Turns on phase 3 adaptive (§6): velocity multipliers on work and price, plus Argon2id escalation. Built and tested; the thresholds still need real traffic before it is on by default. |
+| `escalate` | at x4 velocity, and `admin` | `work.escalate` | Phase 3 (§6). With adaptive on, a standard-mode challenge switches to the hardened (Argon2id) engine at `velocity_mult >= 4` or for the listed classes. |
 | `pass_ttl_s` / `pass_uses` | 900 s / 20 uses | `defaults` | Spec §8.3 example values. |
 | `challenge_ttl_s` | 120 s | `defaults` | Spec §8.1; the issuer refuses longer values. |
 | `rate_limit.challenge_per_min` | 60 per IP | `rate_limit` | Protects the issuer's CPU: minting costs one KDF call: about 1 ms in standard mode, about 52 ms p50 (91 ms p95) of Argon2id in hardened mode (§4). The demo raises it to 300 so the hammer can be re-run. |
@@ -188,12 +189,31 @@ Android run before launch.
 never has to pay. Whether a high-velocity, over-cap client should ever be offered payment only is a
 product call (§9.5 "never hard-block humans"), and it needs real traffic first.
 
-## 6. Open items
+## 6. Phase 3 adaptive (built 2026-10-01 CT)
+
+With `adaptive.velocity: true`:
+- **Velocity raises work and price together.** Redeems (work *and* paid) are counted per coarse key (site + /24 or /48 + action, 60 s window). The same `velocity_mult` (1, 2, 4, 8, 16 at 20, 40, 80, 160 redeems) multiplies the challenge's expected tries and the offer's `amount_msat` (`base_msat × velocity_mult`, rounded up to 1,000 msat).
+- **Argon2id escalation (spec §9.2, §9.3).** In standard mode, at `velocity_mult >= 4` or for `admin`, the challenge uses the hardened engine (Argon2id t = 2, m = 19 MiB). Hardened mode is Argon2id throughout. Escalation never lowers the work: `units` (expected tries ÷ the engine's `unit_tries`) is non-decreasing (test 19.6), and each Argon2id try is far heavier.
+- Per-check numbers, desktop, write (`tests/adaptive.test.ts`; times derived from the §3 tries-per-second rates, not measured here):
+
+| Redeems in 60 s | velocity | engine | expected tries | units | offer amount_msat | est. desktop solve |
+|---|---|---|---|---|---|---|
+| 0 | x1 | PBKDF2 | 256.5 | 4.0 | 10,000 | ~0.2 s |
+| 20 | x2 | PBKDF2 | 512.5 | 8.0 | 20,000 | ~0.44 s |
+| 40 | x4 | Argon2id | 56.5 (cap) | 14.1 | 40,000 | ~1.9 s |
+| 80 | x8 | Argon2id | 56.5 (cap) | 14.1 | 80,000 | ~1.9 s |
+| 160 | x16 | Argon2id | 56.5 (cap) | 14.1 | 160,000 | ~1.9 s |
+
+  Admin with no burst: Argon2id, 56.5 tries (cap), 100,000 msat. The phone-like rate (7.3 tries/s, mobile 0.6x work) puts an escalated write at about 5 s, inside the §9.3 3–8 s burst band and under the 8 s cap.
+- **Passes.** Human (work) pass 900 s / 20 uses (`defaults`). Settle pass single-use: `n = 1`, at most 60 s (settlement.md Q6, reconciled).
+- Never a block: another /24 is unaffected, and the window slides back to x1.
+
+## 7. Open items
 
 - Real Android device column (empty). Until it is filled, the phone defaults are unverified. On the OS-quota emulation, standard mode's p50 is inside the §9.3 phone band and its p95 is over it; hardened mode is in the 1–2 s band (see §4). Decision for Luke and the Data Scientist: keep 0.6, lower it, or wait for device data.
 - Hardened mode on phones: lower `hardened.unit_tries` or the mobile multiplier, or keep it as an opt-in heavy mode (Data Scientist).
 - Pay vs grind (§5) needs a re-run on the new engine, including a GPU figure for Argon2id.
-- Velocity thresholds need real traffic before `adaptive.velocity` is turned on by default.
+- Velocity thresholds need real traffic before `adaptive.velocity` is turned on by default (phase 3 behaviour is built, §6).
 - `device_mult` comes from the UA class only; the "previous took_ms EMA" input from §9.5 is logged
   (`redeem_ok.took_ms`) but not yet fed back into cost.
 - `suspicion_mult` (§9.5, optional) is not implemented.

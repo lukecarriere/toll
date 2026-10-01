@@ -34,7 +34,15 @@ export interface WorkPolicy {
   /** Velocity steps: [count threshold within window, multiplier], ascending. */
   velocity_steps: [number, number][];
   velocity_window_s: number;
+  /**
+   * Argon2id escalation (spec §9.2, §9.3; phase 3). With adaptive on, a standard-mode challenge
+   * switches to the hardened engine when velocity_mult >= at_velocity (burst from one coarse key)
+   * or the action class is listed (admin with no pass). Hardened mode is always Argon2id anyway.
+   */
+  escalate?: { at_velocity: number; classes: ActionClass[] };
 }
+
+export const DEFAULT_ESCALATE = { at_velocity: 4, classes: ["admin"] as ActionClass[] };
 
 export interface PolicyContext {
   ua_class: "mobile" | "desktop";
@@ -59,25 +67,34 @@ export interface WorkParamsOut {
   /** Exclusive bound of the hidden counter: worst case tries. */
   counter_max: number;
   expected_tries: number;
+  /** expected_tries in units of the engine's unit_tries (comparable across an escalation). */
+  units: number;
+  /** True when adaptive escalation switched a standard-mode challenge to the hardened engine. */
+  escalated: boolean;
   mults: { class: number; device: number; velocity: number; suspicion: number };
 }
 
 export function workParams(policy: WorkPolicy, action: ActionClass, ctx: PolicyContext): WorkParamsOut {
   const cls = CLASS_MULT[action];
   if (cls === 0) throw new Error("read is free");
-  const m = policy[policy.mode];
   const device = policy.device_mult[ctx.ua_class];
   const velocity = ctx.velocity_enabled ? velocityMult(policy, ctx.recent_redeems) : 1;
+  const esc = policy.escalate ?? DEFAULT_ESCALATE;
+  const escalated = policy.mode === "standard" && ctx.velocity_enabled && (velocity >= esc.at_velocity || esc.classes.includes(action));
+  const mode: WorkMode = escalated ? "hardened" : policy.mode;
+  const m = policy[mode];
   const suspicion = Math.min(8, Math.max(1, ctx.suspicion_mult ?? 1));
   const expected = m.unit_tries * cls * device * velocity * suspicion;
   const cap = Math.max(1, Math.floor(policy.max_units * m.unit_tries));
   const counter_max = Math.min(cap, Math.max(1, Math.round(2 * expected)));
   const out: WorkParamsOut = {
-    mode: policy.mode,
+    mode,
     alg: m.alg,
     cost: m.cost,
     counter_max,
     expected_tries: (counter_max + 1) / 2,
+    units: Math.round(((counter_max + 1) / 2 / m.unit_tries) * 100) / 100,
+    escalated,
     mults: { class: cls, device, velocity, suspicion },
   };
   if (m.alg === "argon2id") { out.memory_kib = m.memory_kib ?? 32768; out.parallelism = m.parallelism ?? 1; }
