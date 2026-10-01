@@ -147,7 +147,7 @@ function toll_gate_render_settings(): void
 
 <h2 class="title"><?php echo esc_html(toll_gate_s('keys_h')); ?></h2>
 <table class="form-table" role="presentation"><tbody>
-<tr><th scope="row"><label for="toll-site-key"><?php echo esc_html(toll_gate_s('site_key')); ?></label></th><td><input id="toll-site-key" class="regular-text code" value="<?php echo esc_attr(toll_gate_site_key()); ?>" readonly>
+<tr><th scope="row"><label for="toll-site-key"><?php echo esc_html(toll_gate_s('site_key')); ?></label></th><td><input id="toll-site-key" type="text" class="regular-text code" value="<?php echo esc_attr(toll_gate_site_key()); ?>" readonly>
 <p class="description"><?php echo esc_html(toll_gate_s('site_key_help')); ?></p></td></tr>
 <tr><th scope="row"><label for="toll-secret"><?php echo esc_html(toll_gate_s('secret')); ?></label></th><td><input id="toll-secret" type="password" class="regular-text code" value="<?php echo esc_attr(toll_gate_secret()); ?>" readonly autocomplete="off"> <button class="button" type="button" id="toll-show" data-show="<?php echo esc_attr(toll_gate_s('show')); ?>" data-hide="<?php echo esc_attr(toll_gate_s('hide')); ?>"><?php echo esc_html(toll_gate_s('show')); ?></button> <button class="button" type="submit" name="toll_gate_do" value="new_secret"><?php echo esc_html(toll_gate_s('new_secret')); ?></button>
 <p class="description"><?php echo esc_html(toll_gate_s('secret_help')); ?></p></td></tr>

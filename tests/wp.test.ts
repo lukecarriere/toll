@@ -253,6 +253,16 @@ test("CSV: one row per UTC day for the last 30 days, oldest first; timezone colu
   assert.equal(Number(shown), b.today.challenges_minted, "the admin line is today's UTC challenges_minted");
 });
 
+test("site key field is a text input styled like the other fields, so the underscore in site_… is not clipped", { skip }, async () => {
+  await A.goto(SETTINGS);
+  await A.click("details.toll-adv > summary");
+  const key = A.locator("#toll-site-key");
+  assert.equal(await key.getAttribute("type"), "text");
+  assert.match(await key.inputValue(), /^site_[0-9a-f]+$/);
+  const box = (sel: string) => A.locator(sel).evaluate((el) => { const s = getComputedStyle(el); return { minHeight: s.minHeight, lineHeight: s.lineHeight, padding: s.padding }; });
+  assert.deepEqual(await box("#toll-site-key"), await box("#toll-server-url"), "same box as the Payment server address field");
+});
+
 // ---- Settings → Toll states (design/proto/wp-settings.html) ----------------------------------
 test("settings default: payouts off, no Balance row, Advanced collapsed, Test mode selected; copy matches docs/copy.md", { skip }, async () => {
   await setSettings({ payouts: false, connection: "test", url: "" });
