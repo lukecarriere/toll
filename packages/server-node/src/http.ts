@@ -9,6 +9,13 @@ import { l402Challenge, paymentRequired, StubSettler } from "../../settlement-ln
 import type { Toll } from "./toll.ts";
 import { buildManifest, agentsPointer, priceBody, PAID_CLASSES } from "./manifest.ts";
 
+/**
+ * Whether offers relayed to a WordPress site (/v1/owner/offers) apply a load multiplier. false: the
+ * site does not pass its visitor's load to this server yet. Reported to the site in /v1/owner/price
+ * load_pricing, so its manifest shows the base-price note only once this becomes true.
+ */
+const RELAY_APPLIES_LOAD = false;
+
 /** Origin of this request as the client sees it (for absolute URLs in the manifest). */
 function requestOrigin(req: Req): string {
   const proto = (req.socket as any)?.encrypted ? "https" : "http";
@@ -158,7 +165,7 @@ export function tollRouter(toll: Toll) {
           return send(res, 200, agentsPointer(origin + "/.well-known/toll.json"));
         }
         toll.metrics.discovery("manifest");
-        return send(res, 200, buildManifest({ api: origin + "/v1", docs: toll.config.discovery.docs_url, status: toll.priceStatus(), prices: toll.priceTable() }));
+        return send(res, 200, buildManifest({ api: origin + "/v1", docs: toll.config.discovery.docs_url, status: toll.priceStatus(), prices: toll.priceTable(), loadPricing: toll.loadPricing() }));
       }
       if (!path.startsWith("/v1/")) return next();
       applyCors(toll, req, res);
@@ -285,16 +292,19 @@ export function tollRouter(toll: Toll) {
         // checks the proof (single use) and the payment is booked in this issuer's ledger. The site
         // then mints its own one-use, 60-second pass. offers [] when paid requests are off or paused.
         // Prices for a WordPress site's manifest: amounts plus the rate, so the site derives the USD
-        // with its own copy of the same function (Settlement::offerUsd). Read-only.
+        // with its own copy of the same function (Settlement::offerUsd). Read-only. load_pricing says,
+        // per class, whether the offers relayed below (/v1/owner/offers) can rise with load; the site
+        // shows the base-price note only when one can. Today the relay applies no multiplier.
         if (path === "/v1/owner/price" && req.method === "GET") {
           const table = toll.priceTable();
           const fx = paid.quote();
-          return send(res, 200, { status: toll.priceStatus(), prices: table ? Object.fromEntries(Object.entries(table).map(([c, p]) => [c, { amount_msat: p!.amount_msat }])) : null, fx: fx ? { usd_per_btc: fx.usd_per_btc, fetched_at: fx.fetched_at } : null });
+          return send(res, 200, { status: toll.priceStatus(), prices: table ? Object.fromEntries(Object.entries(table).map(([c, p]) => [c, { amount_msat: p!.amount_msat }])) : null, load_pricing: table ? Object.fromEntries(Object.keys(table).map((c) => [c, RELAY_APPLIES_LOAD])) : null, fx: fx ? { usd_per_btc: fx.usd_per_btc, fetched_at: fx.fetched_at } : null });
         }
         if (path === "/v1/owner/offers" && req.method === "POST") {
           const body = await readBody(req);
           const action = body?.action;
           if (!isActionClass(action) || action === "read") return send(res, 400, { error: "malformed" });
+          // No load multiplier on the relay (RELAY_APPLIES_LOAD): the site does not pass its visitor's load here yet.
           const offers = await paid.offers(action).catch(() => []);
           return send(res, 200, offers.length ? { offers, www_authenticate: l402Challenge(offers[0]) } : { offers: [] });
         }

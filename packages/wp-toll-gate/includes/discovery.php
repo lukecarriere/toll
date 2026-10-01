@@ -55,7 +55,12 @@ function toll_gate_input_schemas(): array
     ];
 }
 
-/** docs/copy.md "Base price label" (PM, verbatim): every manifest price is basis "base"; each priced tool carries this note. */
+/**
+ * docs/copy.md "Base price label" (PM, verbatim): every manifest price is basis "base". The note is
+ * shown only when this site's offers can rise: the payment server reports load_pricing true for a
+ * priced class (its relayed offers apply a load multiplier). Today the relay applies none, so the
+ * note is omitted; it comes back on its own once the payment server reports load pricing.
+ */
 const TOLL_GATE_BASE_PRICE_NOTE = 'Base price. The 402 offer is the price that applies, and it can go up while the site is under load.';
 
 /** "$0.0100 (test)"; null when there is no USD to show. */
@@ -72,12 +77,13 @@ function toll_gate_payment(string $status, bool $paid): array
 }
 
 /**
- * Price table from the payment server: ['status' => 'test'|'stub', 'prices' => [cls => [amount_msat, usd]] | null].
+ * Price table from the payment server: ['status' => 'test'|'stub', 'prices' => [cls => [amount_msat, usd]] | null,
+ * 'load' => [cls => bool]] (load: the server's load_pricing, true only when it says so for that class).
  * Only when the site makes paid offers (payouts on, Payment server, address set, server up).
  */
 function toll_gate_price_table(): array
 {
-    $none = ['status' => 'stub', 'prices' => null];
+    $none = ['status' => 'stub', 'prices' => null, 'load' => []];
     if (!toll_gate_lib_ok() || !toll_gate_offers_configured() || get_transient('toll_gate_server_down')) return $none;
     $r = get_transient('toll_gate_price_cache');
     if (!is_array($r)) {
@@ -91,12 +97,14 @@ function toll_gate_price_table(): array
     $rate = is_int($fx['usd_per_btc'] ?? null) || is_float($fx['usd_per_btc'] ?? null) ? (float) $fx['usd_per_btc'] : null;
     $at = is_int($fx['fetched_at'] ?? null) ? $fx['fetched_at'] : null;
     $out = [];
+    $load = [];
     foreach (TOLL_GATE_PAID_CLASSES as $c) {
         $m = $r['prices'][$c]['amount_msat'] ?? null;
         if (!is_int($m) || $m <= 0) return $none;
         $out[$c] = ['amount_msat' => $m, 'usd' => Settlement::offerUsd($m, $rate, $at, time())];
+        $load[$c] = ($r['load_pricing'][$c] ?? false) === true;
     }
-    return ['status' => 'test', 'prices' => $out];
+    return ['status' => 'test', 'prices' => $out, 'load' => $load];
 }
 
 function toll_gate_api_base(): string
@@ -116,6 +124,7 @@ function toll_gate_manifest(): array
     }
     $free = toll_gate_price(0, '0.0000', $status) + ['basis' => 'base'];
     $paid = $t['prices'] !== null;
+    $canRise = $paid && in_array(true, $t['load'], true);
     $schemas = toll_gate_input_schemas();
     $tool = fn(string $n, string $endpoint, array $price, bool $paid) => ['name' => $n, 'description' => TOLL_GATE_TOOLS[$n], 'input_schema' => $schemas[$n], 'endpoint' => $endpoint, 'price' => $price, 'payment' => toll_gate_payment($status, $paid)];
     return [
@@ -127,7 +136,7 @@ function toll_gate_manifest(): array
         'not_for' => TOLL_GATE_NOT_FOR,
         'tools' => [
             $tool('price_write_action', $api . '/price?action={action}', $free, false),
-            $tool('gate_form_write', $api . '/challenge?action={action}&path={path}&client=agent', $by['write'] + ($paid ? ['note' => TOLL_GATE_BASE_PRICE_NOTE] : []) + ['by_action' => $by], $paid),
+            $tool('gate_form_write', $api . '/challenge?action={action}&path={path}&client=agent', $by['write'] + ($canRise ? ['note' => TOLL_GATE_BASE_PRICE_NOTE] : []) + ['by_action' => $by], $paid),
             $tool('verify_write_pass', $api . '/siteverify', $free, false),
         ],
     ];
@@ -135,8 +144,9 @@ function toll_gate_manifest(): array
 
 /**
  * GET /wp-json/toll/v1/price?action= : the price of one paid request that applies now (basis "current")
- * plus the free work alternative. This site's 402 relays the payment server's offer, which carries no
- * load multiplier, so the price that applies now is the base amount: load_multiplier 1.
+ * plus the free work alternative. This site's 402 relays the payment server's offer. While the server
+ * reports no load pricing for the class, that offer is the base amount: load_multiplier 1. If it does
+ * report load pricing, this site cannot see the multiplier yet, so load_multiplier is null (unknown).
  */
 function toll_gate_rest_price(WP_REST_Request $req): WP_REST_Response
 {
@@ -145,7 +155,7 @@ function toll_gate_rest_price(WP_REST_Request $req): WP_REST_Response
     $t = toll_gate_price_table();
     $p = $t['prices'][$action] ?? null;
     $price = $p ? toll_gate_price($p['amount_msat'], $p['usd'], $t['status']) : toll_gate_price(null, null, 'stub');
-    return toll_gate_json(['action' => $action] + $price + ['basis' => 'current', 'load_multiplier' => $p ? 1 : null, 'work' => ['challenge_url' => toll_gate_challenge_url($action, (string) ($req->get_param('path') ?? '/'))], 'reads_free' => true]);
+    return toll_gate_json(['action' => $action] + $price + ['basis' => 'current', 'load_multiplier' => $p && !($t['load'][$action] ?? false) ? 1 : null, 'work' => ['challenge_url' => toll_gate_challenge_url($action, (string) ($req->get_param('path') ?? '/'))], 'reads_free' => true]);
 }
 
 /** Serve the two discovery documents before WordPress routes the request (any visitor, no check). */

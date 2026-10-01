@@ -69,7 +69,9 @@ async function fetchDiscovery(base: string) {
  */
 async function parity(base: string, doc: any, action: string, offer: any) {
   const gate = doc.tools.find((t: any) => t.name === "gate_form_write");
-  assert.equal(gate.price.note, BASE_PRICE_NOTE, `${base} priced tool carries the base-price note`);
+  // Live Node demo (velocity off) and WordPress (relay applies no load multiplier): offers cannot rise, so no note.
+  assert.equal(gate.price.basis, "base");
+  assert.equal(gate.price.note, undefined, `${base}: offers cannot rise, so no base-price note`);
   const m = gate.price.by_action[action];
   const p = (await mcp.call("price_write_action", { site: base, action })).price;
   assert.equal(m.basis, "base");
@@ -142,6 +144,18 @@ test("A3 WordPress (Payment server = demo, test backend): manifest free, prices 
     const secret = wpEval("echo toll_gate_secret();");
     assert.equal((await mcp.call("verify_write_pass", { site: WP, secret, pass: p.pass, action: "write" })).valid, true);
     assert.equal((await mcp.call("verify_write_pass", { site: WP, secret, pass: p.pass, action: "write" })).valid, false, "one use");
+    // Mock: the payment server reports load pricing (a future relay that applies the multiplier). The
+    // cached price answer is replaced with the real one plus load_pricing true; the note comes back on its own.
+    wpEval(`$r = toll_gate_server_call('GET', '/v1/owner/price', null, 5)['body']; $r['load_pricing'] = array_fill_keys(TOLL_GATE_PAID_CLASSES, true); set_transient('toll_gate_price_cache', $r, 30); echo 'ok';`);
+    const mocked = await fetchDiscovery(WP);
+    assert.equal(mocked.tools[1].price.note, BASE_PRICE_NOTE, "payment server reports load pricing: note present");
+    assert.equal(mocked.tools[1].price.basis, "base");
+    assert.equal(mocked.tools[0].price.note, undefined);
+    const wpNow: any = await (await fetch(WP + "/wp-json/toll/v1/price?action=write")).json();
+    assert.equal(wpNow.load_multiplier, null, "the site cannot see the server's multiplier yet: unknown, not 1");
+    wpEval("delete_transient('toll_gate_price_cache'); echo 'ok';");
+    const real = await fetchDiscovery(WP);
+    assert.equal(real.tools[1].price.note, undefined, "real server answer again: no note");
     results.wp = { manifest: 200, agents_json: 200, challenges_minted: [c0.challenges_minted, c1.challenges_minted], manifest_fetch: [c0.manifest_fetch, c1.manifest_fetch], prices: shown, mcp_verify: "valid once" };
   } finally {
     wpMode(false);

@@ -60,8 +60,10 @@ export interface Price { amount_msat: number | null; usd: string | null; status:
 
 /**
  * docs/copy.md "Base price label" (PM, verbatim). Every manifest price is labelled `basis: "base"`
- * (the 402 at load multiplier 1); each priced tool carries this note. /v1/price and the MCP
- * price_write_action answer with `basis: "current"`: the price that applies right now, load included.
+ * (the 402 at load multiplier 1). The note is carried by a priced tool only when that site's offers
+ * can actually rise (load pricing active for at least one of the tool's priced actions): the
+ * manifest never promises behaviour the site does not have (PM decision, option a). /v1/price and
+ * the MCP price_write_action answer with `basis: "current"`: the price that applies now, load included.
  */
 export const BASE_PRICE_NOTE = "Base price. The 402 offer is the price that applies, and it can go up while the site is under load.";
 const base = (p: Price) => ({ ...p, basis: "base" as const });
@@ -84,13 +86,17 @@ export function payment(status: PriceStatus, paid: boolean) {
 
 export type PriceTable = Partial<Record<Exclude<ActionClass, "read">, { amount_msat: number; usd: string | undefined }>> | null;
 
+/** Per paid action: true when this site's 402 offer for it can rise with load (a load multiplier is applied). */
+export type LoadPricing = Partial<Record<Exclude<ActionClass, "read">, boolean>>;
+
 /**
  * The manifest. `prices` null means no paid offer on this host (work only): prices are null with
  * status "stub". `api` is the /v1 facade base (Node and edge `<origin>/v1`, WordPress
  * `<home>/wp-json/toll/v1`).
  */
-export function buildManifest(o: { api: string; docs: string | null; status: PriceStatus; prices: PriceTable }) {
+export function buildManifest(o: { api: string; docs: string | null; status: PriceStatus; prices: PriceTable; loadPricing?: LoadPricing }) {
   const paid = !!o.prices;
+  const canRise = paid && PAID_CLASSES.some((c) => !!o.prices?.[c] && o.loadPricing?.[c] === true);
   const by_action: Record<string, Price & { basis: "base" }> = {};
   for (const c of PAID_CLASSES) {
     const p = o.prices?.[c];
@@ -106,7 +112,7 @@ export function buildManifest(o: { api: string; docs: string | null; status: Pri
     not_for: [...NOT_FOR],
     tools: [
       { ...tool("price_write_action"), input_schema: INPUT_SCHEMAS.price_write_action, endpoint: o.api + "/price?action={action}", price: base(FREE(o.status)), payment: payment(o.status, false) },
-      { ...tool("gate_form_write"), input_schema: INPUT_SCHEMAS.gate_form_write, endpoint: o.api + "/challenge?action={action}&path={path}&client=agent", price: { ...by_action.write, ...(paid ? { note: BASE_PRICE_NOTE } : {}), by_action }, payment: payment(o.status, paid) },
+      { ...tool("gate_form_write"), input_schema: INPUT_SCHEMAS.gate_form_write, endpoint: o.api + "/challenge?action={action}&path={path}&client=agent", price: { ...by_action.write, ...(canRise ? { note: BASE_PRICE_NOTE } : {}), by_action }, payment: payment(o.status, paid) },
       { ...tool("verify_write_pass"), input_schema: INPUT_SCHEMAS.verify_write_pass, endpoint: o.api + "/siteverify", price: base(FREE(o.status)), payment: payment(o.status, false) },
     ],
   };

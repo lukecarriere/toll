@@ -86,13 +86,13 @@ test("prices at load multiplier 1: manifest (base), /v1/price and MCP price_writ
       assert.equal(p.display, display);
     }
   }
-  // docs/copy.md "Base price label": the manifest price is labelled base, and each priced tool carries the exact note.
+  // docs/copy.md "Base price label": the manifest price is labelled base. Velocity is off here, so this
+  // site's offers cannot rise and the note is omitted (PM option a: no promise the site cannot keep).
   assert.ok(COPY.includes(`carries this exact note: "${BASE_PRICE_NOTE}"`));
   assert.ok(WP_DISCOVERY.includes(BASE_PRICE_NOTE), "WordPress carries the note verbatim");
   assert.equal(gate.price.basis, "base");
-  assert.equal(gate.price.note, BASE_PRICE_NOTE);
   for (const t of doc.tools) assert.equal(t.price.basis, "base", t.name);
-  for (const t of doc.tools.filter((t: any) => t.name !== "gate_form_write")) assert.equal(t.price.note, undefined, t.name + " is free, so not a priced tool");
+  for (const t of doc.tools) assert.equal(t.price.note, undefined, t.name + ": Node with velocity off, no base-price note");
   assert.equal(gate.price.display, "$0.0100 (test)", "the tool's headline price is a write");
   for (const t of doc.tools) for (const v of JSON.stringify(t.price).match(/"display":"[^"]*"/g) ?? []) assert.match(v, /\((test|stub)\)"$/, "never a bare number");
   assert.equal(doc.tools.find((t: any) => t.name === "price_write_action").price.display, "$0.0000 (test)");
@@ -150,9 +150,33 @@ test("load raised: MCP price_write_action returns the price that applies now and
     }
     const doc: any = await (await fetch(hot.url + "/.well-known/toll.json")).json();
     const gate = doc.tools.find((t: any) => t.name === "gate_form_write");
-    assert.deepEqual([gate.price.amount_msat, gate.price.display, gate.price.basis, gate.price.note], [10000, "$0.0100 (test)", "base", BASE_PRICE_NOTE], "the manifest stays the base price, with the note");
+    assert.deepEqual([gate.price.amount_msat, gate.price.display, gate.price.basis, gate.price.note], [10000, "$0.0100 (test)", "base", BASE_PRICE_NOTE], "Node with velocity on: the manifest stays the base price, with the note");
+    for (const t of doc.tools.filter((t: any) => t.name !== "gate_form_write")) assert.equal(t.price.note, undefined, t.name + " is free, so not a priced tool");
   } finally {
     await hot.close();
+  }
+});
+
+test("base-price note follows load pricing: present only when a priced action's offers can rise", async () => {
+  const prices = { write: { amount_msat: 10000, usd: "0.0100" }, search: { amount_msat: 2000, usd: "0.0020" }, account: { amount_msat: 25000, usd: "0.0250" }, admin: { amount_msat: 100000, usd: "0.1000" } };
+  const note = (o: Parameters<typeof buildManifest>[0]) => buildManifest(o).tools.map((t: any) => t.price.note ?? null);
+  const at = { api: "https://x.test/v1", docs: null, status: "test" as const };
+  assert.deepEqual(note({ ...at, prices }), [null, null, null], "no load pricing reported: no note");
+  assert.deepEqual(note({ ...at, prices, loadPricing: { write: false, search: false, account: false, admin: false } }), [null, null, null]);
+  assert.deepEqual(note({ ...at, prices, loadPricing: { search: true } }), [null, BASE_PRICE_NOTE, null], "one priced action that can rise is enough");
+  assert.deepEqual(note({ ...at, status: "stub", prices: null, loadPricing: { write: true } }), [null, null, null], "no paid price, no note");
+  for (const doc of [buildManifest({ ...at, prices }), buildManifest({ ...at, prices, loadPricing: { write: true } })]) for (const t of doc.tools) assert.equal(t.price.basis, "base");
+  // The payment server tells a WordPress site whether its relayed offers can rise. The relay applies no
+  // load multiplier today, so it reports false for every class even with velocity on.
+  const KEY = "owner-key-for-tests-0123456789";
+  const srv = await startDemo({ work: { standard: { cost: 500 } }, adaptive: { velocity: true }, settlement: { ...PAID_ON.settlement, owner_key: KEY } });
+  try {
+    const own: any = await (await fetch(srv.url + "/v1/owner/price", { headers: { authorization: "Bearer " + KEY } })).json();
+    assert.deepEqual(own.load_pricing, { search: false, write: false, account: false, admin: false });
+    const doc: any = await (await fetch(srv.url + "/.well-known/toll.json")).json();
+    assert.equal(doc.tools[1].price.note, BASE_PRICE_NOTE, "this issuer's own 402 does rise with velocity on");
+  } finally {
+    await srv.close();
   }
 });
 

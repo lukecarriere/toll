@@ -33,7 +33,7 @@ import {
 } from "../../settlement-ln/src/index.ts";
 import { type TollConfig, classifyPath, PAGE_VIEW_WARNING } from "./config.ts";
 import { Metrics } from "./metrics.ts";
-import { PAID_CLASSES, type PriceTable, type PriceStatus } from "./manifest.ts";
+import { PAID_CLASSES, type PriceTable, type PriceStatus, type LoadPricing } from "./manifest.ts";
 import { MemoryStore, type TollStore, WindowCounter } from "./stores.ts";
 
 export interface TollOptions {
@@ -339,6 +339,14 @@ export function createToll(config: TollConfig, opts: TollOptions = {}) {
       if (!paid || !paid.rail.isCollecting()) return null;
       const { wp } = policyFor(input);
       return { ...paid.rail.price(input.action as Exclude<ActionClass, "read">, { velocity: wp.mults.velocity, suspicion: 1 }), load_multiplier: wp.mults.velocity };
+    },
+    /**
+     * Load pricing per paid action for this issuer's own 402 (Amendment 3 base-price note): true when
+     * the velocity multiplier is applied to offers (adaptive.velocity on, paid offers collecting).
+     */
+    loadPricing: (): LoadPricing => {
+      const on = !!paid && paid.rail.isCollecting() && config.adaptive.velocity;
+      return Object.fromEntries(PAID_CLASSES.map((c) => [c, on])) as LoadPricing;
     },
     /** "test": paid offers come from the local test backend. "stub": no paid offer here. */
     priceStatus: (): PriceStatus => (paid && paid.rail.isCollecting() ? "test" : "stub"),
