@@ -28,6 +28,7 @@ const MU = WPPATH + "/wp-content/mu-plugins/zz-toll-test-counter-writes.php";
 // server caches compiled scripts (opcache) and rechecks a file only every opcache.revalidate_freq
 // seconds (2 s by default): a plugin with this process's pid baked in kept running in its previous version,
 // writing to the previous run's log, for up to 2 s after before() rewrote it (M10: 43 of 60 reads).
+// The log is per site, so two test runs must never share a site at the same time.
 const LOG = "/tmp/toll-counter-writes-" + createHash("sha256").update(WPPATH).digest("hex").slice(0, 12) + ".jsonl";
 const run = promisify(execFile);
 
