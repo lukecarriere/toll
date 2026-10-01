@@ -58,9 +58,7 @@ function toll_gate_mint(string $action, string $path, ?string $ua): array
 {
     $wp = Policy::workParams($action, Policy::uaClass($ua));
     $c = Protocol::mintChallenge(toll_gate_secret(), toll_gate_site_key(), $action, toll_gate_prefix($path), $wp, TOLL_GATE_CHALLENGE_TTL, time());
-    $counters = toll_gate_counters();
-    $counters['challenges_today']++;
-    update_option('toll_gate_counters', $counters, false);
+    toll_gate_count('challenges_minted');
     return $c;
 }
 

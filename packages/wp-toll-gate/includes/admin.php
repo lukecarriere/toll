@@ -83,7 +83,7 @@ function toll_gate_handle_export(): void
     nocache_headers();
     header('Content-Type: text/csv; charset=utf-8');
     header('Content-Disposition: attachment; filename="toll-counters.csv"');
-    echo toll_gate_counters_csv(); // plain integers and fixed column names
+    echo toll_gate_counters_csv(); // dates, integers, ISO times and fixed column names
     exit;
 }
 
@@ -92,7 +92,7 @@ function toll_gate_render_settings(): void
     if (!current_user_can('manage_options')) return;
     $s = toll_gate_settings();
     $p = toll_gate_payouts_view($s);
-    $c = toll_gate_counters();
+    $c = toll_gate_counters_today();
     $server = $s['connection'] === 'server';
     $noaddr = $server && trim((string) $s['server_url']) === '';
     $down = $p['state'] === 'down';
@@ -114,7 +114,7 @@ function toll_gate_render_settings(): void
 <?php if ($p['state'] === 'ok' && $p['paused']) : ?>
 <div class="notice notice-warning toll-top" role="status"><p><?php echo esc_html(toll_gate_s('n_paused')); ?></p></div>
 <?php endif; ?>
-<p class="toll-stat"><?php echo esc_html(sprintf(toll_gate_s('issued_today'), number_format_i18n($c['challenges_today']))); ?> · <a href="<?php echo esc_url($export); ?>" id="toll-export"><?php echo esc_html(toll_gate_s('export')); ?></a></p>
+<p class="toll-stat"><?php echo esc_html(sprintf(toll_gate_s('issued_today'), number_format_i18n($c['challenges_minted']))); ?> · <a href="<?php echo esc_url($export); ?>" id="toll-export"><?php echo esc_html(toll_gate_s('export')); ?></a></p>
 <p class="description toll-export-help"><?php echo esc_html(toll_gate_s('export_help')); ?></p>
 
 <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>">

@@ -74,17 +74,28 @@ async function setSettings(o: { payouts: boolean; connection: "test" | "server";
   await A.getByText("Settings saved.").waitFor();
 }
 
-async function exportCsv(): Promise<Record<string, number>> {
+const CSV_COLUMNS = ["date", "timezone", ...COUNTERS, "challenges_minted", "since", "exported_at"];
+const ISO_UTC = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/;
+type CsvExport = { rows: Record<string, string>[]; today: Record<string, number> };
+
+/** Download the owner's CSV, check its shape, and return the rows plus today's (UTC) counts. */
+async function exportCsvFull(): Promise<CsvExport> {
   await A.goto(SETTINGS);
   const href = await A.getAttribute("#toll-export", "href");
   const r = await admin.request.get(href!);
   assert.equal(r.status(), 200);
   assert.match(r.headers()["content-type"], /^text\/csv/);
   assert.match(r.headers()["content-disposition"], /attachment; filename="toll-counters.csv"/);
-  const [head, row] = (await r.text()).trim().split(/\r\n/);
-  assert.equal(head, COUNTERS.join(","), "columns are exactly the Node counter names");
-  const vals = row.split(",").map(Number);
-  return Object.fromEntries(COUNTERS.map((k, i) => [k, vals[i]]));
+  const [head, ...lines] = (await r.text()).trim().split(/\r\n/);
+  assert.equal(head, CSV_COLUMNS.join(","), "date, timezone, the Node counter names, challenges_minted, since, exported_at");
+  const rows = lines.map((l) => Object.fromEntries(l.split(",").map((v, i) => [CSV_COLUMNS[i], v])));
+  const last = rows[rows.length - 1];
+  assert.equal(last.date, new Date().toISOString().slice(0, 10), "last row is today in UTC");
+  const today = Object.fromEntries([...COUNTERS, "challenges_minted"].map((k) => [k, Number(last[k])]));
+  return { rows, today };
+}
+async function exportCsv(): Promise<Record<string, number>> {
+  return (await exportCsvFull()).today;
 }
 
 async function getPass(action = "write") {
@@ -218,6 +229,28 @@ test("Export counters: plain link on the 'Challenges issued today' line with the
   assert.notEqual(noNonce.headers()["content-type"]?.startsWith("text/csv"), true, "no nonce: no CSV");
   const c = await exportCsv();
   assert.ok(c.pass_accept >= 1);
+});
+
+test("CSV: one row per UTC day for the last 30 days, oldest first; timezone column; since and exported_at in ISO UTC; challenges_minted counts each challenge and drives 'Challenges issued today'", { skip }, async () => {
+  const a = await exportCsvFull();
+  assert.equal(a.rows.length, 30);
+  const day = (i: number) => new Date(Date.now() - i * 86400000).toISOString().slice(0, 10);
+  assert.deepEqual(a.rows.map((r) => r.date), Array.from({ length: 30 }, (_, i) => day(29 - i)));
+  for (const r of a.rows) {
+    assert.equal(r.timezone, "UTC");
+    assert.match(r.since, ISO_UTC);
+    assert.match(r.exported_at, ISO_UTC);
+    for (const k of [...COUNTERS, "challenges_minted"]) assert.match(r[k], /^\d+$/, k);
+  }
+  assert.ok(Math.abs(Date.parse(a.rows[0].exported_at) - Date.now()) < 120000, "exported_at is now");
+  assert.ok(Date.parse(a.rows[0].since) <= Date.now());
+  for (let i = 0; i < 3; i++) await fetch(`${WP}/wp-json/toll/v1/challenge?action=write&path=/wp-comments-post.php`);
+  const b = await exportCsvFull();
+  assert.equal(b.today.challenges_minted - a.today.challenges_minted, 3, "each issued challenge is counted");
+  assert.equal(b.rows[0].since, a.rows[0].since, "since does not move");
+  await A.goto(SETTINGS);
+  const shown = /Challenges issued today: ([\d,]+)/.exec(await A.locator(".toll-stat").innerText())![1].replace(/,/g, "");
+  assert.equal(Number(shown), b.today.challenges_minted, "the admin line is today's UTC challenges_minted");
 });
 
 // ---- Settings → Toll states (design/proto/wp-settings.html) ----------------------------------

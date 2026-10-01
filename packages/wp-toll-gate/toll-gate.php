@@ -35,6 +35,7 @@ register_deactivation_hook(__FILE__, 'toll_gate_deactivate');
 function toll_gate_activate(): void
 {
     toll_gate_ensure_keys();
+    toll_gate_counting_since();
     if (!wp_next_scheduled('toll_gate_cleanup')) wp_schedule_event(time() + 3600, 'hourly', 'toll_gate_cleanup');
 }
 
@@ -44,6 +45,7 @@ function toll_gate_deactivate(): void
 }
 
 add_action('toll_gate_cleanup', 'toll_gate_store_cleanup');
+add_action('toll_gate_cleanup', 'toll_gate_counters_cleanup');
 add_action('rest_api_init', 'toll_gate_register_routes');
 add_action('init', 'toll_gate_init_gate');
 if (is_admin()) toll_gate_admin_init();
