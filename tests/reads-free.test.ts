@@ -9,7 +9,7 @@ import { createToll, loadConfig, normalizeConfig, classifyPath, protect, Metrics
 import { TEST_SECRET } from "./helpers.ts";
 
 const COPY = readFileSync(new URL("../docs/copy.md", import.meta.url), "utf8");
-const INSTALL = "Toll checks writes and searches, not page views. Leave public pages open so people and answer engines can read you. Turn Toll on for comments, forms, logins, and APIs.";
+const INSTALL = "Toll checks writes, not page views. Leave public pages open so people and answer engines can read you. Turn Toll on for comments, forms, logins, and APIs.";
 const base = { site_id: "site_test", secret: TEST_SECRET };
 
 test("the page-view warning and install text are docs/copy.md word for word", () => {

@@ -2,7 +2,7 @@
 
 The `toll-gate` WordPress plugin (spec §13, phase 3). Local only: not published anywhere.
 
-The settings page opens with the install line from docs/copy.md, as a plain paragraph under the heading: "Toll checks writes and searches, not page views. Leave public pages open so people and answer engines can read you. Turn Toll on for comments, forms, logins, and APIs."
+The settings page opens with the install line from docs/copy.md, as a plain paragraph under the heading: "Toll checks writes, not page views. Leave public pages open so people and answer engines can read you. Turn Toll on for comments, forms, logins, and APIs."
 
 - Protects **comments** and **login** by default; **registration**, **lost password**, **WooCommerce checkout** and **Contact Form 7** are opt-in on Settings → Toll. A theme form with `data-toll="write"` gets the widget too; to verify it, the theme calls `toll_gate_verify_request('write')` before handling the post.
 - The issuer is the site itself (`/wp-json/toll/v1/{challenge,redeem,status,health,siteverify}`, same wire format as docs/protocol.md). Challenges are minted and solutions verified in PHP with the pinned work engine library (packages/server-php). Nothing is called outside the site, except the owner's own payment server when "Collect usage payouts" is on and set to Payment server (balance, withdraw, and offers and paid redeems for agents).

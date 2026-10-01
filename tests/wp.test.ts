@@ -275,7 +275,7 @@ test("install line (Amendment 2 §C): a plain paragraph right under the Toll hea
     const lede = A.locator("#toll-gate-settings > p.toll-lede");
     // WP's common.js moves status notices to directly after the first h1; the lede is the first thing after the heading that isn't one.
     assert.equal(await lede.evaluate((el) => { let p = el.previousElementSibling; while (p && p.classList.contains("notice")) p = p.previousElementSibling; return p?.tagName; }), "H1");
-    assert.equal(await lede.innerText(), "Toll checks writes and searches, not page views. Leave public pages open so people and answer engines can read you. Turn Toll on for comments, forms, logins, and APIs.");
+    assert.equal(await lede.innerText(), "Toll checks writes, not page views. Leave public pages open so people and answer engines can read you. Turn Toll on for comments, forms, logins, and APIs.");
     assert.equal(await lede.evaluate((el) => el.closest(".notice") === null && !el.className.includes("notice")), true, "not a notice box");
     assert.equal(await lede.evaluate((el) => getComputedStyle(el).fontSize), "14px");
     const order = await A.locator("#toll-gate-settings").evaluate((root) => { const l = root.querySelector(".toll-lede")!; const st = root.querySelector(".toll-stat")!; return !!(l.compareDocumentPosition(st) & Node.DOCUMENT_POSITION_FOLLOWING); });
