@@ -1,21 +1,24 @@
 <?php
 // Visitor network vectors (docs/net-vectors.json) on the WordPress plugin's PHP: the coarse network
-// matches Node's coarseNet for every address, and the client address follows TOLL_TRUSTED_PROXIES.
+// matches Node's coarseNet for every address, the address parser matches protocol ipBytes, and the client
+// address follows TOLL_TRUSTED_PROXIES the same way as protocol clientIp (Node and the edge).
 // Run: php tests/php/run-net-vectors.php   (--json prints [input, output] pairs for the Node test)
 declare(strict_types=1);
 const ABSPATH = '/';
 require __DIR__ . '/../../packages/wp-toll-gate/includes/network.php';
 
-/** $_SERVER for a client_ip vector: xff null means no X-Forwarded-For header at all ("" is an empty one). */
+/** $_SERVER for a client_ip vector: xff null means no X-Forwarded-For header at all ("" is an empty one); {repeat, times, then} builds a long one. */
 function vector_server(array $c): array
 {
-    return ['REMOTE_ADDR' => $c['remote']] + ($c['xff'] !== null ? ['HTTP_X_FORWARDED_FOR' => $c['xff']] : []);
+    $xff = is_array($c['xff']) ? str_repeat($c['xff']['repeat'], $c['xff']['times']) . $c['xff']['then'] : $c['xff'];
+    return ['REMOTE_ADDR' => $c['remote']] + ($xff !== null ? ['HTTP_X_FORWARDED_FOR' => $xff] : []);
 }
 
 $v = json_decode(file_get_contents(__DIR__ . '/../../docs/net-vectors.json'), true, 512, JSON_THROW_ON_ERROR);
 if (in_array('--json', $argv, true)) {
-    $out = ['coarse_net' => [], 'client_ip' => []];
+    $out = ['coarse_net' => [], 'ip_bytes' => [], 'client_ip' => []];
     foreach ($v['coarse_net'] as [$ip, $_]) $out['coarse_net'][] = [$ip, toll_gate_coarse_net($ip)];
+    foreach ($v['ip_bytes'] as [$ip, $_]) $out['ip_bytes'][] = [$ip, ($b = toll_gate_ip_bin($ip)) === null ? null : bin2hex($b)];
     foreach ($v['client_ip'] as $c) {
         $ip = toll_gate_client_ip(vector_server($c), toll_gate_parse_proxies($c['trusted']));
         $out['client_ip'][] = [$c['name'], $ip, toll_gate_coarse_net($ip)];
@@ -35,6 +38,11 @@ function check(bool $ok, string $name): void
 foreach ($v['coarse_net'] as [$ip, $want]) {
     $got = toll_gate_coarse_net($ip);
     check($got === $want, 'coarse net ' . json_encode($ip) . ' -> ' . json_encode($want) . ($got === $want ? '' : ' (got ' . json_encode($got) . ')'));
+}
+foreach ($v['ip_bytes'] as [$ip, $want]) {
+    $b = toll_gate_ip_bin($ip);
+    $got = $b === null ? null : bin2hex($b);
+    check($got === $want, 'ip bytes ' . json_encode($ip) . ' -> ' . json_encode($want) . ($got === $want ? '' : ' (got ' . json_encode($got) . ')'));
 }
 foreach ($v['client_ip'] as $c) {
     $got = toll_gate_client_ip(vector_server($c), toll_gate_parse_proxies($c['trusted']));

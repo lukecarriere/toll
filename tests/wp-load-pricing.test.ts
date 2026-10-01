@@ -17,7 +17,7 @@ import assert from "node:assert/strict";
 import { existsSync, writeFileSync, rmSync, mkdirSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { randomBytes } from "node:crypto";
-import { coarseNet } from "../packages/protocol/src/index.ts";
+import { coarseNet, parseTrustedProxies } from "../packages/protocol/src/index.ts";
 import { createAgent, testBackendPayer } from "../packages/agent/src/index.ts";
 import { BASE_PRICE_NOTE } from "../packages/server-node/src/manifest.ts";
 import { startDemo, PAID_ON, type Running } from "./helpers.ts";
@@ -45,7 +45,7 @@ before(async () => {
   if (skip) return;
   // A payment server with velocity on: 3 paid redeems from one network -> x2, 6 -> x4, in a 10-minute window.
   hot = await startDemo({ work: { standard: { cost: 500 }, velocity_steps: [[3, 2], [6, 4]], velocity_window_s: 600 }, adaptive: { velocity: true }, settlement: { ...PAID_ON.settlement, owner_key: KEY } });
-  hot.demo.app.set("trust proxy", "loopback"); // (a) and (c): this test is the visitor's proxy too
+  hot.demo.toll.config.trusted_proxies = parseTrustedProxies("127.0.0.1, ::1").ranges; // (a) and (c): this test is the visitor's proxy too (TOLL_TRUSTED_PROXIES)
   HOT = hot.url.replace("//localhost:", "//127.0.0.1:");
   saved = wpEval("echo wp_json_encode(['s' => toll_gate_settings(), 'k' => (string) get_option('toll_gate_server_key', '')]);");
   mkdirSync(WPPATH + "/wp-content/mu-plugins", { recursive: true });

@@ -14,7 +14,7 @@ import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { coarseKey, coarseNet, isCoarseNet } from "../packages/protocol/src/index.ts";
+import { coarseKey, coarseNet, isCoarseNet, parseTrustedProxies } from "../packages/protocol/src/index.ts";
 import { StubSettler } from "../packages/settlement-ln/src/index.ts";
 import { BASE_PRICE_NOTE } from "../packages/server-node/src/manifest.ts";
 import { startDemo, PAID_ON, type Running } from "./helpers.ts";
@@ -30,8 +30,8 @@ after(async () => { for (const s of servers) await s.close(); });
 /** A payment server with the owner API. Velocity steps are low (3 -> x2, 6 -> x4) and the window long, so a few paid redeems raise the price and the test cannot cross a window edge. */
 async function paymentServer(velocity: boolean, settler?: StubSettler): Promise<Running> {
   const s = await startDemo({ work: { standard: { cost: 500 }, velocity_steps: [[3, 2], [6, 4]], velocity_window_s: 600 }, adaptive: { velocity }, settlement: { ...PAID_ON.settlement, owner_key: KEY } }, settler ? { settlement: { settler } } : {});
-  // Direct requests in this file say which visitor they are with X-Forwarded-For from loopback.
-  s.demo.app.set("trust proxy", "loopback");
+  // Direct requests in this file say which visitor they are with X-Forwarded-For from loopback, listed as a trusted proxy (TOLL_TRUSTED_PROXIES).
+  s.demo.toll.config.trusted_proxies = parseTrustedProxies("127.0.0.1, ::1").ranges;
   servers.push(s);
   return s;
 }
@@ -74,7 +74,7 @@ test("vectors: Node coarseNet gives the expected network for every address, and 
 test("vectors: the PHP runner passes on its own (npm test runs it too)", () => {
   const out = php([ROOT + "tests/php/run-net-vectors.php"]);
   assert.match(out, /: (\d+) passed, 0 failed\n$/);
-  assert.equal(Number(/: (\d+) passed/.exec(out)![1]), V.coarse_net.length + V.client_ip.length + 1);
+  assert.equal(Number(/: (\d+) passed/.exec(out)![1]), V.coarse_net.length + V.ip_bytes.length + V.client_ip.length + 1);
 });
 
 test("coarseKey: a network from coarseNet keys the same velocity bucket as any address in it (so a relayed net and the server's own 402 share a count)", () => {
