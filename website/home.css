@@ -1,0 +1,36 @@
+/* Homepage, merged direction D. Values from design/concepts/_head.css and d-merged.html (handoff §1-§5). */
+@font-face{font-family:"Toll Slab";src:url(/fonts/arvo/Arvo-Bold.woff2) format("woff2");font-weight:700;font-display:swap}
+@font-face{font-family:"Toll Sans";src:url(/fonts/public-sans/PublicSans-Latin.woff2) format("woff2");font-weight:100 900;font-display:swap}
+:root{--asphalt:#24272C;--night:#1B1E26;--dusk:#5B4D63;--glow:#E3A869;--amber:#F2B544;--lane:#EEE7D7;--green:#23402F;--sign:#1F5A3E;--ink:#1E2024;--muted:#5E5A57;--paper:#F6F2EA}
+*{box-sizing:border-box}html,body{margin:0}
+body{font:18px/1.5 "Toll Sans",system-ui,sans-serif}
+.sign{display:inline-block;font:700 22px/1 "Toll Slab",serif;letter-spacing:.04em;color:var(--lane);background:var(--sign);border:2px solid var(--lane);border-radius:6px;padding:7px 14px 8px;text-decoration:none}
+nav{display:flex;gap:28px;font-size:15px}nav a{text-decoration:none;color:inherit}
+body{background:var(--paper);color:var(--ink)}
+.hero{min-height:100svh;display:grid;grid-template-columns:1fr minmax(320px,40%)}
+.left{display:flex;flex-direction:column;padding:28px 56px 40px 40px;max-width:760px;margin-left:auto;width:100%}
+header{display:flex;justify-content:space-between;align-items:center;gap:20px}
+nav{color:var(--muted)} /* full --muted, no opacity: the concept's .82 fails contrast (4.09:1) */
+a:focus-visible{outline:2px solid var(--sign);outline-offset:3px}
+.copy{margin:auto 0}
+.kicker{font:700 14px/1.3 "Toll Slab",serif;letter-spacing:.14em;text-transform:uppercase;color:var(--sign);margin:0 0 26px;display:flex;align-items:center;gap:14px}
+.kicker:before{content:"";flex:none;width:38px;height:3px;background:var(--amber)}
+h1{margin:0;font-weight:700;font-size:clamp(46px,6.6vw,96px);line-height:.98;letter-spacing:-.035em;color:var(--green)}
+h1 span{display:block}
+.line{margin:30px 0 0;font-size:clamp(19px,1.8vw,24px);color:var(--muted);max-width:25em}
+.meta{display:flex;gap:40px;font-size:14px;color:var(--muted);border-top:1px solid #DDD5C6;padding-top:18px;margin:0}
+.meta b{display:block;color:var(--ink);font-weight:600}
+.right{position:relative;margin:0;overflow:hidden;background:var(--green)}
+.right img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;object-position:49% 50%;display:block}
+.lane{position:absolute;z-index:1;left:-2px;top:0;bottom:0;width:4px;background:repeating-linear-gradient(180deg,var(--amber) 0 30px,transparent 30px 58px)}
+/* The one sign: a roadside plate on the left shoulder, above the road surface so it never covers the lane. */
+.plate{position:absolute;z-index:1;left:24px;bottom:18%;width:max-content;max-width:min(10em,calc(100% - 48px));margin:0;background:var(--sign);color:var(--lane);border:2px solid var(--lane);border-radius:8px;box-shadow:0 0 0 4px var(--sign),0 12px 28px rgba(0,0,0,.35);padding:10px 14px 11px;font:700 20px/1.2 "Toll Slab",serif;letter-spacing:.01em;text-wrap:balance}
+@media (max-width:760px){
+ .hero{grid-template-columns:1fr;grid-template-rows:auto 46svh}
+ .left{padding:20px 20px 28px}header{flex-wrap:wrap;gap:12px}nav{gap:4px 16px;flex-wrap:wrap;font-size:14px}
+ .copy{margin:7vh 0 28px}.meta{gap:22px;flex-wrap:wrap}
+ .right{min-height:300px}
+ .lane{left:0;right:0;top:-2px;bottom:auto;width:auto;height:4px;background:repeating-linear-gradient(90deg,var(--amber) 0 30px,transparent 30px 58px)}
+ .right img{object-position:50% 88%}
+ .plate{left:20px;top:20px;bottom:auto;width:auto;max-width:calc(100% - 40px);font-size:17px;padding:8px 12px 9px;box-shadow:0 0 0 3px var(--sign),0 10px 22px rgba(0,0,0,.35)}
+}

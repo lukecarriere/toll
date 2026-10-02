@@ -13,7 +13,7 @@ import { build, PAGES } from "../website/build.mjs";
 import { runLint } from "../scripts/copy-lint.mjs";
 
 const ROOT = new URL("..", import.meta.url).pathname;
-const OUT = build(mkdtempSync(join(tmpdir(), "toll-website-")) + "/");
+const OUT = build(mkdtempSync(join(tmpdir(), "toll-website-")) + "/", ""); // TOLL_SITE_URL unset: no canonical tags
 const md = (f: string) => readFileSync(ROOT + "website/" + f + ".md", "utf8");
 const html = (f: string) => readFileSync(OUT + f + ".html", "utf8");
 const norm = (s: string) => s.replace(/\s+/g, " ").trim();
@@ -70,8 +70,9 @@ test("built pages carry exactly the markdown text: header, nav with aria-current
     assert.deepEqual(htmlText(h), mdText(md(p.file)), p.file);
     const nav = /<nav aria-label="Pages">([\s\S]*?)<\/nav>/.exec(h)![1];
     assert.deepEqual([...nav.matchAll(/>([^<]+)<\/a>/g)].map((m) => decode(m[1])), ["Mission", "Vision", "Values", "Where Toll fits"]);
-    assert.deepEqual([...nav.matchAll(/href="([^"]+)" aria-current="page"/g)].map((m) => m[1]), [p.file + ".html"]);
-    assert.match(h, /<a class="mark" href="mission\.html">Toll<\/a>/);
+    assert.deepEqual([...nav.matchAll(/href="([^"]+)" aria-current="page"/g)].map((m) => m[1]), ["/" + p.file]);
+    assert.deepEqual([...nav.matchAll(/href="([^"]+)"/g)].map((m) => m[1]), ["/mission", "/vision", "/values", "/ecosystem"], "root-relative, no extension (EM, Oct 2)");
+    assert.match(h, /<a class="mark" href="\/">Toll<\/a>/, "the wordmark goes to the homepage");
     assert.doesNotMatch(h, /<footer|<img|<svg|<picture|<video|<audio|<iframe|<form/i);
   }
   assert.match(html("values"), /<ul><li>/);
@@ -81,7 +82,8 @@ test("built pages carry exactly the markdown text: header, nav with aria-current
 
 test("no analytics: no <script>, no inline handlers, no external URLs, no pixels, no cookies in the built HTML and CSS", () => {
   const files = readdirSync(OUT).sort();
-  assert.deepEqual(files, ["ecosystem.html", "mission.html", "site.css", "values.html", "vision.html"], "nothing else is shipped");
+  // The homepage (index.html, home.css, img/, fonts/) is checked in tests/homepage.test.ts.
+  assert.deepEqual(files, ["ecosystem.html", "fonts", "home.css", "img", "index.html", "mission.html", "site.css", "values.html", "vision.html"], "nothing else is shipped");
   for (const p of PAGES) {
     const h = html(p.file);
     assert.doesNotMatch(h, /<script/i, p.file + ": no script tag");
@@ -90,9 +92,9 @@ test("no analytics: no <script>, no inline handlers, no external URLs, no pixels
     assert.doesNotMatch(h, /javascript:|http-equiv|set-cookie|document\.cookie|posthog|gtag|googletagmanager|google-analytics|plausible|segment\.|fbq|hotjar|matomo/i, p.file);
     assert.doesNotMatch(h, /https?:|\/\/[a-z0-9]/i, p.file + ": no absolute or protocol-relative URL anywhere");
     const urls = [...h.matchAll(/\s(?:href|src|action|srcset|poster|data)="([^"]*)"/gi)].map((m) => m[1]);
-    for (const u of urls) assert.match(u, /^(mission|vision|values|ecosystem)\.html$|^site\.css$/, `${p.file}: ${u} is a local page or the stylesheet`);
+    for (const u of urls) assert.match(u, /^\/(mission|vision|values|ecosystem)?$|^\/site\.css$/, `${p.file}: ${u} is a local page or the stylesheet`);
     const links = [...h.matchAll(/<link\b[^>]*>/gi)].map((m) => m[0]);
-    assert.deepEqual(links, ['<link rel="stylesheet" href="site.css">'], p.file + ": one local stylesheet, no preconnect/prefetch/fonts");
+    assert.deepEqual(links, ['<link rel="stylesheet" href="/site.css">'], p.file + ": one local stylesheet, no preconnect/prefetch/fonts");
   }
   const css = readFileSync(OUT + "site.css", "utf8");
   assert.doesNotMatch(css, /url\(|@import|@font-face|https?:/i, "the stylesheet fetches nothing");
@@ -102,7 +104,9 @@ let server: Server;
 let base = "";
 before(async () => {
   server = createServer((req, res) => {
-    const f = (req.url ?? "/").split("?")[0].replace(/^\//, "");
+    // Extensionless routes, as the site is served: "/" is index.html, "/mission" is mission.html.
+    let f = (req.url ?? "/").split("?")[0].replace(/^\//, "") || "index";
+    if (/^[a-z]+$/.test(f)) f += ".html";
     if (!/^[a-z]+\.(html|css)$/.test(f) || !existsSync(OUT + f)) { res.writeHead(404).end(); return; }
     res.writeHead(200, { "content-type": f.endsWith(".css") ? "text/css" : "text/html; charset=utf-8" }).end(readFileSync(OUT + f));
   });
@@ -120,9 +124,9 @@ test("in a browser each page makes only same-origin requests (the page and site.
     page.on("request", (r) => seen.push(r.url()));
     for (const p of PAGES) {
       seen.length = 0;
-      const res = await page.goto(base + p.file + ".html", { waitUntil: "networkidle" });
+      const res = await page.goto(base + p.file, { waitUntil: "networkidle" });
       assert.equal(res!.status(), 200);
-      assert.deepEqual([...new Set(seen)].sort(), [base + p.file + ".html", base + "site.css"].sort(), p.file + ": requests");
+      assert.deepEqual([...new Set(seen)].sort(), [base + p.file, base + "site.css"].sort(), p.file + ": requests");
       assert.equal(await page.evaluate(() => document.scripts.length), 0);
       assert.equal(await page.evaluate(() => document.cookie), "");
       assert.equal(await page.locator("p.close").count(), p.closingLine ? 1 : 0);
@@ -139,6 +143,10 @@ test("copy lint covers website/ and docs/positioning.md, and they pass as writte
   assert.ok(md("values").includes("We do not score visitors as human or not."), "Luke's one use of 'human' stays");
 });
 
-test("built pages match the Designer's template byte for byte", { skip: existsSync(ROOT + "design/proto/website/mission.html") ? false : "design/ not present (gitignored)" }, () => {
-  for (const f of [...PAGES.map((p: any) => p.file + ".html"), "site.css"]) assert.equal(readFileSync(OUT + f, "utf8"), readFileSync(ROOT + "design/proto/website/" + f, "utf8"), f);
+test("built pages match the Designer's template byte for byte, apart from the EM's root-relative rulings", { skip: existsSync(ROOT + "design/proto/website/mission.html") ? false : "design/ not present (gitignored)" }, () => {
+  // EM rulings (Oct 2): the wordmark goes to "/", every page link is root-relative with no extension, and
+  // the stylesheet is "/site.css". Those are the only changes to the template; everything else must match.
+  const links = (t: string) => t.replace('<a class="mark" href="mission.html">', '<a class="mark" href="/">').replace(/href="(mission|vision|values|ecosystem)\.html"/g, 'href="/$1"')
+    .replace('<link rel="stylesheet" href="site.css">', '<link rel="stylesheet" href="/site.css">');
+  for (const f of [...PAGES.map((p: any) => p.file + ".html"), "site.css"]) assert.equal(readFileSync(OUT + f, "utf8"), links(readFileSync(ROOT + "design/proto/website/" + f, "utf8")), f);
 });
