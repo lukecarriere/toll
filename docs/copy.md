@@ -182,3 +182,8 @@ Heading: Where Toll fits
 ## Image alt text (exact; PM cleared Oct 1, 2026)
 - Homepage hero photo (merged direction D): "An empty two-lane road through a tall forest."
 - Never name the tree species in alt text, captions, or file names that ship. The hero file ships as `forest-road-*.jpg`.
+
+## Homepage head tags (exact; PM cleared Oct 2, 2026)
+- `<title>`: Toll · Less traffic. Better road.
+- `<meta name="description">`: Stop form spam without closing the site.
+- The separator is a middle dot (U+00B7) with one space on each side. Both lines are built only from brand lines cleared above.
