@@ -24,6 +24,8 @@ function toll_gate_s(string $k): string
         'lostpassword' => 'Lost password',
         'woo' => 'WooCommerce checkout',
         'woo_active' => '(WooCommerce is active)',
+        // PM, Oct 2, 2026 (docs/copy.md "WordPress strings", exact): the block checkout is off at launch.
+        'woo_help' => "Covers the classic checkout. The newer block checkout isn't covered yet.",
         'cf7' => 'Contact Form 7 forms',
         'cf7_active' => '(Contact Form 7 is active)',
         'any_form' => 'Any form with <code>data-toll</code>',

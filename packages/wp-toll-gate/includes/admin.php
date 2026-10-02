@@ -134,6 +134,7 @@ function toll_gate_render_settings(): void
 <?php endforeach; ?>
 <?php if (toll_gate_woo_active()) : ?>
 <label><input type="checkbox" name="toll_gate[forms][woo]" value="1"<?php echo $s['forms']['woo'] ? ' checked' : ''; ?>> <?php echo esc_html(toll_gate_s('woo')); ?> <span class="toll-muted"><?php echo esc_html(toll_gate_s('woo_active')); ?></span></label><br>
+<p class="description toll-woo-help"><?php echo esc_html(toll_gate_s('woo_help')); ?></p>
 <?php endif; ?>
 <?php if (toll_gate_cf7_active()) : ?>
 <label><input type="checkbox" name="toll_gate[forms][cf7]" value="1"<?php echo $s['forms']['cf7'] ? ' checked' : ''; ?>> <?php echo esc_html(toll_gate_s('cf7')); ?> <span class="toll-muted"><?php echo esc_html(toll_gate_s('cf7_active')); ?></span></label><br>
