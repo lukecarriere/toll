@@ -4,11 +4,13 @@
 //     WordPress plugin are byte-identical to 23108ec's (tests/fixtures/discovery-23108ec.json, made
 //     by tests/discovery-docs.ts from a 23108ec tree, see its header);
 //   - set to a placeholder: `docs` is exactly that value in all three, and every other byte is the same;
-//   - invalid (http:, no host, garbage, ...): logged once and treated as unset, in all three.
+//   - invalid (http:, no host, garbage, ...): treated as unset in all three, and logged once (Node:
+//     per process, edge: per isolate, WordPress: at most once an hour, through a transient).
 // The WordPress side runs under PHP-CLI (tests/php/run-discovery.php), no WordPress install needed.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { spawnSync } from "node:child_process";
 import { parseSiteUrl, siteUrl, SITE_URL_PATTERN, SITE_URL_ENV } from "../packages/protocol/src/index.ts";
 import { siteUrl as siteUrlSubpath } from "../packages/protocol/src/site-url.ts";
@@ -142,7 +144,8 @@ test("invalid: logged once and treated as unset in Node, edge and WordPress (out
     const got = { ...node, ...edge, ...wp.docs };
     for (const k of Object.keys(GOLDEN.docs)) assert.equal(got[k], GOLDEN.docs[k], `${k} with invalid TOLL_SITE_URL ${JSON.stringify(raw)}`);
     // Once per process per value on Node (two configs were built: paid and work), once per isolate at
-    // the edge (both documents fetched), once per request on WordPress (only the manifest reads it).
+    // the edge (both documents fetched), once per harness run on WordPress (only the manifest reads it;
+    // each run has its own in-memory transients, so the hourly throttle is checked in the next test).
     assert.equal(nodeWarn.length, 1, "node: " + nodeWarn.join(" | "));
     assert.equal(edgeWarn.length, 1, "edge: " + edgeWarn.join(" | "));
     for (const m of [...nodeWarn, ...edgeWarn]) assert.match(m, /^\[toll\] TOLL_SITE_URL must be an absolute https:\/\/ URL/);
@@ -156,4 +159,50 @@ test("invalid: logged once and treated as unset in Node, edge and WordPress (out
   const wp = phpDocs(ROOT, true);
   assert.equal(wp.docs["wp work toll.json"], GOLDEN.docs["wp work toll.json"]);
   assert.match(wp.stderr["wp work toll.json"], /TOLL_SITE_URL must be a string/);
+});
+
+/** One manifest request to the WordPress plugin with transients kept in `store` between requests. Returns the log lines. */
+function wpManifestLog(store: string, constant: unknown, skew = 0): string[] {
+  const args = [PHP, "serve", PLUGIN, ROOT + "/packages/server-php/vendor/autoload.php", "work", "toll.json"];
+  if (constant !== undefined) args.push(JSON.stringify(constant));
+  const r = spawnSync("php", args, { encoding: "utf8", env: { ...process.env, TOLL_TEST_TRANSIENTS: store, TOLL_TEST_CLOCK_SKEW: String(skew) } });
+  assert.equal(r.status, 0, r.stderr);
+  assert.equal(r.stdout, GOLDEN.docs["wp work toll.json"], "the manifest is as if TOLL_SITE_URL were unset");
+  return r.stderr.split("\n").filter((l) => l.includes("Toll: TOLL_SITE_URL"));
+}
+
+test("WordPress: an invalid TOLL_SITE_URL is logged at most once an hour across requests (toll_gate_site_url_warned transient)", () => {
+  const dir = mkdtempSync(tmpdir() + "/toll-site-url-");
+  const store = dir + "/transients.json";
+  const bad = "garbage-once-an-hour";
+  try {
+    const first = wpManifestLog(store, bad);
+    assert.equal(first.length, 1, "the first request logs");
+    assert.ok(!first[0].includes(bad), "the value itself is not logged");
+    let later = 0;
+    for (let i = 0; i < 5; i++) later += wpManifestLog(store, bad).length;
+    assert.equal(later, 0, "five more requests within the hour log nothing");
+    const saved = JSON.parse(readFileSync(store, "utf8"));
+    assert.deepEqual(Object.keys(saved), ["toll_gate_site_url_warned"]);
+    const ttl = saved.toll_gate_site_url_warned[1] - Math.floor(Date.now() / 1000);
+    assert.ok(ttl > 3500 && ttl <= 3600, `set for HOUR_IN_SECONDS (${ttl}s left)`);
+    assert.equal(wpManifestLog(store, bad, 3540).length, 0, "still nothing a minute before the hour is up");
+    assert.equal(wpManifestLog(store, bad, 3601).length, 1, "the transient has expired: logged again");
+    assert.equal(wpManifestLog(store, bad, 3601).length, 0, "and throttled again from there");
+    writeFileSync(store, "{}");
+    assert.equal(wpManifestLog(store, bad).length, 1, "transient deleted: logged again");
+    writeFileSync(store, "{}");
+    for (const ok of [undefined, "", SITE]) {
+      for (let i = 0; i < 3; i++) {
+        const args = [PHP, "serve", PLUGIN, ROOT + "/packages/server-php/vendor/autoload.php", "work", "toll.json"];
+        if (ok !== undefined) args.push(JSON.stringify(ok));
+        const r = spawnSync("php", args, { encoding: "utf8", env: { ...process.env, TOLL_TEST_TRANSIENTS: store } });
+        assert.equal(r.status, 0, r.stderr);
+        assert.equal(r.stderr, "", `${JSON.stringify(ok)}: nothing logged`);
+      }
+    }
+    assert.equal(readFileSync(store, "utf8"), "{}", "a valid or unset value stores no transient");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
