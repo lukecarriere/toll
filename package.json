@@ -24,9 +24,9 @@
     "vectors": "node scripts/gen-vectors.ts",
     "vectors:settlement": "node scripts/gen-settlement-vectors.ts",
     "lint:copy": "node scripts/copy-lint.mjs",
-    "test": "npm run build && npm run typecheck && npm run lint:copy && node --test --test-concurrency=1 tests/*.test.ts && php tests/php/run-vectors.php && php tests/php/run-settlement-vectors.php && php tests/php/run-issuer.php && php tests/php/run-net-vectors.php",
+    "test": "npm run build && npm run typecheck && npm run lint:copy && node --test --test-concurrency=1 tests/*.test.ts && php tests/php/run-vectors.php && php tests/php/run-settlement-vectors.php && php tests/php/run-issuer.php && php tests/php/run-net-vectors.php && php tests/php/run-gate.php",
     "test:unit": "node --test tests/*.test.ts",
-    "test:php": "php tests/php/run-vectors.php && php tests/php/run-settlement-vectors.php && php tests/php/run-issuer.php && php tests/php/run-net-vectors.php",
+    "test:php": "php tests/php/run-vectors.php && php tests/php/run-settlement-vectors.php && php tests/php/run-issuer.php && php tests/php/run-net-vectors.php && php tests/php/run-gate.php",
     "demo": "npm run build && node demo/server.ts",
     "bench": "npm run build && node bench/run-bench.ts",
     "agent-pay": "node packages/agent/src/agent-pay.ts"

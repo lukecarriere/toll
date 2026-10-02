@@ -1,6 +1,9 @@
 <?php
 // The gate: puts <toll-gate> in protected forms, loads the widget, and verifies the pass on the
 // server before WordPress handles the form (spec §13). Fails closed: no valid pass, no write.
+// Opt-in forms: the WooCommerce classic checkout and Contact Form 7 (REST and no-JS submits). The
+// WooCommerce block checkout (Store API) isn't covered yet: nothing here is registered for it, so
+// people and agents get stock behavior there.
 declare(strict_types=1);
 
 if (!defined('ABSPATH')) exit;
@@ -38,6 +41,7 @@ function toll_gate_init_gate(): void
         add_filter('wpcf7_form_elements', fn ($html) => $html . toll_gate_element('write'));
         add_filter('wpcf7_spam', 'toll_gate_check_cf7', 10, 1);
     }
+    if (toll_gate_rest_gated_routes() !== []) add_filter('rest_dispatch_request', 'toll_gate_rest_gate', 10, 2);
 }
 
 function toll_gate_widget_url(): string
@@ -129,21 +133,20 @@ function toll_gate_challenge_url(string $action, string $path): string
 }
 
 /**
- * Refuse an agent the way the Node issuer does (docs/settlement.md §4): a 402 with the offers the
- * payment server minted, the WWW-Authenticate value it gave, and a challenge_url for the work
+ * How to refuse an agent the way the Node issuer does (docs/settlement.md §4): a 402 with the offers
+ * the payment server minted, the WWW-Authenticate value it gave, and a challenge_url for the work
  * instead; or, with no offers (payouts off, Test mode, no address, server down or slow), the
  * work-only 403 with an inline challenge. Over the per-IP challenge limit: 403 with no challenge.
+ * Returns [status, body, headers] and counts offer_shown or turned_away; sending is up to the caller.
  */
-function toll_gate_refuse_agent(string $action, string $path): never
+function toll_gate_agent_refusal(string $action, string $path): array
 {
-    nocache_headers();
     $ok = toll_gate_lib_ok() && toll_gate_allow_challenge();
     $relay = $ok ? toll_gate_relay_offers($action) : null;
     if ($relay !== null) {
         toll_gate_count('offer_shown');
-        header('WWW-Authenticate: ' . $relay['www_authenticate']);
-        header('Access-Control-Expose-Headers: WWW-Authenticate');
-        wp_send_json(['error' => 'payment_required', 'challenge_url' => toll_gate_challenge_url($action, $path), 'offers' => $relay['offers']], 402);
+        $headers = ['WWW-Authenticate' => $relay['www_authenticate'], 'Access-Control-Expose-Headers' => 'WWW-Authenticate'];
+        return [402, ['error' => 'payment_required', 'challenge_url' => toll_gate_challenge_url($action, $path), 'offers' => $relay['offers']], $headers];
     }
     toll_gate_turned_away($action);
     $body = ['error' => 'toll_required'];
@@ -154,7 +157,75 @@ function toll_gate_refuse_agent(string $action, string $path): never
             // No challenge in the 403 rather than an error page.
         }
     }
-    wp_send_json($body, 403);
+    return [403, $body, []];
+}
+
+/** Send toll_gate_agent_refusal() and stop: nothing after this runs (no comment, order or mail). */
+function toll_gate_refuse_agent(string $action, string $path): never
+{
+    nocache_headers();
+    [$status, $body, $headers] = toll_gate_agent_refusal($action, $path);
+    foreach ($headers as $name => $value) header($name . ': ' . $value);
+    wp_send_json($body, $status);
+}
+
+/** Path of this request, for the challenge a refusal carries ("/" when it can't be read). */
+function toll_gate_request_path(): string
+{
+    $p = wp_parse_url((string) ($_SERVER['REQUEST_URI'] ?? '/'), PHP_URL_PATH);
+    return is_string($p) && $p !== '' ? $p : '/';
+}
+
+/**
+ * Look at the pass on this request without spending a use: true when it is valid for $action now
+ * and has a use left. Used where a refusal must come before the form's own checks, and the use is
+ * spent after them (toll_gate_verify_request(), atomic), so a form that fails its own validation
+ * costs nothing. A missing pass counts pass_absent, a bad or used-up one pass_reject (the request is
+ * refused right after); nothing counts pass_accept until the use is actually spent.
+ */
+function toll_gate_peek_request(string $action, ?WP_REST_Request $req = null): bool
+{
+    if (!toll_gate_lib_ok()) return false;
+    $token = toll_gate_token_from_request($req);
+    if ($token === null) {
+        toll_gate_count('pass_absent');
+        return false;
+    }
+    [$ok, $claims] = toll_gate_check_pass($token, $action, false);
+    $ok = $ok && toll_gate_uses_left((string) $claims['jti'], (int) $claims['n'], (int) $claims['exp']) > 0;
+    if (!$ok) toll_gate_count('pass_reject');
+    return $ok;
+}
+
+/** REST routes (patterns on the request route) of opt-in forms whose agents are checked before the route runs. */
+function toll_gate_rest_gated_routes(): array
+{
+    $f = toll_gate_settings()['forms'];
+    $routes = [];
+    if ($f['cf7'] && toll_gate_cf7_active()) $routes[] = '#^/contact-form-7/v1/contact-forms/\d+/feedback$#';
+    return $routes;
+}
+
+/**
+ * rest_dispatch_request: an agent POST to a gated route without a valid pass gets the 402 (or the
+ * 403 work check) instead of the route, with nothing spent; a valid pass goes through and its use is
+ * spent later, after the form's own validation. rest_request_before_callbacks can't do this: WordPress
+ * still runs the route after it unless it returns a WP_Error, which has a different body. Humans go
+ * through untouched (their check stays where it was, in the form's own hook).
+ */
+function toll_gate_rest_gate($result, $request)
+{
+    if ($result !== null || !($request instanceof WP_REST_Request) || $request->get_method() !== 'POST' || !toll_gate_is_agent()) return $result;
+    $route = (string) $request->get_route();
+    foreach (toll_gate_rest_gated_routes() as $re) {
+        if (!preg_match($re, $route)) continue;
+        if (toll_gate_peek_request('write', $request)) return $result;
+        [$status, $body, $headers] = toll_gate_agent_refusal('write', toll_gate_request_path());
+        $res = new WP_REST_Response($body, $status);
+        foreach ($headers + wp_get_nocache_headers() as $name => $value) $res->header($name, (string) $value);
+        return $res;
+    }
+    return $result;
 }
 
 function toll_gate_refuse(): never
@@ -193,18 +264,46 @@ function toll_gate_check_wp_error($errors)
     return $errors;
 }
 
-/** WooCommerce checkout and Contact Form 7 stay work-only for agents (no 402 there yet). */
+/**
+ * WooCommerce classic checkout (?wc-ajax=checkout; woocommerce_after_checkout_validation runs after
+ * the field and cart checks and before the order is created, stock is reserved or payment is tried).
+ * Agents: nothing is spent or refused while WooCommerce has its own errors (fields, or cart notices
+ * such as an item out of stock) or the post only updates totals; once there are none the use is spent
+ * (atomic), and an agent without a usable pass, including one whose last use another request just
+ * spent, gets the 402 or the 403 work check and the checkout stops there: no order, no stock held, no
+ * payment. Humans: the form error, as before. A use spent here stays spent if the payment gateway then
+ * declines the order. The block checkout (Store API) is not covered: nothing here runs for it.
+ */
 function toll_gate_check_woo($data, $errors): void
 {
+    $agent = toll_gate_is_agent();
+    if ($agent && toll_gate_woo_not_ready($data, $errors)) return;
     if (toll_gate_verify_request('write')[0]) return;
+    if ($agent) toll_gate_refuse_agent('write', toll_gate_request_path());
     toll_gate_turned_away('write');
     if ($errors instanceof WP_Error) $errors->add('toll_required', esc_html(toll_gate_s('no_js')));
 }
 
+/** WooCommerce will not create an order from this post anyway: its own errors, or a totals refresh. */
+function toll_gate_woo_not_ready($data, $errors): bool
+{
+    if ($errors instanceof WP_Error && $errors->has_errors()) return true;
+    if (function_exists('wc_notice_count') && wc_notice_count('error') > 0) return true;
+    return is_array($data) && !empty($data['woocommerce_checkout_update_totals']);
+}
+
+/**
+ * Contact Form 7 (wpcf7_spam runs after CF7's own validation and before any mail is sent). The use
+ * is spent here (atomic). Agents without a usable pass get the 402 or the 403 work check and the
+ * submission stops, so no mail goes out; on the REST route they were already refused before CF7 ran
+ * (toll_gate_rest_gate), so this only catches a pass spent by another request meanwhile and non-JS
+ * posts. Humans: marked as spam, as before. Spam already found by another filter wins.
+ */
 function toll_gate_check_cf7($spam): bool
 {
     if ($spam) return true;
     if (toll_gate_verify_request('write')[0]) return false;
+    if (toll_gate_is_agent()) toll_gate_refuse_agent('write', toll_gate_request_path());
     toll_gate_turned_away('write');
     return true;
 }
