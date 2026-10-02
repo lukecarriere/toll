@@ -151,8 +151,11 @@ function toll_gate_api_base(): string
  * packages/protocol/src/site-url.ts (TOLL_GATE_SITE_URL_RE is its SITE_URL_PATTERN; tests compare
  * them): lowercase https://, a host name whose last label starts with a letter, optional port and
  * path, no user info, query or fragment, trailing slashes removed. Unset or empty: null, the
- * manifest is unchanged. Invalid: logged once per request and treated as unset, so the site never
- * fails on a typo in wp-config.php.
+ * manifest is unchanged. Invalid: treated as unset, so the site never fails on a typo in wp-config.php,
+ * and logged at most once an hour (never the value itself): a per-request flag, plus the
+ * toll_gate_site_url_warned transient set for HOUR_IN_SECONDS once the line is written. The check and
+ * the set are not atomic, so two requests that start at the same moment may both log; that duplicate
+ * is accepted (no lock for a log line).
  */
 const TOLL_GATE_SITE_URL_RE = '#^https://(?:[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?\.)*[A-Za-z](?:[A-Za-z0-9-]*[A-Za-z0-9])?(?::([0-9]{1,5}))?(/[A-Za-z0-9._~!$&\'()*+,;=:@%/-]*)?$#D';
 
@@ -175,8 +178,11 @@ function toll_gate_site_url(): ?string
     [$url, $error] = toll_gate_parse_site_url(defined('TOLL_SITE_URL') ? constant('TOLL_SITE_URL') : null);
     if ($error !== null && !$warned) {
         $warned = true;
-        // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log
-        error_log('Toll: ' . $error . "; ignored, so the manifest's docs field stays as if it were unset");
+        if (get_transient('toll_gate_site_url_warned') === false) {
+            set_transient('toll_gate_site_url_warned', 1, HOUR_IN_SECONDS);
+            // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log
+            error_log('Toll: ' . $error . "; ignored, so the manifest's docs field stays as if it were unset");
+        }
     }
     return $url;
 }
