@@ -9,20 +9,30 @@ const V = JSON.parse(readFileSync(new URL("../docs/vectors.json", import.meta.ur
 let browser: Browser;
 let fast: Running; // default policy
 let tiny: Running; // very light work: solves well under 500ms
-let slow: Running; // heavy work: solves take well over 500ms (counter pinned near the top of its range)
+let slow: Running; // heavy work: solves take well over 500ms and well under the widget's 8s cap (counter pinned mid-range)
 let hard: Running; // hardened mode (Argon2id worker)
 
 before(async () => {
   browser = await chromium.launch();
   fast = await startDemo();
   tiny = await startDemo({ work: { standard: { unit_tries: 2 } } });
-  slow = await startDemo({ work: { standard: { unit_tries: 1100 }, max_units: 64 } }, { pickCounter: (m) => 0.95 * m });
+  // The slow policy must sit well inside the window its tests need: over ~2s (Checking… 500ms after an
+  // interaction made 1s into the solve, then 400ms of Checking…) and well under the widget's default 8s
+  // cap (MAX_SOLVE_MS), past which an engaged form switches to the checkbox and never shows Verified.
+  // Pinned at 0.95 of the range a solve took ~6.7-7.6s on an idle 8-core box, so any CPU load (a full
+  // suite next door) pushed it past 8s. At 0.45 it takes ~3.3s: room for 2x either way.
+  slow = await startDemo({ work: { standard: { unit_tries: 1100 }, max_units: 64 } }, { pickCounter: (m) => 0.45 * m });
   hard = await startDemo({ work: { mode: "hardened" } });
 });
 after(async () => {
   await browser?.close();
   await Promise.all([fast?.close(), tiny?.close(), slow?.close(), hard?.close()]);
 });
+
+/** The slow policy's solve times so far, for failure messages ("took_ms" of each redeem). */
+const slowTook = () => JSON.stringify(slow.events.filter((e) => e.event === "redeem_ok").map((e) => e.took_ms));
+/** True when a <toll-gate> shows the checkbox: in a background solve that means the 8s cap was hit. */
+const capHit = (page: Page) => page.evaluate(() => Array.from(document.querySelectorAll("toll-gate")).some((g: any) => !g.hidden && !g.shadowRoot.querySelector("button.btn").hidden));
 
 async function newPage(o: { reducedMotion?: "reduce" | "no-preference"; js?: boolean } = {}) {
   const ctx = await browser.newContext({ reducedMotion: o.reducedMotion ?? "no-preference", javaScriptEnabled: o.js ?? true });
@@ -115,8 +125,9 @@ test("19.7 the widget skips work when a valid pass exists", async () => {
   const { page, ctx } = await newPage();
   let challenges = 0;
   page.on("request", (r) => { if (r.url().includes("/v1/challenge")) challenges++; });
+  const redeemed = page.waitForResponse((r) => r.url().includes("/v1/redeem")); // listen before the solve can start
   await page.goto(fast.url + "/");
-  await page.waitForResponse((r) => r.url().includes("/v1/redeem"));
+  await redeemed;
   assert.equal(challenges, 1, "one solve covers both write forms and the search form");
   await page.reload();
   await page.waitForTimeout(1500);
@@ -178,6 +189,7 @@ test("states 2 and 3: Checking… appears at 500ms (not before), then Verified; 
         const txt = g.hidden ? "" : g.shadowRoot.querySelector('[role="status"]').textContent;
         if (txt !== last) { marks.push({ t: performance.now(), text: txt, hidden: g.hidden }); last = txt; }
         if (txt === "Verified") break;
+        if (!g.hidden && !g.shadowRoot.querySelector("button.btn").hidden) { marks.push({ t: performance.now(), text: "checkbox (cap)", hidden: false }); break; }
       }
       await new Promise((r) => setTimeout(r, 10));
     }
@@ -186,6 +198,7 @@ test("states 2 and 3: Checking… appears at 500ms (not before), then Verified; 
   });
   const checking = timeline.marks.find((m) => m.text === "Checking…");
   const verified = timeline.marks.find((m) => m.text === "Verified");
+  assert.ok(!timeline.marks.some((m) => m.text === "checkbox (cap)"), `the slow solve hit the 8s cap (slow solves took ${slowTook()}ms): ` + JSON.stringify(timeline));
   assert.ok(checking, JSON.stringify(timeline));
   assert.ok(checking!.t >= 480, `Checking… shown at ${checking!.t}ms`);
   assert.ok(verified && verified.t - checking!.t >= 390, "Checking… stays up at least 400ms before Verified");
@@ -209,12 +222,13 @@ test("states 2 and 3: Checking… appears at 500ms (not before), then Verified; 
 test("state 4: reduced motion keeps solving with a static bar; normal motion animates", async () => {
   for (const mode of ["reduce", "no-preference"] as const) {
     const { page, ctx } = await newPage({ reducedMotion: mode });
+    const redeemed = page.waitForResponse((r) => r.url().includes("/v1/redeem"), { timeout: 15000 }); // listen before the solve can start
     await page.goto(slow.url + "/");
     await page.focus("#m"); // gap 1: nothing shows before the visitor interacts
     await page.waitForFunction(() => { const g = document.querySelector("toll-gate") as any; return g && !g.hidden && g.shadowRoot.querySelector(".bar"); }, null, { timeout: 8000 });
     const anim = await page.evaluate(() => getComputedStyle((document.querySelector("toll-gate") as any).shadowRoot.querySelector(".bar"), "::after").animationName);
     assert.equal(anim, mode === "reduce" ? "none" : "toll-slide", mode);
-    await page.waitForResponse((r) => r.url().includes("/v1/redeem"), { timeout: 15000 });
+    await redeemed;
     await ctx.close();
   }
 });
@@ -257,8 +271,9 @@ test("state 8: issuer unreachable shows Couldn't check this form. + Try again; t
   await page.waitForTimeout(700);
   assert.deepEqual(posts, [], "no POST while checks fail (fail closed)");
   block = false;
+  const redeemed = page.waitForResponse((r) => r.url().includes("/v1/redeem")); // listen before Try again starts the solve
   await page.evaluate(() => (document.querySelector("#contact toll-gate") as any).shadowRoot.querySelector("button.link").click());
-  await page.waitForResponse((r) => r.url().includes("/v1/redeem"));
+  await redeemed;
   await page.click("#contact button[type=submit]");
   await page.waitForURL(/sent=contact/);
   assert.equal(posts.length, 1);
@@ -392,7 +407,9 @@ test("gap 1: an interaction in the middle of an idle solve shows Checking… no 
   await started;
   await page.waitForTimeout(1000); // the old timing would already show Checking… (500ms after solve start)
   const tI = await focusAt(page, 'input[name="m"]');
-  await page.waitForFunction(() => (document.querySelector("toll-gate") as any).shadowRoot.querySelector('[role="status"]').textContent === "Verified", null, { timeout: 20000 });
+  // Verified, or the checkbox if the solve ran past the 8s cap (then fail at once and say so, not after 20s).
+  await page.waitForFunction(() => { const r = (document.querySelector("toll-gate") as any).shadowRoot; return r.querySelector('[role="status"]').textContent === "Verified" || !r.querySelector("button.btn").hidden; }, null, { timeout: 20000 });
+  assert.equal(await capHit(page), false, `the slow solve hit the 8s cap (slow solves took ${slowTook()}ms)`);
   const log = await gateLog(page);
   assert.ok(log.filter((e) => e.t < tI).every((e) => e.sig === NOTHING), "nothing drawn before the interaction: " + JSON.stringify(log));
   const checking = log.find((e) => e.sig.includes('"status":"Checking…"'));
@@ -408,12 +425,15 @@ test("gap 1: challenge fetch count is unchanged: exactly 1 per page for the demo
     const { page, ctx } = await newPage();
     let challenges = 0;
     page.on("request", (r) => { if (r.url().includes("/v1/challenge")) challenges++; });
+    // Listen before goto: on the default policy the idle solve can redeem before goto and the focus calls return.
+    const redeemed = page.waitForResponse((r) => r.url().includes("/v1/redeem"), { timeout: 20000 }).catch((e) => e as Error);
     await page.goto(demo.url + "/");
     // Interact with every form, early (during the idle solve on the slow policy).
     await page.focus("#m");
     await page.focus("#cmt");
     await page.focus("#q");
-    await page.waitForResponse((r) => r.url().includes("/v1/redeem"), { timeout: 20000 });
+    const r = await redeemed;
+    if (r instanceof Error) assert.fail(`${label}: no redeem${(await capHit(page)) ? ` (the solve hit the 8s cap; slow solves took ${slowTook()}ms)` : ""}: ${r.message}`);
     await page.waitForTimeout(1500);
     assert.equal(challenges, 1, label);
     await ctx.close();
@@ -576,9 +596,9 @@ test("vendor names never reach the visitor: rendered text, shadow markup and acc
   const shown = (p: Page, sel: string) => p.waitForFunction((s) => { const g = document.querySelector("toll-gate") as any; const el = g?.shadowRoot?.querySelector(s); return el && !el.hidden && !g.hidden; }, sel, { timeout: 10000 });
 
   // 1. fast solve: nothing rendered
-  { const { page, ctx } = await open(); await page.goto(tiny.url + "/"); await page.waitForResponse((r) => r.url().includes("/v1/redeem")); await scan(page, "1 invisible"); await ctx.close(); }
+  { const { page, ctx } = await open(); const redeemed = page.waitForResponse((r) => r.url().includes("/v1/redeem")); await page.goto(tiny.url + "/"); await redeemed; await scan(page, "1 invisible"); await ctx.close(); }
   // 2-3. slow solve: Checking…, then Verified (gap 1: states 2, 3, 4 and 8 show after the first interaction)
-  { const { page, ctx } = await open(); await page.goto(slow.url + "/"); await page.focus("#m"); await shown(page, '[role="status"]'); await scan(page, "2 checking"); await page.waitForResponse((r) => r.url().includes("/v1/redeem"), { timeout: 20000 }); await page.waitForTimeout(50); await scan(page, "3 verified"); await ctx.close(); }
+  { const { page, ctx } = await open(); const redeemed = page.waitForResponse((r) => r.url().includes("/v1/redeem"), { timeout: 20000 }); await page.goto(slow.url + "/"); await page.focus("#m"); await shown(page, '[role="status"]'); await scan(page, "2 checking"); await redeemed; await page.waitForTimeout(50); await scan(page, "3 verified"); await ctx.close(); }
   // 4. reduced motion
   { const { page, ctx } = await open({ reducedMotion: "reduce" }); await page.goto(slow.url + "/"); await page.focus("#m"); await shown(page, ".bar"); await scan(page, "4 reduced motion"); await ctx.close(); }
   // 5-7. checkbox mode: idle, busy, verified
@@ -594,7 +614,7 @@ test("vendor names never reach the visitor: rendered text, shadow markup and acc
   // 9. no JavaScript
   { const { page, ctx } = await open({ js: false }); await page.goto(fast.url + "/"); await scan(page, "9 no-js"); await ctx.close(); }
   // Hardened engine, while checking
-  { const { page, ctx } = await open(); await page.goto(hard.url + "/"); await page.waitForResponse((r) => r.url().includes("/v1/redeem"), { timeout: 30000 }); await scan(page, "hardened"); await ctx.close(); }
+  { const { page, ctx } = await open(); const redeemed = page.waitForResponse((r) => r.url().includes("/v1/redeem"), { timeout: 30000 }); await page.goto(hard.url + "/"); await redeemed; await scan(page, "hardened"); await ctx.close(); }
 
   assert.deepEqual(hits, []);
   assert.deepEqual(foreign, [], "no request leaves the site's origin");
