@@ -10,7 +10,7 @@ import { lstatSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
 /** TLDs looked for in bare prose. URLs are checked whatever their TLD. */
-export const BARE_TLDS = ["com", "net", "org", "dev", "app", "io", "co"] as const;
+export const BARE_TLDS = ["com", "net", "org", "dev", "app", "io", "co", "ai"] as const;
 
 export interface HostHit { file: string; line: number; host: string; kind: "url" | "bare"; text: string }
 

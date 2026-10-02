@@ -10,7 +10,7 @@ import assert from "node:assert/strict";
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { scanFiles, scanTitles, disallowed, hostsInText, excludedPath, isBinary, allowedByRule, trackedFiles, type HostHit } from "../scripts/host-scan.ts";
+import { BARE_TLDS, scanFiles, scanTitles, disallowed, hostsInText, excludedPath, isBinary, allowedByRule, trackedFiles, type HostHit } from "../scripts/host-scan.ts";
 // @ts-ignore plain JS helper
 import { commitTitles } from "../scripts/copy-lint.mjs";
 
@@ -115,6 +115,18 @@ test("canary: a non-allowlisted host in a file is caught in URL form and in bare
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+test("canary: a bare .ai host in prose is caught; https://localhost is still allowed", () => {
+  const ai = "foo" + ".ai";
+  const prose = hostsInText(`Ask the ${ai} team, or mail hello@${ai}.`);
+  assert.deepEqual(prose.map((h) => [h.kind, h.host]), [["bare", ai], ["bare", ai]]);
+  assert.deepEqual(disallowed(prose.map((h) => ({ ...h, file: "docs/notes.md" })), ALLOWED_HOSTS.keys()).length, 2, "and not allowlisted");
+  assert.ok((BARE_TLDS as readonly string[]).includes("ai"), "ai is in the bare-prose TLD list");
+  assert.deepEqual(hostsInText("Use plain.ai.txt or main.aix, not a host.").map((h) => h.host), [], "file names and longer suffixes are not hosts");
+  const local = hostsInText("Serve it at https://localhost and https://localhost:8443/docs.");
+  assert.deepEqual(local.map((h) => h.host), ["localhost", "localhost"]);
+  for (const h of local) assert.ok(allowedByRule(h.host), h.host);
 });
 
 test("canary: a non-allowlisted host in a commit title is caught", () => {
