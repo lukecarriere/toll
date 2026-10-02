@@ -6,6 +6,8 @@
 // Links (EM ruling, Oct 2): root-relative with no extension: "/" is the homepage, then "/mission" etc.
 // Assets (EM, Oct 2) are root-relative too ("/site.css", "/home.css", "/img/...", "/fonts/..."), so a page
 // served at any path ("/mission/", a nested route) still finds its stylesheet, fonts and photo.
+// Icons (EM, Oct 2): favicon.ico, favicon.svg and apple-touch-icon.png from the brand set ship at the site
+// root, unchanged, with the same three <link> tags on every page. No icon-192/512, no web manifest.
 // Canonicals: each page points at itself under TOLL_SITE_URL, validated by @toll/protocol/site-url.
 // Unset or invalid: no canonical tag at all, and the pages are byte-identical to a build without it.
 import { readFileSync, writeFileSync, mkdirSync, copyFileSync } from "node:fs";
@@ -19,6 +21,11 @@ export const PAGES = [
   { file: "values", nav: "Values" },
   { file: "ecosystem", nav: "Where Toll fits", closingLine: true },
 ];
+
+/** Icons at the site root, used by every page; copied unchanged from website/ to dist/. */
+export const ICON_FILES = ["favicon.ico", "favicon.svg", "apple-touch-icon.png"];
+/** The icon tags in every page's head, all root-relative. */
+export const ICON_TAGS = '<link rel="icon" href="/favicon.ico" sizes="32x32"><link rel="icon" href="/favicon.svg" type="image/svg+xml"><link rel="apple-touch-icon" href="/apple-touch-icon.png">';
 
 /** Files the homepage ships besides index.html, relative to website/ and to dist/. */
 export const HOME_ASSETS = [
@@ -65,7 +72,7 @@ export function render(page, md, base = null) {
     return `<p${close ? ' class="close"' : ""}>${esc(b.p)}</p>`;
   }).join("\n");
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>${esc(title)} · Toll</title>${canonical(page.file, base)}<link rel="stylesheet" href="/site.css"></head><body>
+<title>${esc(title)} · Toll</title>${canonical(page.file, base)}${ICON_TAGS}<link rel="stylesheet" href="/site.css"></head><body>
 <header><div class="bar"><a class="mark" href="/">Toll</a><nav aria-label="Pages">${nav}</nav></div></header>
 <main><h1>${esc(title)}</h1>
 ${body}
@@ -91,7 +98,7 @@ export function renderHome(base = null) {
   const nav = PAGES.map((p) => `<a href="${pagePath(p.file)}">${esc(p.nav)}</a>`).join("");
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>${esc(h.title)}</title><meta name="description" content="${esc(h.description)}">${canonical("index", base)}
-<link rel="preload" href="/fonts/arvo/Arvo-Bold.woff2" as="font" type="font/woff2" crossorigin><link rel="stylesheet" href="/home.css"></head><body><main class="hero"><div class="left">
+${ICON_TAGS}<link rel="preload" href="/fonts/arvo/Arvo-Bold.woff2" as="font" type="font/woff2" crossorigin><link rel="stylesheet" href="/home.css"></head><body><main class="hero"><div class="left">
 <header><a class="sign" href="/" aria-current="page">Toll</a><nav aria-label="Main">${nav}</nav></header>
 <div class="copy"><p class="kicker">${esc(h.kicker)}</p><h1>${h.h1.map((l) => `<span>${esc(l)}</span>`).join("")}</h1><p class="line">${esc(h.line)}</p></div>
 <p class="meta">${h.meta.map(([b, t]) => `<span><b>${esc(b)}</b>${esc(t)}</span>`).join("")}</p>
@@ -109,6 +116,7 @@ export function build(out = HERE + "dist/", site = process.env[SITE_URL_ENV], wa
   writeFileSync(out + "index.html", renderHome(base));
   for (const p of PAGES) writeFileSync(out + p.file + ".html", render(p, readFileSync(HERE + p.file + ".md", "utf8"), base));
   copyFileSync(HERE + "site.css", out + "site.css");
+  for (const f of ICON_FILES) copyFileSync(HERE + f, out + f);
   for (const f of HOME_ASSETS) {
     mkdirSync(out + f.slice(0, f.lastIndexOf("/") + 1), { recursive: true });
     copyFileSync(HERE + f, out + f);

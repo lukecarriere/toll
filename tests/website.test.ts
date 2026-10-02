@@ -8,7 +8,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { chromium } from "playwright";
 // @ts-ignore plain JS build script
-import { build, PAGES } from "../website/build.mjs";
+import { build, PAGES, ICON_TAGS } from "../website/build.mjs";
 // @ts-ignore plain JS helper
 import { runLint } from "../scripts/copy-lint.mjs";
 
@@ -82,8 +82,8 @@ test("built pages carry exactly the markdown text: header, nav with aria-current
 
 test("no analytics: no <script>, no inline handlers, no external URLs, no pixels, no cookies in the built HTML and CSS", () => {
   const files = readdirSync(OUT).sort();
-  // The homepage (index.html, home.css, img/, fonts/) is checked in tests/homepage.test.ts.
-  assert.deepEqual(files, ["ecosystem.html", "fonts", "home.css", "img", "index.html", "mission.html", "site.css", "values.html", "vision.html"], "nothing else is shipped");
+  // The homepage (index.html, home.css, img/, fonts/) is checked in tests/homepage.test.ts, the icons in tests/favicon.test.ts.
+  assert.deepEqual(files, ["apple-touch-icon.png", "ecosystem.html", "favicon.ico", "favicon.svg", "fonts", "home.css", "img", "index.html", "mission.html", "site.css", "values.html", "vision.html"], "nothing else is shipped");
   for (const p of PAGES) {
     const h = html(p.file);
     assert.doesNotMatch(h, /<script/i, p.file + ": no script tag");
@@ -92,9 +92,9 @@ test("no analytics: no <script>, no inline handlers, no external URLs, no pixels
     assert.doesNotMatch(h, /javascript:|http-equiv|set-cookie|document\.cookie|posthog|gtag|googletagmanager|google-analytics|plausible|segment\.|fbq|hotjar|matomo/i, p.file);
     assert.doesNotMatch(h, /https?:|\/\/[a-z0-9]/i, p.file + ": no absolute or protocol-relative URL anywhere");
     const urls = [...h.matchAll(/\s(?:href|src|action|srcset|poster|data)="([^"]*)"/gi)].map((m) => m[1]);
-    for (const u of urls) assert.match(u, /^\/(mission|vision|values|ecosystem)?$|^\/site\.css$/, `${p.file}: ${u} is a local page or the stylesheet`);
+    for (const u of urls) assert.match(u, /^\/(mission|vision|values|ecosystem)?$|^\/(site\.css|favicon\.ico|favicon\.svg|apple-touch-icon\.png)$/, `${p.file}: ${u} is a local page, the stylesheet or an icon`);
     const links = [...h.matchAll(/<link\b[^>]*>/gi)].map((m) => m[0]);
-    assert.deepEqual(links, ['<link rel="stylesheet" href="/site.css">'], p.file + ": one local stylesheet, no preconnect/prefetch/fonts");
+    assert.deepEqual(links, ['<link rel="icon" href="/favicon.ico" sizes="32x32">', '<link rel="icon" href="/favicon.svg" type="image/svg+xml">', '<link rel="apple-touch-icon" href="/apple-touch-icon.png">', '<link rel="stylesheet" href="/site.css">'], p.file + ": the three local icons and one local stylesheet, no preconnect/prefetch/fonts");
   }
   const css = readFileSync(OUT + "site.css", "utf8");
   assert.doesNotMatch(css, /url\(|@import|@font-face|https?:/i, "the stylesheet fetches nothing");
@@ -144,9 +144,10 @@ test("copy lint covers website/ and docs/positioning.md, and they pass as writte
 });
 
 test("built pages match the Designer's template byte for byte, apart from the EM's root-relative rulings", { skip: existsSync(ROOT + "design/proto/website/mission.html") ? false : "design/ not present (gitignored)" }, () => {
-  // EM rulings (Oct 2): the wordmark goes to "/", every page link is root-relative with no extension, and
-  // the stylesheet is "/site.css". Those are the only changes to the template; everything else must match.
+  // EM rulings (Oct 2): the wordmark goes to "/", every page link is root-relative with no extension,
+  // the stylesheet is "/site.css", and the three icon tags sit just before it. Those are the only changes
+  // to the template; everything else must match.
   const links = (t: string) => t.replace('<a class="mark" href="mission.html">', '<a class="mark" href="/">').replace(/href="(mission|vision|values|ecosystem)\.html"/g, 'href="/$1"')
-    .replace('<link rel="stylesheet" href="site.css">', '<link rel="stylesheet" href="/site.css">');
+    .replace('<link rel="stylesheet" href="site.css">', ICON_TAGS + '<link rel="stylesheet" href="/site.css">');
   for (const f of [...PAGES.map((p: any) => p.file + ".html"), "site.css"]) assert.equal(readFileSync(OUT + f, "utf8"), links(readFileSync(ROOT + "design/proto/website/" + f, "utf8")), f);
 });

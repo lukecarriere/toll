@@ -13,7 +13,7 @@ import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
 import { chromium } from "playwright";
 // @ts-ignore plain JS build script
-import { build, PAGES, HOME, HOME_ASSETS } from "../website/build.mjs";
+import { build, PAGES, HOME, HOME_ASSETS, ICON_FILES } from "../website/build.mjs";
 // @ts-ignore plain JS helper
 import { section, lintText } from "../scripts/copy-lib.mjs";
 import { parseSiteUrl } from "../packages/protocol/src/site-url.ts";
@@ -51,7 +51,7 @@ test("build: website/dist/index.html exists and no .html href is left in website
 
 test("build: a fresh build has the homepage, ships exactly its files, and has no .html href", () => {
   checkDist(OUT);
-  assert.deepEqual(walk(OUT), ["ecosystem.html", "index.html", "mission.html", "site.css", "values.html", "vision.html", ...HOME_ASSETS].sort());
+  assert.deepEqual(walk(OUT), ["ecosystem.html", "index.html", "mission.html", "site.css", "values.html", "vision.html", ...HOME_ASSETS, ...ICON_FILES].sort());
   for (const f of HOME_ASSETS) assert.deepEqual(readFileSync(OUT + f), readFileSync(ROOT + "website/" + f), f + " is copied unchanged");
   // Every shipped path and text file passes the copy lint list from docs/copy.md, which bans the photo's
   // tree species ("Never name the tree species in alt text, captions, or file names that ship").
@@ -128,7 +128,7 @@ test("links: wordmark '/', pages '/mission', '/vision', '/values', '/ecosystem' 
   for (const p of PAGES) {
     const h = readFileSync(OUT + p.file + ".html", "utf8");
     assert.match(h, /<a class="mark" href="\/">Toll<\/a>/, p.file);
-    for (const u of hrefs(h)) assert.match(u, /^\/(mission|vision|values|ecosystem)?$|^\/site\.css$/, p.file + ": " + u);
+    for (const u of hrefs(h)) assert.match(u, /^\/(mission|vision|values|ecosystem)?$|^\/(site\.css|favicon\.ico|favicon\.svg|apple-touch-icon\.png)$/, p.file + ": " + u);
   }
 });
 
@@ -192,9 +192,12 @@ test("homepage: no scripts, no inline styles, no external requests; fonts preloa
   assert.doesNotMatch(h, /https?:|\/\/[a-z0-9]/i, "no absolute or protocol-relative URL");
   const urls = [...h.matchAll(/\s(?:href|src)="([^"]*)"/gi)].map((m) => m[1]);
   const srcset = /\ssrcset="([^"]*)"/.exec(h)![1].split(",").map((c) => c.trim().split(/\s+/)[0]);
-  for (const u of [...urls, ...srcset]) assert.match(u, /^\/(mission|vision|values|ecosystem)?$|^\/(home\.css|img\/forest-road-(1280|2560)\.jpg|fonts\/arvo\/Arvo-Bold\.woff2)$/, u);
+  for (const u of [...urls, ...srcset]) assert.match(u, /^\/(mission|vision|values|ecosystem)?$|^\/(home\.css|img\/forest-road-(1280|2560)\.jpg|fonts\/arvo\/Arvo-Bold\.woff2|favicon\.ico|favicon\.svg|apple-touch-icon\.png)$/, u);
   assert.match(h, /sizes="\(max-width:760px\) max\(100vw, 69svh\), 150svh"/);
   assert.deepEqual([...h.matchAll(/<link\b[^>]*>/g)].map((m) => m[0]), [
+    '<link rel="icon" href="/favicon.ico" sizes="32x32">',
+    '<link rel="icon" href="/favicon.svg" type="image/svg+xml">',
+    '<link rel="apple-touch-icon" href="/apple-touch-icon.png">',
     '<link rel="preload" href="/fonts/arvo/Arvo-Bold.woff2" as="font" type="font/woff2" crossorigin>',
     '<link rel="stylesheet" href="/home.css">',
   ], "Arvo is the only preload");
@@ -218,7 +221,7 @@ before(async () => {
     if (f === "nested/deep/" || f === "mission/") f = f === "mission/" ? "mission" : "index"; // pages at other paths
     if (/^[a-z]+$/.test(f)) f += ".html";
     if (!/^[a-z0-9/-]+\.[a-z0-9]+$/i.test(f) || f.includes("..") || !existsSync(OUT + f)) { res.writeHead(404).end(); return; }
-    const type: Record<string, string> = { html: "text/html; charset=utf-8", css: "text/css", jpg: "image/jpeg", woff2: "font/woff2", txt: "text/plain; charset=utf-8" };
+    const type: Record<string, string> = { html: "text/html; charset=utf-8", css: "text/css", jpg: "image/jpeg", woff2: "font/woff2", txt: "text/plain; charset=utf-8", png: "image/png", ico: "image/x-icon", svg: "image/svg+xml" };
     res.writeHead(200, { "content-type": type[f.split(".").pop()!] ?? "application/octet-stream", "content-security-policy": CSP }).end(readFileSync(OUT + f));
   });
   await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
