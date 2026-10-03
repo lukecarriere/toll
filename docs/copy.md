@@ -187,3 +187,10 @@ Heading: Where Toll fits
 - `<title>`: Toll · Less traffic. Better road.
 - `<meta name="description">`: Stop form spam without closing the site.
 - The separator is a middle dot (U+00B7) with one space on each side. Both lines are built only from brand lines cleared above.
+
+## Inner page descriptions (exact; PM, Oct 3, 2026)
+`<meta name="description">` for each inner page, 120–155 characters, built from that page's own shipped lines. Keep the page's `<title>` as it is.
+- Mission (`website/mission`), 148 characters: Toll is a small check for comments, forms and write APIs. Page views stay free, and a flood gets slower and more expensive. Spam takes another road.
+- Vision (`website/vision`), 149 characters: A site owner shouldn't have to choose between closing the site and cleaning up after a flood. Toll keeps public pages open and the comment box quiet.
+- Values (`website/values`), 151 characters: Mind the traffic, not the driver. Nothing to solve, no tracking pixels, no selling visitor data, and page views stay free. Toll doesn't block crawlers.
+- Where Toll fits (`website/ecosystem`), 138 characters: Toll looks after writes like comments and forms. It doesn't block crawlers, charge for public articles or ask the caller to say who it is.
