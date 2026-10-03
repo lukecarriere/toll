@@ -20,6 +20,8 @@ const norm = (s: string) => s.replace(/\s+/g, " ").trim();
 const decode = (s: string) => s.replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&amp;/g, "&");
 const A2 = ROOT + "AMENDMENT_2.md";
 const A3 = ROOT + "AMENDMENT_3.md";
+/** The two font files site.css loads (the same files home.css loads), relative to the site root. */
+const FONTS = ["fonts/arvo/Arvo-Bold.woff2", "fonts/public-sans/PublicSans-Latin.woff2"];
 
 /** Visible text of a markdown page: title, then each paragraph or list item. */
 function mdText(src: string) {
@@ -97,8 +99,11 @@ test("no analytics: no <script>, no inline handlers, no external URLs, no pixels
     const links = [...h.matchAll(/<link\b[^>]*>/gi)].map((m) => m[0]);
     assert.deepEqual(links, ['<link rel="icon" href="/favicon.ico" sizes="32x32">', '<link rel="icon" href="/favicon.svg" type="image/svg+xml">', '<link rel="apple-touch-icon" href="/apple-touch-icon.png">', '<link rel="stylesheet" href="/site.css">'], p.file + ": the three local icons and one local stylesheet, no preconnect/prefetch/fonts");
   }
+  // Inner pages handoff (CD approved, Oct 3): site.css loads the two fonts the homepage already ships, from /fonts/, and nothing else.
   const css = readFileSync(OUT + "site.css", "utf8");
-  assert.doesNotMatch(css, /url\(|@import|@font-face|https?:/i, "the stylesheet fetches nothing");
+  assert.doesNotMatch(css, /@import|https?:|\/\/[a-z0-9]/i, "the stylesheet fetches nothing remote");
+  assert.deepEqual([...css.matchAll(/url\(([^)]*)\)/g)].map((m) => m[1]), FONTS.map((f) => "/" + f), "its only url()s are the two local fonts");
+  for (const f of FONTS) assert.ok(existsSync(OUT + f), f + " ships in the build");
 });
 
 let server: Server;
@@ -108,15 +113,15 @@ before(async () => {
     // Extensionless routes, as the site is served: "/" is index.html, "/mission" is mission.html.
     let f = (req.url ?? "/").split("?")[0].replace(/^\//, "") || "index";
     if (/^[a-z]+$/.test(f)) f += ".html";
-    if (!/^[a-z]+\.(html|css)$/.test(f) || !existsSync(OUT + f)) { res.writeHead(404).end(); return; }
-    res.writeHead(200, { "content-type": f.endsWith(".css") ? "text/css" : "text/html; charset=utf-8" }).end(readFileSync(OUT + f));
+    if (!(/^[a-z]+\.(html|css)$/.test(f) || FONTS.includes(f)) || !existsSync(OUT + f)) { res.writeHead(404).end(); return; }
+    res.writeHead(200, { "content-type": f.endsWith(".css") ? "text/css" : f.endsWith(".woff2") ? "font/woff2" : "text/html; charset=utf-8" }).end(readFileSync(OUT + f));
   });
   await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
   base = `http://127.0.0.1:${(server.address() as any).port}/`;
 });
 after(() => server?.close());
 
-test("in a browser each page makes only same-origin requests (the page and site.css), sets no cookies and has no scripts", async () => {
+test("in a browser each page makes only same-origin requests (the page, site.css and its two fonts), sets no cookies and has no scripts", async () => {
   const browser = await chromium.launch();
   try {
     const ctx = await browser.newContext();
@@ -127,7 +132,9 @@ test("in a browser each page makes only same-origin requests (the page and site.
       seen.length = 0;
       const res = await page.goto(base + p.file, { waitUntil: "networkidle" });
       assert.equal(res!.status(), 200);
-      assert.deepEqual([...new Set(seen)].sort(), [base + p.file, base + "site.css"].sort(), p.file + ": requests");
+      await page.evaluate(() => document.fonts.ready);
+      assert.deepEqual([...new Set(seen)].sort(), [base + p.file, base + "site.css", ...FONTS.map((f) => base + f)].sort(), p.file + ": requests");
+      assert.equal(await page.evaluate(() => document.fonts.check('700 22px "Toll Slab"') && document.fonts.check('18px "Toll Sans"')), true, p.file + ": both fonts loaded");
       assert.equal(await page.evaluate(() => document.scripts.length), 0);
       assert.equal(await page.evaluate(() => document.cookie), "");
       assert.equal(await page.locator("p.close").count(), p.closingLine ? 1 : 0);
@@ -144,7 +151,7 @@ test("copy lint covers website/ and docs/positioning.md, and they pass as writte
   assert.ok(md("values").includes("We do not score visitors as human or not."), "Luke's one use of 'human' stays");
 });
 
-test("built pages match the Designer's template byte for byte, apart from the EM's root-relative rulings", { skip: existsSync(ROOT + "design/proto/website/mission.html") ? false : "design/ not present (gitignored)" }, () => {
+test("built pages match the Designer's template byte for byte, apart from the EM's root-relative rulings; site.css is the inner pages handoff file", { skip: existsSync(ROOT + "design/proto/website/mission.html") ? false : "design/ not present (gitignored)" }, () => {
   // EM rulings (Oct 2): the wordmark goes to "/", every page link is root-relative with no extension,
   // the stylesheet is "/site.css", and the three icon tags sit just before it. PM (Oct 3): each page's meta
   // description follows its <title> (checked word for word in tests/meta-descriptions.test.ts). Those are the
@@ -153,5 +160,6 @@ test("built pages match the Designer's template byte for byte, apart from the EM
     .replace("</title>", description ? `</title><meta name="description" content="${description.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;").replace(/>/g, "&gt;")}">` : "</title>")
     .replace('<link rel="stylesheet" href="site.css">', ICON_TAGS + '<link rel="stylesheet" href="/site.css">');
   for (const p of PAGES) assert.equal(html(p.file), links(readFileSync(ROOT + "design/proto/website/" + p.file + ".html", "utf8"), p.description), p.file + ".html");
-  assert.equal(readFileSync(OUT + "site.css", "utf8"), links(readFileSync(ROOT + "design/proto/website/site.css", "utf8")), "site.css");
+  // Inner pages handoff (CD approved, Oct 3): site.css is now design/inner-pages/site.css, byte for byte (pinned by hash in tests/inner-style.test.ts).
+  assert.deepEqual(readFileSync(OUT + "site.css"), readFileSync(ROOT + "design/inner-pages/site.css"), "site.css");
 });
