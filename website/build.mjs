@@ -10,6 +10,7 @@
 // root, unchanged, with the same three <link> tags on every page. No icon-192/512, no web manifest.
 // Site files (QA NO-GO, Oct 3): website/_headers is the section 2 `_headers` block of the deploy plan, word for
 // word; it ships at the dist root unchanged, where Workers static assets applies it to every response.
+// website/robots.txt allows everything, with no Sitemap line and no domain; it ships at /robots.txt unchanged.
 // Canonicals: each page points at itself under TOLL_SITE_URL, validated by @toll/protocol/site-url.
 // Unset or invalid: no canonical tag at all, and the pages are byte-identical to a build without it.
 import { readFileSync, writeFileSync, mkdirSync, copyFileSync } from "node:fs";
@@ -31,7 +32,7 @@ export const ICON_FILES = ["favicon.ico", "favicon.svg", "apple-touch-icon.png"]
 export const ICON_TAGS = '<link rel="icon" href="/favicon.ico" sizes="32x32"><link rel="icon" href="/favicon.svg" type="image/svg+xml"><link rel="apple-touch-icon" href="/apple-touch-icon.png">';
 
 /** Files at the site root that are not pages; copied unchanged from website/ to dist/. */
-export const SITE_FILES = ["_headers"];
+export const SITE_FILES = ["_headers", "robots.txt"];
 
 /** Files the homepage ships besides index.html, relative to website/ and to dist/. */
 export const HOME_ASSETS = [
