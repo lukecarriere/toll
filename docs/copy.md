@@ -99,7 +99,7 @@ Then install lines (npm / composer / wp plugin / wrangler), a ten-line how it wo
 ## WordPress strings (exact)
 - Menu: Settings → Toll. Line under title: Challenges issued today: N
 - Counters: link "Export counters" · help "Downloads the counts as a CSV file. Nothing is sent anywhere."
-- **Protect these forms.** "Visitors get an invisible check. Forms that skip it are rejected." Options: Comments · Login · Registration · Lost password · WooCommerce checkout "(WooCommerce is active)" · Contact Form 7 forms · Any form with `data-toll`, help "Always on. Add `data-toll="write"` to a form in your theme to protect it."
+- **Protect these forms.** "Visitors get an invisible check. Forms that skip it are rejected." Options: Comments · Login · Registration · Lost password · WooCommerce checkout "(WooCommerce is active)", help "Covers the classic checkout. The newer block checkout isn't covered yet." (PM, Oct 2: block checkout is off at launch; this help line is exact) · Contact Form 7 forms · Any form with `data-toll`, help "Always on. Add `data-toll="write"` to a form in your theme to protect it."
 - **Visible check.** "Show a "Verify before sending" button instead of an invisible check" · help "Off by default. Most sites don't need it."
 - **Longest check.** 4 / 8 / 12 seconds · help "If a check would take longer, the visitor gets a "Verify before sending" button instead of waiting."
 - **Keys.** Site key · Secret · Show · Generate new secret · help "Checks run on this site. Keep the secret private; after generating a new one, visitors get a fresh check on their next form."
