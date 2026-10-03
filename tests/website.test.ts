@@ -146,9 +146,12 @@ test("copy lint covers website/ and docs/positioning.md, and they pass as writte
 
 test("built pages match the Designer's template byte for byte, apart from the EM's root-relative rulings", { skip: existsSync(ROOT + "design/proto/website/mission.html") ? false : "design/ not present (gitignored)" }, () => {
   // EM rulings (Oct 2): the wordmark goes to "/", every page link is root-relative with no extension,
-  // the stylesheet is "/site.css", and the three icon tags sit just before it. Those are the only changes
-  // to the template; everything else must match.
-  const links = (t: string) => t.replace('<a class="mark" href="mission.html">', '<a class="mark" href="/">').replace(/href="(mission|vision|values|ecosystem)\.html"/g, 'href="/$1"')
+  // the stylesheet is "/site.css", and the three icon tags sit just before it. PM (Oct 3): each page's meta
+  // description follows its <title> (checked word for word in tests/meta-descriptions.test.ts). Those are the
+  // only changes to the template; everything else must match.
+  const links = (t: string, description = "") => t.replace('<a class="mark" href="mission.html">', '<a class="mark" href="/">').replace(/href="(mission|vision|values|ecosystem)\.html"/g, 'href="/$1"')
+    .replace("</title>", description ? `</title><meta name="description" content="${description.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;").replace(/>/g, "&gt;")}">` : "</title>")
     .replace('<link rel="stylesheet" href="site.css">', ICON_TAGS + '<link rel="stylesheet" href="/site.css">');
-  for (const f of [...PAGES.map((p: any) => p.file + ".html"), "site.css"]) assert.equal(readFileSync(OUT + f, "utf8"), links(readFileSync(ROOT + "design/proto/website/" + f, "utf8")), f);
+  for (const p of PAGES) assert.equal(html(p.file), links(readFileSync(ROOT + "design/proto/website/" + p.file + ".html", "utf8"), p.description), p.file + ".html");
+  assert.equal(readFileSync(OUT + "site.css", "utf8"), links(readFileSync(ROOT + "design/proto/website/site.css", "utf8")), "site.css");
 });

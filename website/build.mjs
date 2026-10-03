@@ -17,11 +17,12 @@ import { fileURLToPath } from "node:url";
 import { parseSiteUrl, SITE_URL_ENV } from "@toll/protocol/site-url";
 
 const HERE = fileURLToPath(new URL(".", import.meta.url));
+// description: docs/copy.md "Inner page descriptions" (PM, Oct 3), word for word, as each page's meta description.
 export const PAGES = [
-  { file: "mission", nav: "Mission" },
-  { file: "vision", nav: "Vision" },
-  { file: "values", nav: "Values" },
-  { file: "ecosystem", nav: "Where Toll fits", closingLine: true },
+  { file: "mission", nav: "Mission", description: "Toll is a small check for comments, forms and write APIs. Page views stay free, and a flood gets slower and more expensive. Spam takes another road." },
+  { file: "vision", nav: "Vision", description: "A site owner shouldn't have to choose between closing the site and cleaning up after a flood. Toll keeps public pages open and the comment box quiet." },
+  { file: "values", nav: "Values", description: "Mind the traffic, not the driver. Nothing to solve, no tracking pixels, no selling visitor data, and page views stay free. Toll doesn't block crawlers." },
+  { file: "ecosystem", nav: "Where Toll fits", closingLine: true, description: "Toll looks after writes like comments and forms. It doesn't block crawlers, charge for public articles or ask the caller to say who it is." },
 ];
 
 /** Icons at the site root, used by every page; copied unchanged from website/ to dist/. */
@@ -77,7 +78,7 @@ export function render(page, md, base = null) {
     return `<p${close ? ' class="close"' : ""}>${esc(b.p)}</p>`;
   }).join("\n");
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>${esc(title)} · Toll</title>${canonical(page.file, base)}${ICON_TAGS}<link rel="stylesheet" href="/site.css"></head><body>
+<title>${esc(title)} · Toll</title><meta name="description" content="${esc(page.description)}">${canonical(page.file, base)}${ICON_TAGS}<link rel="stylesheet" href="/site.css"></head><body>
 <header><div class="bar"><a class="mark" href="/">Toll</a><nav aria-label="Pages">${nav}</nav></div></header>
 <main><h1>${esc(title)}</h1>
 ${body}
