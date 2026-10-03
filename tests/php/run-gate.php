@@ -85,7 +85,10 @@ function gate_scenario(string $name, array $o): mixed
             if (!empty($o['field_error'])) $errors->add('billing_email_required', 'Billing Email is a required field.');
             $data = ['billing_email' => 'a@b.test'] + (!empty($o['update_totals']) ? ['woocommerce_checkout_update_totals' => '1'] : []);
             do_action('woocommerce_after_checkout_validation', $data, $errors);
-            if (!$errors->has_errors() && $GLOBALS['gate']['notices'] === 0 && empty($o['update_totals'])) gate_event('order_created');
+            if (!$errors->has_errors() && $GLOBALS['gate']['notices'] === 0 && empty($o['update_totals'])) {
+                gate_event('order_created');
+                if (isset($o['gateway'])) gate_woo_pay($o['gateway'], $data);
+            }
             return $errors->get_error_codes();
         case 'store_api': // WP_REST_Server + WooCommerce Store API POST /wc/store/v1/checkout: every hook a Toll callback could sit on
             $req = new WP_REST_Request('POST', '/wc/store/v1/checkout');
@@ -120,6 +123,29 @@ function gate_cf7_submit(array $o): string
     if ($spam) return 'spam';
     gate_event('mail_sent');
     return 'mail_sent';
+}
+
+/**
+ * The rest of WC_Checkout::process_checkout once the order exists: woocommerce_checkout_order_processed,
+ * then process_order_payment with the chosen gateway. 'decline' is a card gateway that declines: the
+ * order goes to failed, the gateway adds its error notice and returns failure, and WooCommerce answers
+ * the ajax post with result failure and the notices (send_ajax_failure_response, HTTP 200). 'card' is
+ * one that takes the payment: payment_complete, then the success result.
+ */
+function gate_woo_pay(string $gateway, array $data): never
+{
+    $id = 7;
+    do_action('woocommerce_checkout_order_processed', $id, $data, new stdClass());
+    if ($gateway === 'decline') {
+        do_action('woocommerce_order_status_pending_to_failed', $id, new stdClass());
+        do_action('woocommerce_order_status_failed', $id, new stdClass());
+        gate_event('payment_declined');
+        wp_send_json(['result' => 'failure', 'messages' => '<ul class="woocommerce-error" role="alert"><li>Test card declined.</li></ul>', 'refresh' => false, 'reload' => false], 200);
+    }
+    do_action('woocommerce_pre_payment_complete', $id, '');
+    do_action('woocommerce_payment_complete', $id, '');
+    gate_event('payment_taken');
+    wp_send_json(apply_filters('woocommerce_payment_successful_result', ['result' => 'success', 'redirect' => '/checkout/order-received/7/', 'order_id' => $id], $id), 200);
 }
 
 function gate_event(string $e): void { $GLOBALS['gate']['events'][] = $e; }
@@ -304,6 +330,25 @@ $r = run_case('classic', $c + ['field_error' => 1]);
 check('classic, human, field errors: the toll error is still added (unchanged)', $r['result'] === ['billing_email_required', 'toll_required'], $r['result']);
 $r = run_case('classic', $c + ['pass' => ['n' => 20, 'via' => 'post']]);
 check('classic, human, valid pass in the form: order created, one use spent', $r['events'] === ['order_created'] && $r['left'] === 19, $r);
+
+// -- classic checkout, the gateway declines (EM ruling (a)): the use spent at validation stays spent --
+// The pass is spent in woocommerce_after_checkout_validation, before the order and the payment, so a
+// declined card has already cost the use: the buyer gets the gateway's decline, not a 402, and the
+// same pass is refused next time even with a gateway that works.
+$declined = fn (array $r) => ($r['sent']['status'] ?? null) === 200 && ($r['sent']['body']['result'] ?? null) === 'failure' && str_contains((string) ($r['sent']['body']['messages'] ?? ''), 'declined');
+$r = run_case('classic', $c + ['agent' => 1, 'gateway' => 'decline']);
+check('classic, agent, no pass, declining gateway: the 402 comes first, no order, the gateway never runs', $r['sent'] !== null && $is402($r['sent']) && $r['events'] === [] && $r['counts'] === ['offer_shown' => 1, 'pass_absent' => 1], $r);
+$store = $tmp . '/declined-' . bin2hex(random_bytes(6)) . '.json';
+$paid = ['n' => 1, 'jti' => bin2hex(random_bytes(16)), 'iat' => time()];
+$r = run_case('classic', $c + ['agent' => 1, 'gateway' => 'decline', 'store' => $store, 'pass' => $paid]);
+check('classic, agent, paid pass, the gateway declines: the gateway\'s decline, not a 402', $declined($r) && $r['events'] === ['order_created', 'payment_declined'], $r);
+check('classic, agent, paid pass, the gateway declines: the pass is spent, exactly one pass_accept', $r['counts'] === ['pass_accept' => 1] && $r['left'] === 0, $r);
+$r = run_case('classic', $c + ['agent' => 1, 'gateway' => 'card', 'store' => $store, 'pass' => $paid]);
+check('classic, agent, the same pass retried with a working gateway: 402, pass_reject and offer_shown, no new order', $r['sent'] !== null && $is402($r['sent']) && $r['counts'] === ['offer_shown' => 1, 'pass_reject' => 1] && $r['events'] === [] && $r['left'] === 0, $r);
+$r = run_case('classic', $c + ['gateway' => 'decline', 'pass' => ['n' => 20, 'via' => 'post']]);
+check('classic, human, widget pass, the gateway declines: the same decline, exactly one pass_accept', $declined($r) && $r['events'] === ['order_created', 'payment_declined'] && $r['counts'] === ['pass_accept' => 1] && $r['left'] === 19, $r);
+$r = run_case('classic', $c + ['agent' => 1, 'gateway' => 'card', 'pass' => ['n' => 1]]);
+check('classic, agent, paid pass, working gateway: payment taken, exactly one pass_accept', ($r['sent']['body']['result'] ?? null) === 'success' && $r['events'] === ['order_created', 'payment_taken'] && $r['counts'] === ['pass_accept' => 1] && $r['left'] === 0, $r);
 
 // -- Contact Form 7 over REST -----------------------------------------------------------------------
 $f = $both + ['uri' => '/wp-json/contact-form-7/v1/contact-forms/12/feedback'];
