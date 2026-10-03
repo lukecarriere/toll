@@ -82,8 +82,9 @@ test("built pages carry exactly the markdown text: header, nav with aria-current
 
 test("no analytics: no <script>, no inline handlers, no external URLs, no pixels, no cookies in the built HTML and CSS", () => {
   const files = readdirSync(OUT).sort();
-  // The homepage (index.html, home.css, img/, fonts/) is checked in tests/homepage.test.ts, the icons in tests/favicon.test.ts.
-  assert.deepEqual(files, ["apple-touch-icon.png", "ecosystem.html", "favicon.ico", "favicon.svg", "fonts", "home.css", "img", "index.html", "mission.html", "site.css", "values.html", "vision.html"], "nothing else is shipped");
+  // The homepage (index.html, home.css, img/, fonts/) is checked in tests/homepage.test.ts, the icons in tests/favicon.test.ts,
+  // _headers in tests/site-headers.test.ts.
+  assert.deepEqual(files, ["_headers", "apple-touch-icon.png", "ecosystem.html", "favicon.ico", "favicon.svg", "fonts", "home.css", "img", "index.html", "mission.html", "site.css", "values.html", "vision.html"], "nothing else is shipped");
   for (const p of PAGES) {
     const h = html(p.file);
     assert.doesNotMatch(h, /<script/i, p.file + ": no script tag");

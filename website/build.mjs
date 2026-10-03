@@ -8,6 +8,8 @@
 // served at any path ("/mission/", a nested route) still finds its stylesheet, fonts and photo.
 // Icons (EM, Oct 2): favicon.ico, favicon.svg and apple-touch-icon.png from the brand set ship at the site
 // root, unchanged, with the same three <link> tags on every page. No icon-192/512, no web manifest.
+// Site files (QA NO-GO, Oct 3): website/_headers is the section 2 `_headers` block of the deploy plan, word for
+// word; it ships at the dist root unchanged, where Workers static assets applies it to every response.
 // Canonicals: each page points at itself under TOLL_SITE_URL, validated by @toll/protocol/site-url.
 // Unset or invalid: no canonical tag at all, and the pages are byte-identical to a build without it.
 import { readFileSync, writeFileSync, mkdirSync, copyFileSync } from "node:fs";
@@ -26,6 +28,9 @@ export const PAGES = [
 export const ICON_FILES = ["favicon.ico", "favicon.svg", "apple-touch-icon.png"];
 /** The icon tags in every page's head, all root-relative. */
 export const ICON_TAGS = '<link rel="icon" href="/favicon.ico" sizes="32x32"><link rel="icon" href="/favicon.svg" type="image/svg+xml"><link rel="apple-touch-icon" href="/apple-touch-icon.png">';
+
+/** Files at the site root that are not pages; copied unchanged from website/ to dist/. */
+export const SITE_FILES = ["_headers"];
 
 /** Files the homepage ships besides index.html, relative to website/ and to dist/. */
 export const HOME_ASSETS = [
@@ -117,6 +122,7 @@ export function build(out = HERE + "dist/", site = process.env[SITE_URL_ENV], wa
   for (const p of PAGES) writeFileSync(out + p.file + ".html", render(p, readFileSync(HERE + p.file + ".md", "utf8"), base));
   copyFileSync(HERE + "site.css", out + "site.css");
   for (const f of ICON_FILES) copyFileSync(HERE + f, out + f);
+  for (const f of SITE_FILES) copyFileSync(HERE + f, out + f);
   for (const f of HOME_ASSETS) {
     mkdirSync(out + f.slice(0, f.lastIndexOf("/") + 1), { recursive: true });
     copyFileSync(HERE + f, out + f);
