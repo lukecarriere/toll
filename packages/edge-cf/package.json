@@ -1,4 +1,4 @@
-{ "name": "@toll/edge-cf", "private": true, "version": "0.1.0", "type": "module",
+{ "name": "@toll/edge-cf", "private": true, "version": "0.1.0", "license": "MIT", "type": "module",
   "description": "Toll at the edge: a worker that gates write routes, issues and redeems checks, and answers siteverify. Local only (wrangler dev).",
   "scripts": { "build": "node build.mjs", "dev": "node build.mjs && wrangler dev --local --port 8789" },
   "dependencies": { "@toll/protocol": "0.1.0", "@toll/work-adapter": "0.1.0" },

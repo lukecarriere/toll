@@ -1,6 +1,6 @@
 # Benchmark run 2026-10-01T00-32-07
 
-Started 9/30/2026, 7:32:07 PM CT. Box CPU: Intel(R) Xeon(R) Processor, 8 vCPU (clock not reported by the VM), SHA-NI yes, kernel 6.12.94+, 16 GB RAM. Node v22.23.3. Load average before 1.6 / 1.2 / 1, after 1 / 1 / 1.1 (shared box).
+Started 9/30/2026, 7:32:07 PM CT. Box CPU: Intel(R) Xeon(R) Processor, 8 vCPU (clock not reported by the VM), SHA-NI yes, kernel 6.12.94+, 16 GB RAM. Node v22.23.3. Load average before 1.6 / 1.2 / 1, after 1 / 1 / 1.1.
 Default challenge: write, cost 2000, n 4, bits 32, unit_iterations 400,000. 10 warm-up solves, then 210 counted solves per profile; every counted solve kept. Percentiles: nearest-rank.
 Worker CPU throttling via CDP: rejected by Chromium: Operation is only supported for pages, not workers.
 

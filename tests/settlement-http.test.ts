@@ -252,7 +252,7 @@ test("config: settlement accepts only the local test backend and Q6-bounded pass
   assert.equal(toll.paid!.balance().usd, null);
 });
 
-test("offer_shown (Data Scientist P1): +1 per 402 that carries offers; not for 403s or /v1/challenge; in /demo/stats and the counters line next to paid", async () => {
+test("offer_shown: +1 per 402 that carries offers; not for 403s or /v1/challenge; in /demo/stats and the counters line next to paid", async () => {
   const st0: any = await (await fetch(`${S.url}/demo/stats`)).json();
   const c0 = S.demo.toll.metrics.snapshot();
   assert.equal((await postContact({ "toll-client": "agent" })).status, 402);

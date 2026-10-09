@@ -45,7 +45,7 @@ of one try is fixed per mode. `docs/protocol.md` §3 has the rule.
 <!-- BENCH:START (generated from bench/results/2026-10-01T01-24-06/summary.md) -->
 Run `2026-10-01T01-24-06` (UTC stamp). Work engine as of Amendment 1; the retired built-in miner's run (`2026-10-01T00-32-07`) is kept in `bench/results/` as history only.
 
-Started 9/30/2026, 8:24:06 PM CT. Box CPU: Intel(R) Xeon(R) Processor, 8 vCPU, kernel 6.12.94+, 16 GB RAM. Node v22.23.3. Load average before 2.2 / 3.6 / 2.9, after 5.1 / 4.1 / 3.7 (shared box).
+Started 9/30/2026, 8:24:06 PM CT. Box CPU: Intel(R) Xeon(R) Processor, 8 vCPU, kernel 6.12.94+, 16 GB RAM. Node v22.23.3. Load average before 2.2 / 3.6 / 2.9, after 5.1 / 4.1 / 3.7.
 Challenge: write (4 units), solved as the widget solves it (the engine's solver and workers as served by the issuer, same worker count), through the real /v1/challenge and /v1/redeem. 10 warm-up solves, then the counted solves below; every counted solve kept. Percentiles: nearest-rank.
 
 |  | Desktop, standard | Phone-like, standard (CPU quota 45% of a core) | Desktop, hardened | Phone-like, hardened (CPU quota 180% of a core) | Real Android phone |
@@ -100,16 +100,16 @@ Measured against the §9.3 targets (run above):
   - That is better than the retired miner on its 4x emulation (p50 708 ms).
   - The default is not changed; it needs real-device data.
 - **Hardened mode, desktop.** p50 549 ms, p95 1,042 ms; 57% of solves show "Checking…". Memory-hard work is heavier by design, which is why it is opt-in.
-- **Hardened mode, phone-like.** p50 1,405 ms, p95 2,296 ms; 95% show "Checking…", and the worst case (2.6 s) stays well under the 8 s cap. That is the §9.3 "1–2 s" escalation band, as a *default* for every visitor. **Hardened mode should stay opt-in for sites under GPU pressure**, not become the default. The Data Scientist should decide whether to lower `hardened.unit_tries` (to 2 or 3) or `device_mult.mobile` in hardened mode.
+- **Hardened mode, phone-like.** p50 1,405 ms, p95 2,296 ms; 95% show "Checking…", and the worst case (2.6 s) stays well under the 8 s cap. That is the §9.3 "1–2 s" escalation band, as a *default* for every visitor. **Hardened mode should stay opt-in for sites under GPU pressure**, not become the default. A later measurement should decide whether to lower `hardened.unit_tries` (to 2 or 3) or `device_mult.mobile` in hardened mode.
 - **Server cost.**
   - Verifying is one HMAC in both modes (the engine's key signature).
-  - Minting costs one KDF call. A quick Node 22 measurement (20 mints after 5 warm-ups, 9/30 8:45 PM CT, shared box) gave PBKDF2 p50 1.1 ms (p95 1.4 ms) and Argon2id at 19 MiB, in WASM, p50 52 ms (p95 91 ms).
+  - Minting costs one KDF call. A quick Node 22 measurement (20 mints after 5 warm-ups, 9/30 8:45 PM CT) gave PBKDF2 p50 1.1 ms (p95 1.4 ms) and Argon2id at 19 MiB, in WASM, p50 52 ms (p95 91 ms).
   - Hardened mode makes challenge floods a real server cost, so keep the per-IP challenge limit.
 - **Velocity (off by default).** Work scales linearly with the multiplier up to `max_units` (28 units, 7x a write). This is derived, not measured: a desktop standard write reaches the "1–2 s" band around x4–x8.
 
 ## 5. Pay vs grind
 
-Redone by the Data Scientist on 2026-09-30 (CT) for the pinned work engine (Amendment 1; see
+Redone on 2026-09-30 (CT) for the pinned work engine (Amendment 1; see
 `docs/adapters.md`). It replaces the table for the retired custom miner. The question is whether an
 automated client spends less paying the settlement offer or grinding the work check on rented GPUs.
 All grind figures are **derived** from public benchmarks. No GPU was run on this project.
@@ -185,7 +185,7 @@ All grind figures are **derived** from public benchmarks. No GPU was run on this
    1 use within 60 s, so each paid check covers exactly one write (the per-write paid figures above
    are unchanged).
 
-**Phone weight for hardened mode (Data Scientist recommendation, 2026-09-30):** keep hardened opt-in
+**Phone weight for hardened mode (recommendation, 2026-09-30):** keep hardened opt-in
 and at its current weight on phones for now. The phone-like run already includes `device_mult` 0.6.
 Reaching the 300–600 ms phone band would need roughly 0.26, which is about 2 to 3 Argon2id tries per
 write, and lowering memory would give up the GPU resistance that is the reason to use hardened at all.
@@ -218,8 +218,8 @@ With `adaptive.velocity: true`:
 
 ## 7. Open items
 
-- Real Android device column (empty). Until it is filled, the phone defaults are unverified. On the OS-quota emulation, standard mode's p50 is inside the §9.3 phone band and its p95 is over it; hardened mode is in the 1–2 s band (see §4). Decision for Luke and the Data Scientist: keep 0.6, lower it, or wait for device data.
-- Hardened mode on phones: lower `hardened.unit_tries` or the mobile multiplier, or keep it as an opt-in heavy mode (Data Scientist).
+- Real Android device column (empty). Until it is filled, the phone defaults are unverified. On the OS-quota emulation, standard mode's p50 is inside the §9.3 phone band and its p95 is over it; hardened mode is in the 1–2 s band (see §4). Decision: keep 0.6, lower it, or wait for device data.
+- Hardened mode on phones: lower `hardened.unit_tries` or the mobile multiplier, or keep it as an opt-in heavy mode.
 - Pay vs grind (§5) needs a re-run on the new engine, including a GPU figure for Argon2id.
 - Velocity thresholds need real traffic before `adaptive.velocity` is turned on by default (phase 3 behaviour is built, §6).
 - `device_mult` comes from the UA class only; the "previous took_ms EMA" input from §9.5 is logged

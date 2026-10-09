@@ -33,7 +33,7 @@ function htmlText(src: string) {
   return [...main.matchAll(/<(h1|p|li)\b[^>]*>([\s\S]*?)<\/\1>/g)].map((m) => norm(decode(m[2])));
 }
 
-test("website/*.md are the Creative Director's pages in docs/copy.md, word for word; the held catalog paragraph stays out", () => {
+test("website/*.md match the pages in docs/copy.md, word for word; the held catalog paragraph stays out", () => {
   // docs/copy.md "Website pages": one "### " block per page, in nav order. Numbered lines are paragraphs,
   // "- " lines are list items. [QA: ...] tags are notes for QA, not copy; "HOLD" lines are not published.
   const copy = readFileSync(ROOT + "docs/copy.md", "utf8");
@@ -148,7 +148,7 @@ test("in a browser each page makes only same-origin requests (the page, site.css
 test("copy lint covers website/ and docs/positioning.md, and they pass as written", async () => {
   const r = await runLint();
   assert.deepEqual(r.hits.filter((h: any) => h.file.startsWith("website/") || h.file === "docs/positioning.md"), []);
-  assert.ok(md("values").includes("We do not score visitors as human or not."), "Luke's one use of 'human' stays");
+  assert.ok(md("values").includes("We do not score visitors as human or not."), "the one use of 'human' stays");
 });
 
 test("built pages match the Designer's template byte for byte, apart from the EM's root-relative rulings; site.css is the inner pages handoff file", { skip: existsSync(ROOT + "design/proto/website/mission.html") ? false : "design/ not present (gitignored)" }, () => {

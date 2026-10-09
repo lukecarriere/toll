@@ -21,3 +21,8 @@ demo/.owner-key
 
 # Plugin zip builds (scripts/build-wp-zip.mjs)
 dist-release/
+
+# Not part of the public repo (directory, and the path even when it is absent)
+/brand/
+/brand
+/STATUS.md

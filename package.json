@@ -2,6 +2,7 @@
   "name": "toll",
   "private": true,
   "version": "0.1.0",
+  "license": "MIT",
   "description": "A small check for writes. Heavy clients do work on each write, or pay in test mode. Page views stay free. Does not identify the caller.",
   "type": "module",
   "engines": {
