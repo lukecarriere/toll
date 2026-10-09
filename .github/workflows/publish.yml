@@ -1,5 +1,7 @@
 # Manual publish of the four public packages. Do not run this workflow until publish is approved.
 # It is workflow_dispatch only: pull requests and pushes do not start it.
+# The job passes secrets.NPM_TOKEN as NODE_AUTH_TOKEN. Each package is skipped when that
+# exact version is already on the registry, so a re-run after a partial failure is safe.
 
 name: Publish
 
@@ -13,6 +15,8 @@ permissions:
 jobs:
   publish:
     runs-on: ubuntu-latest
+    env:
+      NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -31,17 +35,13 @@ jobs:
         run: npm run build
 
       - name: Publish @lessspam/widget
-        working-directory: packages/widget
-        run: npm publish --provenance
+        run: node scripts/publish-missing.mjs --publish packages/widget
 
       - name: Publish @lessspam/server
-        working-directory: packages/server-node
-        run: npm publish --provenance
+        run: node scripts/publish-missing.mjs --publish packages/server-node
 
       - name: Publish @lessspam/agent
-        working-directory: packages/agent
-        run: npm publish --provenance
+        run: node scripts/publish-missing.mjs --publish packages/agent
 
       - name: Publish @lessspam/mcp
-        working-directory: packages/mcp
-        run: npm publish --provenance
+        run: node scripts/publish-missing.mjs --publish packages/mcp
