@@ -1,26 +1,18 @@
-# packages/agent
+# @lessspam/agent
 
-Toll client for automated callers (phase 2). It pays the per-request offer instead of doing the work, and does the work when no offer is available. Toll's own code (Amendment 1): invoices and credentials are opaque strings from the issuer, never parsed here.
+Client for automated callers. It sends `Toll-Client: agent`. When a write needs a pass, it does the work and retries once. Test mode only.
 
-```ts
-import { createAgent, testBackendPayer } from "@toll/agent";
-const agent = createAgent({ base: "http://localhost:8787", pay: testBackendPayer("http://localhost:8787") });
-const r = await agent.fetch("/contact", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ message: "hi" }) });
-// r.via: "paid" | "work" | "none"; r.offer.amount_msat; r.offer.display?.usd
+```js
+import { createAgent, solveWork } from "@lessspam/agent";
+
+const agent = createAgent({ base: "http://127.0.0.1:8787" });
+const result = await agent.fetch("/contact", {
+  method: "POST",
+  headers: { "content-type": "application/json" },
+  body: JSON.stringify({ message: "hi" }),
+});
 ```
 
-- Every request sends `Toll-Client: agent`.
-- 402 with an offer: `pay(offer)` returns the preimage → `POST /v1/redeem` → one-use 60 s pass → retry once with `Authorization: Toll <pass>`. The paid path never fetches a work challenge.
-- 402 it cannot pay (no `pay`, `pay` throws, offer over `maxAmountMsat`) with `work` on (the default): `GET` the 402's `challenge_url` on demand, do the work, redeem, retry once (`timings.challenge_ms` records the fetch). With `work: false` it returns the 402, or throws the limit / payment error as before.
-- 403 with only a work challenge (paid requests off or paused): solve it with the work engine's Node solver and retry once (`work: false` turns that off).
-- `pay` is yours to supply. `testBackendPayer(base)` uses the demo's test-only `POST /demo/stub-pay` and moves no real money.
-- `maxAmountMsat` refuses offers above a limit.
+`solveWork` solves a challenge payload in Node. Browsers use `@lessspam/widget` instead.
 
-## agent-pay
-
-```
-npm run demo                              # in one terminal
-npm run agent-pay -- --writes 5           # or: node demo/agent-pay.mjs --writes 20 [--base URL] [--json]
-```
-
-Pays N writes to `/contact` (doing the work instead when no offer is available, unless `--no-work`), prints one line per write (status, rail/class of the pass, pass shape, amount in msat and USD, client timings: pay, solve, redeem, total), then checks that the same preimage is rejected (`401 replay`) and the spent pass is refused, and prints each amount in msat and USD (from the offer) plus the site ledger totals (gross, fee held, net, in msat, and USD) from `/demo/stats`. It also prints the server counters for the run: `offer_shown`, `paid`, `work_after_402`, `challenges minted` (both 0 on an all-paid run), `settled_msat`, and passes accepted by rail (work vs settle). Exits non-zero if any check fails.
+The `toll-agent-pay` command runs against a local demo. It is for tests.

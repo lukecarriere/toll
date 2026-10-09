@@ -6,7 +6,8 @@
 // caller identification: nothing about the caller is sent or stored. Counters are per UTC day with
 // no ids (M11), written to stderr as JSON lines (stdout carries the protocol).
 import { createInterface } from "node:readline";
-import { writeFileSync } from "node:fs";
+import { realpathSync, writeFileSync } from "node:fs";
+import { pathToFileURL } from "node:url";
 import { TOOLS, INPUT_SCHEMAS, PAID_CLASSES, type ToolName } from "../../server-node/src/manifest.ts";
 
 export const MCP_COUNTERS = ["mcp_tools_list", "mcp_call_price_write_action", "mcp_call_gate_form_write", "mcp_call_verify_write_pass", "mcp_offer_returned", "mcp_paid"] as const;
@@ -147,14 +148,40 @@ export async function handle(msg: any, counters: DayCounters): Promise<object | 
   }
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+/** True when this file is the process entrypoint, including a symlinked bin. */
+function invokedDirectly(): boolean {
+  const entry = process.argv[1];
+  if (!entry) return false;
+  try {
+    return import.meta.url === pathToFileURL(realpathSync(entry)).href;
+  } catch {
+    return false;
+  }
+}
+
+if (invokedDirectly()) {
   const counters = new DayCounters();
   const rl = createInterface({ input: process.stdin });
+  let pending = 0;
+  let closed = false;
+  const finish = () => {
+    if (closed && pending === 0) process.exit(0);
+  };
   rl.on("line", async (line) => {
-    if (!line.trim()) return;
-    let msg: any;
-    try { msg = JSON.parse(line); } catch { process.stdout.write(JSON.stringify({ jsonrpc: "2.0", id: null, error: { code: -32700, message: "parse error" } }) + "\n"); return; }
-    const out = await handle(msg, counters);
-    if (out) process.stdout.write(JSON.stringify(out) + "\n");
+    pending++;
+    try {
+      if (!line.trim()) return;
+      let msg: any;
+      try { msg = JSON.parse(line); } catch { process.stdout.write(JSON.stringify({ jsonrpc: "2.0", id: null, error: { code: -32700, message: "parse error" } }) + "\n"); return; }
+      const out = await handle(msg, counters);
+      if (out) process.stdout.write(JSON.stringify(out) + "\n");
+    } finally {
+      pending--;
+      finish();
+    }
+  });
+  rl.on("close", () => {
+    closed = true;
+    finish();
   });
 }

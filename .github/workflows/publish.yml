@@ -1,0 +1,47 @@
+# Manual publish of the four public packages. Do not run this workflow until publish is approved.
+# It is workflow_dispatch only: pull requests and pushes do not start it.
+
+name: Publish
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          registry-url: https://registry.npmjs.org
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      - name: Build
+        run: npm run build
+
+      - name: Publish @lessspam/widget
+        working-directory: packages/widget
+        run: npm publish --provenance
+
+      - name: Publish @lessspam/server
+        working-directory: packages/server-node
+        run: npm publish --provenance
+
+      - name: Publish @lessspam/agent
+        working-directory: packages/agent
+        run: npm publish --provenance
+
+      - name: Publish @lessspam/mcp
+        working-directory: packages/mcp
+        run: npm publish --provenance

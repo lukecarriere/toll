@@ -1,0 +1,18 @@
+{
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    "noEmit": false,
+    "declaration": true,
+    "emitDeclarationOnly": true,
+    "rewriteRelativeImportExtensions": true,
+    "outDir": "dist/types",
+    "rootDir": ".."
+  },
+  "include": [
+    "src/**/*.ts",
+    "../protocol/src/**/*.ts",
+    "../work-adapter/src/**/*.ts",
+    "../settlement-ln/src/**/*.ts"
+  ],
+  "exclude": ["../work-adapter/src/browser.ts"]
+}

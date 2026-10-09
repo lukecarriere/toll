@@ -96,7 +96,7 @@ export function normalizeConfig(raw: Record<string, any>, env: NodeJS.ProcessEnv
   const site_id = String(raw.site_id ?? "");
   if (!/^[A-Za-z0-9_-]{1,64}$/.test(site_id)) throw new Error("toll config: site_id is required (letters, digits, _ and -)");
   const secret = resolveEnv(raw.secret, env);
-  if (typeof secret !== "string" || secret.length < 16) throw new Error("toll config: secret is missing or shorter than 16 characters (set TOLL_SECRET)");
+  if (typeof secret !== "string" || secret.length < 16) throw new Error("toll config: secret is missing or shorter than 16 characters");
   const issuer_public_url = String(raw.issuer_public_url ?? "http://localhost:8787");
   const d = raw.defaults ?? {};
   if (d.algos !== undefined) throw new Error("toll config: defaults.algos was replaced by work.mode (standard | hardened); see docs/adapters.md");

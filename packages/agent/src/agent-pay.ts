@@ -16,8 +16,21 @@
 // the spent pass again (must be refused).
 // Prints amounts in msat and USD (from the offer's display value) and the site ledger totals.
 // No real money: the payer is the demo's test-only endpoint.
+import { realpathSync } from "node:fs";
+import { pathToFileURL } from "node:url";
 import { createAgent, testBackendPayer, type AgentOffer, AgentError } from "./index.ts";
 import { usdDisplay } from "../../settlement-ln/src/ledger.ts";
+
+/** True when this file is the process entrypoint, including a symlinked bin. */
+function invokedDirectly(): boolean {
+  const entry = process.argv[1];
+  if (!entry) return false;
+  try {
+    return import.meta.url === pathToFileURL(realpathSync(entry)).href;
+  } catch {
+    return false;
+  }
+}
 
 /** The demo's fixed test rate (demo/toll.yaml, settlement.fx.usd_per_btc): not a market price. */
 export const TEST_USD_RATE = 100000;
@@ -249,7 +262,7 @@ export async function main() {
   process.exit(r.ok ? 0 : 1);
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (invokedDirectly()) {
   main().catch((e) => {
     console.error("agent-pay:", (e as Error).message);
     process.exit(1);

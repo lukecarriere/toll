@@ -1,14 +1,22 @@
 {
-  "name": "@toll/widget",
-  "private": true,
+  "name": "@lessspam/widget",
   "version": "0.1.0",
   "license": "MIT",
   "type": "module",
-  "description": "toll.js: the invisible check for forms. Solves with the ALTCHA v2 solver and its prebuilt workers, bundled and self-hosted.",
-  "dependencies": {
-    "@toll/protocol": "0.1.0",
-    "@toll/work-adapter": "0.1.0"
+  "description": "toll.js: the invisible check for forms. Self-hosted page script and workers.",
+  "engines": { "node": ">=22.18" },
+  "exports": {
+    ".": {
+      "types": "./dist/types/files.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./toll.js": "./dist/toll.js",
+    "./toll.worker.js": "./dist/toll.worker.js",
+    "./toll.worker-argon2id.js": "./dist/toll.worker-argon2id.js"
   },
+  "types": "./dist/types/files.d.ts",
+  "files": ["dist", "README.md", "LICENSE"],
+  "publishConfig": { "access": "public", "provenance": true },
   "devDependencies": {
     "altcha": "3.2.3"
   }

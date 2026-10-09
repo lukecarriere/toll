@@ -1,4 +1,22 @@
-{ "name": "@toll/agent", "private": true, "version": "0.1.0", "license": "MIT", "type": "module",
-  "description": "Toll client for automated callers: pays the per-request offer instead of doing the work, or does the work when no offer is available.",
-  "exports": { ".": "./src/index.ts" },
-  "bin": { "toll-agent-pay": "./src/agent-pay.ts" } }
+{
+  "name": "@lessspam/agent",
+  "version": "0.1.0",
+  "license": "MIT",
+  "type": "module",
+  "description": "Toll client for automated callers. Test mode: does the work for a write on a Toll site.",
+  "engines": { "node": ">=22.18" },
+  "exports": {
+    ".": {
+      "types": "./dist/types/agent/src/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "types": "./dist/types/agent/src/index.d.ts",
+  "bin": { "toll-agent-pay": "./dist/agent-pay.js" },
+  "files": ["dist", "README.md", "LICENSE"],
+  "publishConfig": { "access": "public", "provenance": true },
+  "dependencies": {
+    "altcha-lib": "2.5.0",
+    "hash-wasm": "4.12.0"
+  }
+}

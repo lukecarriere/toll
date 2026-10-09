@@ -37,6 +37,7 @@ export const ALLOWED_HOSTS = new Map<string, string>([
   ["docs.x402.org", "docs/adapters.md: x402 spec docs cited for the Bazaar extension"],
   ["registry.modelcontextprotocol.io", "docs/catalogs.md: the official MCP registry, a catalog target"],
   ["npmjs.org", "docs/catalogs.md: the npm registry, where an MCP package would be published"],
+  ["registry.npmjs.org", "npm registry URL for the manual publish workflow"],
 ]);
 
 /** A dotted host name (letters, digits, '-'; last label starts with a letter). Anything else in the field exempts nothing. */

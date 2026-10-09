@@ -3,6 +3,7 @@
 
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { readFileSync, existsSync, statSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { type ActionClass, TollError, isActionClass, timingSafeEqual, utf8, verifyPassToken, classCovers, clientIp as resolveClientIp } from "../../protocol/src/index.ts";
 import { l402Challenge, paymentRequired, StubSettler } from "../../settlement-ln/src/index.ts";
@@ -130,7 +131,14 @@ function statusFor(e: unknown): number {
   }
 }
 
-const WIDGET_DIST = fileURLToPath(new URL("../../widget/dist/", import.meta.url));
+/** Widget files. The published package ships them in dist/widget/; a source checkout uses packages/widget/dist. */
+function widgetDistDir(): string {
+  const here = dirname(fileURLToPath(import.meta.url));
+  const shipped = join(here, "widget");
+  if (existsSync(join(shipped, "toll.js"))) return shipped + "/";
+  return join(here, "..", "..", "widget", "dist") + "/";
+}
+const WIDGET_DIST = widgetDistDir();
 const assetCache = new Map<string, { mtime: number; body: Buffer }>();
 function asset(name: string): Buffer | undefined {
   const p = WIDGET_DIST + name;

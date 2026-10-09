@@ -34,7 +34,7 @@ Toll checks writes, not page views. Leave public pages open so people and answer
 On the server (Node):
 
 ```js
-import { Toll, loadConfig } from "@toll/server";
+import { Toll, loadConfig } from "@lessspam/server";
 const toll = Toll.create(loadConfig("toll.yaml"));
 app.use(Toll.router(toll));                                   // /v1/* and /toll/v1/toll.js
 app.post("/contact", Toll.middleware(toll, { action: "write" }), handler);
@@ -70,4 +70,4 @@ npm run dev -w packages/edge-cf   # the edge worker under wrangler dev, local on
 
 ## Licence
 
-The repository and the Node packages are [MIT](LICENSE). The WordPress plugin (`packages/wp-toll-gate`) and `packages/server-php` are GPL-2.0-or-later. A later npm publish uses the `@lessspam` scope.
+The repository and the Node packages are [MIT](LICENSE). The npm names are `@lessspam/widget`, `@lessspam/server`, `@lessspam/agent` and `@lessspam/mcp`. The WordPress plugin (`packages/wp-toll-gate`) and `packages/server-php` are GPL-2.0-or-later.
