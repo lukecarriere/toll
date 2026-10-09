@@ -8,14 +8,20 @@ import { startDemo, type Running } from "./helpers.ts";
 const V = JSON.parse(readFileSync(new URL("../docs/vectors.json", import.meta.url), "utf8"));
 let browser: Browser;
 let fast: Running; // default policy
-let tiny: Running; // very light work: solves well under 500ms
+let tiny: Running; // one cost-1 try: solves well under 500ms, including on a busy runner
 let slow: Running; // heavy work: solves take well over 500ms and well under the widget's 8s cap (counter pinned mid-range)
 let hard: Running; // hardened mode (Argon2id worker)
 
 before(async () => {
   browser = await chromium.launch();
   fast = await startDemo();
-  tiny = await startDemo({ work: { standard: { unit_tries: 2 } } });
+  // State 1 must observe a solve that finishes under the widget's 500ms Checking… threshold.
+  // unit_tries: 2 kept the default cost (5000) and a random counter, and the test read redeem_ok
+  // the instant a 2s visibility poll ended. The widget starts that solve from requestIdleCallback
+  // with a 2s timeout, so on a busy runner the poll and the idle timeout finished together and the
+  // redeem was not in the log yet (the assertion failed with "solves were under 500ms"). One PBKDF2
+  // iteration, counter pinned at 0, keeps took_ms to worker startup once the solve does start.
+  tiny = await startDemo({ work: { standard: { cost: 1, unit_tries: 1 } } }, { pickCounter: () => 0 });
   // The slow policy must sit well inside the window its tests need: over ~2s (Checking… 500ms after an
   // interaction made 1s into the solve, then 400ms of Checking…) and well under the widget's default 8s
   // cap (MAX_SOLVE_MS), past which an engaged form switches to the checkbox and never shows Verified.
@@ -157,22 +163,45 @@ test("19.8 bot hammer: without the check >= 95% rejected; with the widget >= 95%
   await ctx.close();
 });
 
-test("state 1: a solve under 500ms renders nothing, ever (and never shows Verified)", async () => {
+test("state 1: a solve under 500ms renders nothing, ever (and never shows Verified)", async (t) => {
   const { page, ctx } = await newPage();
-  await page.goto(tiny.url + "/");
-  const seen = await page.evaluate(async () => {
-    const out: string[] = [];
-    const t0 = performance.now();
-    while (performance.now() - t0 < 2000) {
-      document.querySelectorAll("toll-gate").forEach((g: any) => { if (!g.hidden) out.push(g.shadowRoot.textContent); });
-      await new Promise((r) => setTimeout(r, 15));
-    }
-    return out;
+  // Watch from the first script. A 2s evaluate loop ended in the same moment requestIdleCallback's
+  // 2s timeout started the solve, so the redeem was still in flight when took_ms was checked.
+  await page.addInitScript(() => {
+    const w = window as any;
+    w.__gateSeen = [];
+    const tick = () => {
+      document.querySelectorAll("toll-gate").forEach((g: any) => { if (!g.hidden) w.__gateSeen.push(g.shadowRoot.textContent); });
+      setTimeout(tick, 15);
+    };
+    setTimeout(tick, 0);
   });
-  assert.deepEqual(seen, []);
-  const ev = tiny.events.filter((e) => e.event === "redeem_ok");
-  assert.ok(ev.length >= 1 && ev.every((e) => e.took_ms < 500), "solves were under 500ms");
-  await ctx.close();
+  try {
+    const mark = tiny.events.length;
+    const redeemed = page.waitForResponse((r) => r.url().includes("/v1/redeem") && r.status() === 200, { timeout: 15000 });
+    await page.goto(tiny.url + "/");
+    await redeemed;
+    // A second form can mint its own challenge if it starts before the write solve is in flight.
+    const extra = Date.now() + 2000;
+    let took: number[] = [];
+    while (Date.now() < extra) {
+      const ev = tiny.events.slice(mark);
+      const minted = ev.filter((e) => e.event === "challenge_minted").length;
+      const ok = ev.filter((e) => e.event === "redeem_ok");
+      took = ok.map((e) => e.took_ms);
+      if (minted > 0 && ok.length >= minted) break;
+      await new Promise((r) => setTimeout(r, 20));
+    }
+    // Checking… arms at 500ms and Verified holds at least 400ms, so a paint would be on screen
+    // within a second of the redeem.
+    await page.waitForTimeout(1000);
+    const seen = await page.evaluate(() => (window as any).__gateSeen as string[]);
+    assert.deepEqual(seen, [], `a solve under 500ms rendered ${JSON.stringify(seen)} (took_ms ${JSON.stringify(took)})`);
+    assert.ok(took.length >= 1 && took.every((ms) => typeof ms === "number" && ms < 500), `solves were under 500ms: ${JSON.stringify(took)}`);
+    t.diagnostic(`took_ms ${JSON.stringify(took)}`);
+  } finally {
+    await ctx.close();
+  }
 });
 
 test("states 2 and 3: Checking… appears at 500ms (not before), then Verified; host submit button untouched; placement after submit", async () => {
