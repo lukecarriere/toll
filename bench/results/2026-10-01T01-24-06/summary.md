@@ -1,6 +1,6 @@
 # Benchmark run 2026-10-01T01-24-06
 
-Started 9/30/2026, 8:24:06 PM CT. Box CPU: Intel(R) Xeon(R) Processor, 8 vCPU, kernel 6.12.94+, 16 GB RAM. Node v22.23.3. Load average before 2.2 / 3.6 / 2.9, after 5.1 / 4.1 / 3.7 (shared box).
+Started 9/30/2026, 8:24:06 PM CT. Box CPU: Intel(R) Xeon(R) Processor, 8 vCPU, kernel 6.12.94+, 16 GB RAM. Node v22.23.3. Load average before 2.2 / 3.6 / 2.9, after 5.1 / 4.1 / 3.7.
 Challenge: write (4 units), solved as the widget solves it (the engine's solver and workers as served by the issuer, same worker count), through the real /v1/challenge and /v1/redeem. 10 warm-up solves, then the counted solves below; every counted solve kept. Percentiles: nearest-rank.
 
 |  | Desktop, standard | Phone-like, standard (CPU quota 45% of a core) | Desktop, hardened | Phone-like, hardened (CPU quota 180% of a core) | Real Android phone |

@@ -1,5 +1,7 @@
 # Where Toll sits
 
+> **Contributor documentation.** Not a public page. Do not publish this file on the site.
+
 Amendment 2 §B, as written. For contributors, not a public screen.
 
 The web is growing a second audience. Some of that traffic only reads. Some of it writes. Some of it copies pages into a model. Those are different events. Price them differently.

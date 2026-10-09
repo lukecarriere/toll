@@ -1,4 +1,4 @@
-// JSON-line metrics on stdout (spec §14 plus the PM/Data Scientist additions).
+// JSON-line metrics on stdout (spec §14 plus the later counter additions).
 // Every redeem logs its raw took_ms with rail and cls tags so p50/p95 can be computed offline.
 // Never logged: form bodies, cookies, Authorization values, pass tokens, IP addresses, invoices.
 
@@ -115,7 +115,7 @@ export class Metrics {
     this.c.turned_away++;
   }
 
-  /** A 402 with offers went out (Data Scientist P1: offers shown vs paid). Never logs the offer itself. */
+  /** A 402 with offers went out (offers shown vs paid). Never logs the offer itself. */
   offerShown(f: { cls: string; amount_msat: number; offers: number }): void {
     this.c.offer_shown++;
     this.emit("offer_shown", f);

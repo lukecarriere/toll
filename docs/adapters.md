@@ -1,5 +1,7 @@
 # Adapters: work engine and settlement engine
 
+> **Contributor documentation.** Not a public page. Do not publish this file on the site.
+
 Status: decided by Engineering on 2026-09-30 (Amendment 1). **Normative for the build.**
 This is the only document (with package.json pins and the bundled licence notices) where vendor
 names may appear. Everything public says "Toll".
@@ -33,7 +35,7 @@ All four are MIT and bundle cleanly. The MIT notices ship as `dist/LICENSES.txt`
 `/toll/v1/LICENSES.txt`. There is no copyleft, no attribution-in-UI requirement and no cost: Sentinel
 and the hosted Cloud product are paid but optional, and unused.
 
-### Criteria, in the order Luke set
+### Criteria, in the order set for the pick
 
 | Criterion | ALTCHA v2 (picked) | Cap |
 |---|---|---|
@@ -44,7 +46,7 @@ and the hosted Cloud product are paid but optional, and unused.
 | Headless / JS-API solving (no vendor UI) | Yes. `solveChallengeWorkers` drives the vendor workers directly. No vendor DOM is ever created, so there is no footer or logo to hide. | The widget is the primary API; headless needs the worker internals. |
 | GPU-hardening | Argon2id (and scrypt) in the same protocol and libraries, Node and PHP | The RSW time-lock and "instrumentation" exist only in the widget/worker, not in the npm server (last server release Dec 2025). SHA-256 hashcash only, with no memory-hard option and no PHP library. |
 
-**Close call?** No. Cap failed on two criteria Luke ranked high: phone-home by default, and a
+**Close call?** No. Cap failed on two criteria ranked high: phone-home by default, and a
 stateful server with no memory-hard mode. ALTCHA won every criterion except the licence, where
 both pass.
 
@@ -98,7 +100,7 @@ The browser test also checks the vendor workers reproduce each fixture's counter
 
 All 840 solves redeemed OK. Method and the full table: docs/policy.md §3 and `bench/README.md`.
 
-### Catches (for Luke)
+### Catches
 
 1. **Widget package pinned one release back (resolved).** `altcha@3.2.4` was published on 2026-09-30, the day we first pinned it. For supply-chain caution, Engineering pinned **3.2.3** instead (published 2026-09-20) on the same day. The two worker files we ship are **byte-identical** between 3.2.3 and 3.2.4 (`pbkdf2.js` sha256 `7862add9…b9c86f`, `argon2id.js` sha256 `cd9770a7…27b9fe9`), so nothing shipped changed. We copy only those two files; they contain no URLs and are pinned exactly. The solver library `altcha-lib@2.5.0` is three weeks old.
 2. **Hardened mode costs the issuer CPU on every challenge.** Issuing a challenge derives the secret counter's key once, so with Argon2id the issuer pays one Argon2id call per challenge. With the shipped m = 19 MiB, t = 2, that measured p50 52 ms (p95 91 ms) in WASM on this box (Node 22; 20 mints). Verifying is still one HMAC. A flood of challenge requests in hardened mode is therefore a server cost; per-IP challenge rate limits apply.
@@ -153,7 +155,7 @@ When Aperture verifies a paid request, it forwards it to Toll, and Toll mints th
 payment against the `payment_hash`. That reference is unique, so the ledger's duplicate guard is
 what enforces one payment, one pass.
 
-### Catches (for Luke)
+### Catches
 
 1. **No WordPress shared hosting.** Aperture needs a Go binary, an LND (or LNC) connection and a database. It fits self-hosters who already run a node, and the phase-4 hosted processor. A WordPress site on shared hosting would rely on the hosted processor for payments. Work-only mode is unaffected.
 2. **Close call on maintenance cadence.** Aperture has a release roughly once a year (v0.5.0, March 2026). Direct L402 would avoid the extra hop but forces our own macaroon code, so the amendment decides this one, not taste.
@@ -184,7 +186,7 @@ what enforces one payment, one pass.
 - **Different settlement.** x402 verify and settle go through a facilitator (CDP or self-run). `payTo` is a stablecoin address, so even on a test network it needs a wallet and key. The hard rules exclude real wallets, and a test wallet still means a new custody path that Amendment 1 doesn't cover.
 - **The Bazaar can't list a stub anyway.** The CDP facilitator catalogs an endpoint only after a successful settlement through it, with `paymentPayload.resource` set and the bazaar extension declared (docs.x402.org/extensions/bazaar; CDP x402 Bazaar docs, read Oct 1, 2026). Resource URLs must be absolute https with no loopback. A local stub can't meet any of that, and Amendment 3 says a fake price in a public catalog is worse than no listing.
 
-**What would change it:** Luke approves x402 as a second rail. Then a facilitator is chosen, a `payTo` address exists on a test network first, and an x402 adapter mints `accepts[]` from the same `rail.price()` (so the USD and amounts stay identical). It would redeem into the same pass. The manifest's `payment.methods` gains `{ kind: "x402", status: "test" }`, and docs/catalogs.md moves the Bazaar row to "ready".
+**What would change it:** a later decision to add x402 as a second rail. Then a facilitator is chosen, a `payTo` address exists on a test network first, and an x402 adapter mints `accepts[]` from the same `rail.price()` (so the USD and amounts stay identical). It would redeem into the same pass. The manifest's `payment.methods` gains `{ kind: "x402", status: "test" }`, and docs/catalogs.md moves the Bazaar row to "ready".
 
 **Prices are never hard-coded.** The manifest, `GET /v1/price` and the MCP `price_write_action` all take the amount from `offerAmountMsat()` and the USD from `offerUsd()` (rounded up to $0.0001) through `rail.price()`. That is the same call the 402 offer makes. WordPress gets amounts and the rate from its payment server (`GET /v1/owner/price`) and derives the USD with `Settlement::offerUsd`, the PHP twin pinned by the settlement vectors. Every price carries `status` ("test" or "stub") and displays like `$0.0100 (test)`, never as a bare number. The manifest shows the base price (`basis: "base"`, load multiplier 1); the docs/copy.md base-price note is added to the priced tool only when that site's offers can rise (Node with velocity on; WordPress when its payment server reports `load_pricing`, which it does for a site that sends its visitors' networks (`?net=1`) while velocity is on; see docs/protocol.md, owner API); `GET /v1/price` and `price_write_action` show the price that applies now (`basis: "current"`, with `load_multiplier`), computed with the same velocity multiplier as the caller's 402 (on WordPress, quoted by the payment server for the visitor's network).
 

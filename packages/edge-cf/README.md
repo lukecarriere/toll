@@ -52,4 +52,4 @@ never logged.
   ship the WASM as a module import.
 - **KV is eventually consistent** across locations: challenge first-use and pass use counts are exact
   within one location. Use a Durable Object store before any real deploy.
-- No deploy, no route setup, no custom domain: that needs an account and Luke's approval.
+- No deploy, no route setup, no custom domain: that needs an account and a separate approval.

@@ -43,7 +43,7 @@ before: {"pass_accept":205,"pass_reject":29,"pass_absent":151,"turned_away":111,
 after:  {"pass_accept":225,"pass_reject":30,"pass_absent":171,"turned_away":111,"offer_shown":74,"paid":65,"work_after_402":2,"challenges_minted":144}
 delta:  pass_accept +20 · pass_reject +1 (spent pass) · pass_absent +20 · turned_away +0 · offer_shown +21 · paid +20 · work_after_402 +0 · challenges_minted +0
 
-## 4. Audit: what makes up the demo balance (Data Scientist question: $0.56 shown vs $0.18 for one run)
+## 4. Audit: what makes up the demo balance (question: $0.56 shown vs $0.18 for one run)
 The demo ledger is in memory and shared by everything that pays through it. It started empty at the demo restart (03:35 CDT).
 Every credit since then, from the demo log (owner_redeem = WordPress paid redeem, redeem_ok rail=settle = Node /v1/redeem), net 9000 msat each:
   03:36:59 CDT  WordPress manual smoke, 3 writes        +27000 msat

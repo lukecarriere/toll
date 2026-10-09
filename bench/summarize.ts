@@ -15,7 +15,7 @@ const engine = (s: any) => (s.alg === "argon2id" ? `Argon2id t=${s.engine_params
 const lines = [
   `# Benchmark run ${run}`,
   "",
-  `Started ${env.started_ct}. Box CPU: ${env.cpu.model}, ${env.cpu.vcpus} vCPU, kernel ${env.cpu.kernel}, ${env.cpu.mem_gb} GB RAM. Node ${env.node}. Load average before ${env.loadavg_before.join(" / ")}, after ${env.loadavg_after.join(" / ")} (shared box).`,
+  `Started ${env.started_ct}. Box CPU: ${env.cpu.model}, ${env.cpu.vcpus} vCPU, kernel ${env.cpu.kernel}, ${env.cpu.mem_gb} GB RAM. Node ${env.node}. Load average before ${env.loadavg_before.join(" / ")}, after ${env.loadavg_after.join(" / ")}.`,
   `Challenge: write (4 units), solved as the widget solves it (the engine's solver and workers as served by the issuer, same worker count), through the real /v1/challenge and /v1/redeem. ${env.warmup_per_profile} warm-up solves, then the counted solves below; every counted solve kept. Percentiles: ${env.percentile_method}.`,
   "",
   `| ${head.join(" | ")} |`,

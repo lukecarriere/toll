@@ -17,7 +17,7 @@ const ROOT = new URL("..", import.meta.url).pathname;
 const HANDOFF_CSS = ROOT + "design/inner-pages/site.css";
 const sha256 = (b: Buffer) => createHash("sha256").update(b).digest("hex");
 
-/** sha256 of design/inner-pages/site.css as approved by the Creative Director (Oct 3, 2026). */
+/** sha256 of design/inner-pages/site.css as approved for the inner pages (Oct 3, 2026). */
 const HANDOFF_CSS_SHA256 = "2ebe7ea9386497fed5f1a3e54ac0531e7ad104bd340a7907a2f99e306896ec1b";
 
 /** QA's dist.sha256 for the 34e46d6 release build: all 18 files. */

@@ -136,7 +136,7 @@ Built: the issuer keeps a `MemoryLedger` per process (it resets on restart; the 
 
 ## 9. Withdrawals (phase 2, MVP form)
 
-The owner pastes a payout invoice under **Advanced settlement** and presses **Withdraw** (never "Send sats"). The amount is checked against `available_msat` before anything is sent ("That invoice is for more than your available balance."). On success, a `withdrawal` row is written. Real payouts need a real node and real funds, which need Luke's approval; until then only the stub and regtest backends exist.
+The owner pastes a payout invoice under **Advanced settlement** and presses **Withdraw** (never "Send sats"). The amount is checked against `available_msat` before anything is sent ("That invoice is for more than your available balance."). On success, a `withdrawal` row is written. Real payouts need a real node and real funds, which need a separate approval; until then only the stub and regtest backends exist.
 
 Status (phase 3): built for the test backend.
 
@@ -145,11 +145,11 @@ Status (phase 3): built for the test backend.
   - `POST /v1/owner/withdraw {invoice}` → `{ok: true, amount_msat, amount_usd}`. The invoice amount is checked against `available_msat` **before** anything is paid (`400 too_much`); an invoice the backend can't read is `400 bad_invoice`; backend down → `503 unavailable` and nothing is booked. On success a `withdrawal` row is written (ref = the invoice's payment hash) and `owner_withdrawal {amount_msat}` is logged.
   - `POST /v1/owner/offers {action, net?}` → `{offers, www_authenticate}` (or `{offers: []}` when paid requests are off, paused or the backend is down). The site relays these offers in its own 402 and uses `www_authenticate` as the header value as is, so it holds no credential or invoice code (Amendment 1 §F).
   - `POST /v1/owner/redeem {offer_id, kind, preimage, macaroon}` → `{ok: true, cls, amount_msat, fee_msat, net_msat}` after the settlement engine checks the proof (single use: a replay is `401 replay`) and the payment is booked in this ledger. The site then mints its own one-use, 60-second pass. `net` (both calls, optional) is the visitor's coarse network; offers are priced for it and a paid redeem counts toward its velocity, like this issuer's own 402 (docs/protocol.md, owner API). `POST /v1/owner/quote {action, net?}` gives the current price for that network without minting or counting anything.
-  - The stub backend "pays" with `StubSettler.payOut()` (no network, no money). Real payouts need a real node and real funds, which need Luke's approval.
+  - The stub backend "pays" with `StubSettler.payOut()` (no network, no money). Real payouts need a real node and real funds, which need a separate approval.
   - The demo sets `owner_key: env:TOLL_OWNER_KEY` and, when the variable is unset, keeps a random key in `demo/.owner-key` (gitignored, mode 600) so a local WordPress can connect to `http://127.0.0.1:8787`.
 - Tests: `tests/owner-api.test.ts` (off without a key, 401s, balance after fee, too_much before paying, bad invoice, single row, backend down).
 
-### WordPress "Collect usage payouts" (option A, Luke, Oct 1, 2026): built
+### WordPress "Collect usage payouts" (option A, Oct 1, 2026): built
 
 WordPress takes no payments itself, so the plugin has no payment backend code. Advanced settlement → Payment connection is **Test mode (no real money)** (default) or **Payment server**:
 
@@ -183,7 +183,7 @@ If the backend fails health checks or invoice minting fails: keep issuing work c
 
 ## 12. Metrics (already in the counters line)
 
-`settled_msat` (sum of gross msat settled), `offer_shown` (402 responses that carried offers; one `offer_shown {cls, amount_msat, offers}` event each, never the offer itself) next to `paid` (successful paid redeems), `settlement_degraded` (count), and `rail`/`cls` tags on `redeem_ok` and `pass_accept`. `offer_shown` vs `paid` is the Data Scientist's pay-vs-grind conversion signal; `/v1/challenge?client=agent` responses are not counted. `challenge_minted` counts only challenges actually minted (a 403's inline challenge, or a fetched `challenge_url`); a paid write logs none. A request with no pass logs `pass_absent {action, status}` (status 402 or 403), not `pass_reject`, so rejection rates count only real rejections (expired, spent pass replayed, invalid, wrong site or class); `turned_away` counts gate 403s (the demo's "Rejected" figure), never agent 402s. `work_after_402` counts `challenge_url` fetches (`/v1/challenge?offers=0`, event `work_after_402 {action, site, cls}`): agents that chose work over paying after a 402; abandoned 402s = `offer_shown` − `paid` − `work_after_402` (docs/protocol.md §7). All are 0 or absent of `settle` rows while settlement is off.
+`settled_msat` (sum of gross msat settled), `offer_shown` (402 responses that carried offers; one `offer_shown {cls, amount_msat, offers}` event each, never the offer itself) next to `paid` (successful paid redeems), `settlement_degraded` (count), and `rail`/`cls` tags on `redeem_ok` and `pass_accept`. `offer_shown` vs `paid` is the pay-vs-grind conversion signal; `/v1/challenge?client=agent` responses are not counted. `challenge_minted` counts only challenges actually minted (a 403's inline challenge, or a fetched `challenge_url`); a paid write logs none. A request with no pass logs `pass_absent {action, status}` (status 402 or 403), not `pass_reject`, so rejection rates count only real rejections (expired, spent pass replayed, invalid, wrong site or class); `turned_away` counts gate 403s (the demo's "Rejected" figure), never agent 402s. `work_after_402` counts `challenge_url` fetches (`/v1/challenge?offers=0`, event `work_after_402 {action, site, cls}`): agents that chose work over paying after a 402; abandoned 402s = `offer_shown` − `paid` − `work_after_402` (docs/protocol.md §7). All are 0 or absent of `settle` rows while settlement is off.
 
 ## 12a. Owner switch (demo-only working toggle)
 
@@ -204,15 +204,15 @@ Never log preimages, macaroons, invoices after payment (bolt11), NWC URIs or nod
 
 Decision log, 2026-09-30 (CT). Amendment 1 (in force 7:55 PM CT) changes how this rail is built: Toll wraps an existing settlement engine instead of writing its own. The engine is now chosen: the L402 reverse proxy described in `docs/adapters.md` §2, with Toll as its price source. Phase 2 (2026-09-30) builds the rail against the `SettlementEngine` interface with the stub engine only; the proxy client still refuses anything but stub mode. The former `offer.ts` HMAC token survives only as the stub engine's sealed test credential, not as a macaroon.
 
-- **Q1. Macaroon format: DECIDED by Amendment 1 (Luke).** The settlement engine supplies the macaroon (Amendment 1 §B and §F: no new macaroon format). The Toll HMAC token in `packages/settlement-ln` is retired with the from-scratch stack. The library survey the EM asked for was stopped when the amendment landed and is not needed.
+- **Q1. Macaroon format: DECIDED by Amendment 1.** The settlement engine supplies the macaroon (Amendment 1 §B and §F: no new macaroon format). The Toll HMAC token in `packages/settlement-ln` is retired with the from-scratch stack. The library survey the EM asked for was stopped when the amendment landed and is not needed.
 - **Q2. 402 vs 403: DECIDED (PM).** A request that identifies as an agent (`Toll-Client: agent` header or `client=agent`) gets `402` with `WWW-Authenticate: L402`. Everything else gets `403 {"error":"toll_required"}`.
 - **Q3. Sub-sat amounts: DECIDED (PM).** Offers round up to a whole sat (`amount_msat` is always a multiple of 1,000).
-- **Q4. FX source: DECIDED (PM).** Use one free public rate source whose terms allow commercial use, and hide USD when it is down (spec §8.6). Do not sign up for a paid source; if the only good source is paid, flag it for Luke. *Built:* the hide-when-down behaviour and a fixed test rate for the demo. *Not done:* naming the live source and checking its terms; until then production configs use `fx.source: none` (USD hidden).
+- **Q4. FX source: DECIDED (PM).** Use one free public rate source whose terms allow commercial use, and hide USD when it is down (spec §8.6). Do not sign up for a paid source; if the only good source is paid, flag it for a later decision. *Built:* the hide-when-down behaviour and a fixed test rate for the demo. *Not done:* naming the live source and checking its terms; until then production configs use `fx.source: none` (USD hidden).
 - **Q5. Fee rounding and display: DECIDED (PM).** The fee rounds down on each payment (owner-favourable, as implemented). The MVP UI shows no held-fee amount; Advanced shows "10% · recorded on each payment".
 - **Q6. Agent pass shape: DECIDED (PM).** Keep the §8.6 default: one use or a 60-second expiry. More uses per pass is a config option only. *Reconciled for phase 3 (2026-10-01 CT):* spec §18 phase 3 says "settle pass single-use", so `pass_uses` is now fixed at 1 (the multi-use config option is withdrawn) and the pass also expires within 60 s. Both halves of §8.6.4 hold.
-- **Q7. Where the held fee goes in phase 4: OPEN (Luke, phase 4).** Options include a hosted processor, batching, or a partner for owner payouts. Not needed for phase 2.
+- **Q7. Where the held fee goes in phase 4: OPEN (phase 4).** Options include a hosted processor, batching, or a partner for owner payouts. Not needed for phase 2.
 - **Q8. "Dashboard" in the owner-block copy: DECIDED (PM).** The owner-block lines stay word for word. "Dashboard" means WP admin, where Advanced settlement lives. `docs/copy.md` never mentions the hosted dashboard (phase 4).
 
 ### Deferred (waits for real traffic)
 
-- **D1 (Data Scientist, for Luke).** With the current rules a client over the work cap still gets the work option, so it never has to pay. Should a high-velocity, over-cap client ever be offered payment only? It touches spec §9.5 ("never hard-block humans") and needs real traffic data first. See `docs/policy.md` §5.
+- **D1.** With the current rules a client over the work cap still gets the work option, so it never has to pay. Should a high-velocity, over-cap client ever be offered payment only? It touches spec §9.5 ("never hard-block humans") and needs real traffic data first. See `docs/policy.md` §5.

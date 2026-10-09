@@ -1,0 +1,18 @@
+title = "Toll"
+
+[extend]
+useDefault = true
+
+# Full-history scan with gitleaks 8.30.1 reports 38 findings, all test fixtures:
+# JWT-shaped pass tokens and derived keys in the vector files, the vector engine
+# secret, and the two published test owner keys. Nothing else is allow-listed.
+[allowlist]
+description = "Known test fixtures only: docs/vectors.json, docs/settlement-vectors.json, and the two published test owner keys."
+paths = [
+  '''(^|/)docs/vectors\.json$''',
+  '''(^|/)docs/settlement-vectors\.json$''',
+]
+regexes = [
+  '''owner-test-key-0123456789abcdef''',
+  '''owner-key-for-tests-0123456789''',
+]

@@ -77,6 +77,6 @@ Reading the numbers:
   when the work starts, so the pass is ready just as early as before.
 - a/slow: one run of ten (#2) is an outlier: solve 5151ms, 5 main-thread long tasks up to 465ms, and Checking… 1.7s
   after the interaction instead of 0.5s. The other nine a/slow runs have 0 long tasks and match the before numbers,
-  and the widget adds no main-thread work while solving, so this looks like a stall on the shared box. A
-  recheck (14:04-14:08 CT) was cut short by box load (load average about 245 from other agents' test suites); its
+  and the widget adds no main-thread work while solving, so this looks like a stall on the machine. A
+  recheck (14:04-14:08 CT) was cut short by load (load average about 245); its
   two a/slow runs before the timeout had 0 long tasks. That recheck is not committed.

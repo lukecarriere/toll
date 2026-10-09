@@ -1,4 +1,4 @@
-{ "name": "@toll/server", "private": true, "version": "0.1.0", "type": "module",
+{ "name": "@toll/server", "private": true, "version": "0.1.0", "license": "MIT", "type": "module",
   "description": "Toll issuer and verifier for Node: HTTP API, Express middleware, fetch helper.",
   "exports": { ".": "./src/index.ts" },
   "dependencies": { "@toll/protocol": "0.1.0", "@toll/work-adapter": "0.1.0", "express": "^5.1.0", "yaml": "^2.8.0" } }

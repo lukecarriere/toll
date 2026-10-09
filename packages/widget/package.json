@@ -2,6 +2,7 @@
   "name": "@toll/widget",
   "private": true,
   "version": "0.1.0",
+  "license": "MIT",
   "type": "module",
   "description": "toll.js: the invisible check for forms. Solves with the ALTCHA v2 solver and its prebuilt workers, bundled and self-hosted.",
   "dependencies": {
