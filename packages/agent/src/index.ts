@@ -12,6 +12,7 @@
 // work challenge (paid requests off or paused) it does the work directly.
 // The agent never parses invoices or macaroons: both are opaque strings from the issuer.
 import { solveWork } from "../../work-adapter/src/index.ts";
+export { solveWork };
 
 export interface AgentOffer {
   id: string;

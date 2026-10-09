@@ -48,7 +48,7 @@ export function lintTitles(subjects, regexes = lintRegexes(), vendors = vendorRe
 
 // Public surfaces (docs/copy.md "Where these rules apply"). The WordPress plugin joins when it exists.
 // Amendment 2: the mission pages (website/) and docs/positioning.md are linted too and must pass as written.
-export const SURFACES = ["README.md", "packages/widget/src", "packages/widget/dist", "demo", "packages/server-node/src", "packages/wp-toll-gate", "toll.example.yaml", "website", "docs/positioning.md", "packages/mcp"];
+export const SURFACES = ["README.md", "packages/widget/src", "packages/widget/dist", "packages/widget/README.md", "packages/server-node/README.md", "packages/agent/README.md", "demo", "packages/server-node/src", "packages/wp-toll-gate", "toll.example.yaml", "website", "docs/positioning.md", "packages/mcp"];
 const TEXT = /\.(md|ts|mjs|js|html|css|php|json|yaml|yml|txt|sh)$/;
 
 function walk(rel, out = []) {

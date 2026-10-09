@@ -1,4 +1,23 @@
-{ "name": "@toll/server", "private": true, "version": "0.1.0", "license": "MIT", "type": "module",
+{
+  "name": "@lessspam/server",
+  "version": "0.1.0",
+  "license": "MIT",
+  "type": "module",
   "description": "Toll issuer and verifier for Node: HTTP API, Express middleware, fetch helper.",
-  "exports": { ".": "./src/index.ts" },
-  "dependencies": { "@toll/protocol": "0.1.0", "@toll/work-adapter": "0.1.0", "express": "^5.1.0", "yaml": "^2.8.0" } }
+  "engines": { "node": ">=22.18" },
+  "exports": {
+    ".": {
+      "types": "./dist/types/server-node/src/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "types": "./dist/types/server-node/src/index.d.ts",
+  "files": ["dist", "README.md", "LICENSE"],
+  "publishConfig": { "access": "public", "provenance": true },
+  "dependencies": {
+    "altcha-lib": "2.5.0",
+    "express": "^5.1.0",
+    "hash-wasm": "4.12.0",
+    "yaml": "^2.8.0"
+  }
+}

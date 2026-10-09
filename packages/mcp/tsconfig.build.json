@@ -1,0 +1,16 @@
+{
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    "noEmit": false,
+    "declaration": true,
+    "emitDeclarationOnly": true,
+    "rewriteRelativeImportExtensions": true,
+    "outDir": "dist/types",
+    "rootDir": ".."
+  },
+  "include": [
+    "src/**/*.ts",
+    "../server-node/src/manifest.ts",
+    "../protocol/src/**/*.ts"
+  ]
+}

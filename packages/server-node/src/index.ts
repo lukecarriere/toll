@@ -4,6 +4,7 @@ import { tollRouter, protect, guardFetch, extractPass, readBody, parseCookies, P
 
 export { createToll, loadConfig, normalizeConfig, classifyPath, DEFAULT_WORK, PAGE_VIEW_WARNING, PAGE_VIEW_CONFIRM, tollRouter, protect, guardFetch, extractPass, readBody, parseCookies, PASS_COOKIE, VERSION };
 export type { TollInstance, TollOptions, TollConfig };
+export { solveWork } from "../../work-adapter/src/index.ts";
 export { Metrics } from "./metrics.ts";
 export { MemoryStore, WindowCounter, type TollStore } from "./stores.ts";
 
