@@ -88,7 +88,7 @@ function curlShow(title: string, urlPath: string, args: string[] = []) {
   return out;
 }
 
-test("wrangler.toml: assets, sqlite durable object, workers.dev, no routes or zones", () => {
+test("wrangler.toml: assets, sqlite durable object, workers_dev, no routes or zones", () => {
   const toml = readFileSync(ROOT + "wrangler.toml", "utf8");
   assert.match(toml, /^name = "toll-site"$/m);
   assert.match(toml, /^main = "packages\/edge-cf\/dist\/site\.js"$/m);
