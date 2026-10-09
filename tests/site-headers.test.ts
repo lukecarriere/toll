@@ -16,7 +16,10 @@ const OUT = build(mkdtempSync(join(tmpdir(), "toll-headers-")) + "/", "");
 /** The deploy plan's section 2 Content-Security-Policy line, exactly (two-space indent, no trailing space). */
 const CSP_LINE = "  Content-Security-Policy: default-src 'none'; style-src 'self'; img-src 'self'; font-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'";
 
-/** The whole section 2 block, line for line, ending in a newline. */
+/** Demo document CSP (the same policy the local demo sends). The site-wide line above stays. */
+const DEMO_CSP = "  Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; worker-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'";
+
+/** The deploy plan's section 2 block, then the /demo override that unsets that CSP and sets the demo one. */
 const EXPECTED = [
   "/*",
   "  Strict-Transport-Security: max-age=31536000",
@@ -36,15 +39,24 @@ const EXPECTED = [
   "",
   "/img/*",
   "  Cache-Control: public, max-age=86400",
+  "",
+  "/demo",
+  "  ! Content-Security-Policy",
+  DEMO_CSP,
+  "",
+  "/demo/*",
+  "  ! Content-Security-Policy",
+  DEMO_CSP,
 ].join("\n") + "\n";
 
-test("_headers: website/_headers is the deploy plan's section 2 block, byte for byte, with the exact CSP line", () => {
+test("_headers: the site CSP line is unchanged, and /demo replaces it with the demo policy", () => {
   const src = readFileSync(ROOT + "website/_headers", "utf8");
   assert.equal(src, EXPECTED);
-  assert.ok(src.endsWith("max-age=86400\n") && !src.endsWith("\n\n"), "ends in exactly one newline");
+  assert.ok(src.endsWith(DEMO_CSP + "\n") && !src.endsWith("\n\n"), "ends in exactly one newline");
   assert.doesNotMatch(src, /\r|\t|[^\x20-\x7e\n]/, "LF only, no tabs, plain ASCII");
-  const csp = src.split("\n").filter((l) => /content-security-policy/i.test(l));
-  assert.deepEqual(csp, [CSP_LINE], "one CSP line, exactly as in the plan");
+  const lines = src.split("\n");
+  assert.equal(lines[2], CSP_LINE, "the /* CSP line is still the deploy plan's, exactly");
+  assert.ok(lines.includes("  ! Content-Security-Policy"), "/demo unsets the site CSP before setting its own");
   assert.doesNotMatch(src, /lessspam|https?:|\/\/[a-z0-9]/i, "no domain or URL");
 });
 
@@ -56,5 +68,7 @@ test("_headers: a build copies website/_headers into dist/_headers unchanged (fr
   assert.ok(existsSync(DIST), "website/dist/ is missing: run `npm run build` (or `npm run build:website`) first");
   assert.ok(existsSync(DIST + "_headers"), "website/dist/_headers is missing");
   assert.ok(readFileSync(DIST + "_headers").equals(src), "website/dist/_headers is byte-identical to website/_headers");
-  assert.equal(readFileSync(DIST + "_headers", "utf8").split("\n").find((l) => l.startsWith("  Content-Security-Policy:")), CSP_LINE);
+  const built = readFileSync(DIST + "_headers", "utf8").split("\n").filter((l) => l.startsWith("  Content-Security-Policy:"));
+  assert.equal(built[0], CSP_LINE);
+  assert.ok(built.slice(1).every((l) => l === DEMO_CSP));
 });

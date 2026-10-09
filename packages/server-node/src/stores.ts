@@ -13,6 +13,11 @@ export interface TollStore {
   /** Attach a small string tag to a key (for example the rail a pass came from). */
   setTag(key: string, tag: string, ttl_s: number): Promise<void>;
   getTag(key: string): Promise<string | undefined>;
+  /**
+   * Spend one use and read the pass tag in one round trip, when the store can do that
+   * (the edge Durable Object). Missing: callers use consume then getTag.
+   */
+  consumeTagged?(useKey: string, initial: number, ttl_s: number, tagKey: string): Promise<{ remaining: number; tag: string | undefined }>;
 }
 
 interface Entry { v: number; tag?: string; until: number }

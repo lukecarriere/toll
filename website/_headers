@@ -16,3 +16,11 @@
 
 /img/*
   Cache-Control: public, max-age=86400
+
+/demo
+  ! Content-Security-Policy
+  Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; worker-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'
+
+/demo/*
+  ! Content-Security-Policy
+  Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; worker-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'
