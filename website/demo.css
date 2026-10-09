@@ -1,0 +1,25 @@
+/* Demo page only. The mission pages keep site.css. */
+.tag{font-size:15px;color:var(--muted)}
+.demo{display:grid;grid-template-columns:minmax(0,1fr) 240px;gap:28px;align-items:start}
+.card{margin:0 0 28px}
+h2{font:700 28px/1.15 "Toll Sans",system-ui,sans-serif;letter-spacing:-.02em;color:var(--green);margin:28px 0 8px}
+.sub{color:var(--muted);font-size:16px}
+label{display:block;font-size:15px;color:var(--muted);margin:12px 0 4px}
+input,textarea{width:100%;font:inherit;color:inherit;background:#fff;border:1px solid var(--rule);border-radius:6px;padding:10px 12px}
+textarea{min-height:96px;resize:vertical}
+.row2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+button.b{font:inherit;background:var(--sign);color:var(--lane);border:0;border-radius:6px;padding:10px 18px;margin-top:14px;cursor:pointer}
+button.sec{background:transparent;color:var(--ink);border:1px solid var(--rule)}
+.pill{display:inline-block;margin-top:12px;padding:4px 10px;border-radius:999px;font-size:15px}
+.pill.ok{background:#e5f2ea;color:var(--sign)}
+.pill.bad{background:#f8e8e4;color:#8a3b2f}
+pre{background:var(--ink);color:var(--lane);padding:14px 16px;border-radius:8px;overflow:auto;font-size:14px;line-height:1.5}
+pre .g{color:#9dcaa8}
+pre .r{color:#f0a898}
+.kv{display:grid;grid-template-columns:1fr auto;gap:8px 16px;margin:8px 0 0}
+.kv dd{margin:0;font-variant-numeric:tabular-nums}
+.stats h2{margin-top:0}
+@media (max-width:760px){
+ .demo{grid-template-columns:1fr}
+ .row2{grid-template-columns:1fr}
+}

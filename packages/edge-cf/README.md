@@ -51,5 +51,7 @@ never logged.
   allow, so hardened mode and Argon2id escalation are off here (velocity still raises the work). Fix:
   ship the WASM as a module import.
 - **KV is eventually consistent** across locations: challenge first-use and pass use counts are exact
-  within one location. Use a Durable Object store before any real deploy.
+  within one location. The site worker (`src/site.ts`, root `wrangler.toml`) uses a SQLite-backed
+  Durable Object (`TollStoreDO`, one named instance) instead, so first-use, use counts, tags and
+  window counters are exact. `wrangler dev --local` only; that file has no route or zone.
 - No deploy, no route setup, no custom domain: that needs an account and a separate approval.
