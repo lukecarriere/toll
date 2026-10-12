@@ -1,6 +1,7 @@
 # Agent instructions
 
 - Run `npm test` before finishing a change. It builds, typechecks, runs the copy lint, and runs the Node and PHP tests.
+- Verify a checkout with `.cursor/skills/verify/SKILL.md` (install, build, test, lint, local start, smoke checks). Update that guide when scripts, routes, or packages change.
 - The copy lint keeps vendor names off public surfaces. Public strings come from `docs/copy.md`. Vendor names may appear only in `docs/adapters.md`, in package pins, and in the bundled licence notices.
 - Phase 4 stays locked. Settlement is test-only: the stub backend, no real money, and no live payouts.
 - Never deploy, publish, change DNS, or change repository visibility.
