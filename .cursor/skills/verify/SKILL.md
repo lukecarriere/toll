@@ -54,7 +54,7 @@ npm run lint:copy
 npm run typecheck
 ```
 
-Expected: `lint:copy` exits 0 and its only line matches `copy-lint: <files> files, <titles> commit titles, <rules> rules from docs/copy.md, <vendors> vendor names from docs/adapters.md, 0 hits`. `typecheck` exits 0 and prints nothing.
+Expected: both exit 0. `npm run` prints its script header. The copy lint line matches `copy-lint: <files> files, <titles> commit titles, <rules> rules from docs/copy.md, <vendors> vendor names from docs/adapters.md, 0 hits`. `tsc` prints no diagnostics.
 
 ## Test
 
@@ -62,7 +62,7 @@ Expected: `lint:copy` exits 0 and its only line matches `copy-lint: <files> file
 npm test
 ```
 
-Expected: exit 0. The script rebuilds, typechecks, and copy-lints, then runs the Node and PHP suites. The Node reporter includes `# fail 0` and `# cancelled 0`. Each PHP runner's last line matches `passed, 0 failed`. No line starts with `FAIL `.
+Expected: exit 0. The script rebuilds, typechecks, and copy-lints, then runs the Node and PHP suites. The Node reporter includes `# fail 0` and `# cancelled 0`. `# skipped` counts WordPress tests when no local WordPress is running. Each PHP runner's last line matches `passed, 0 failed`. No line starts with `FAIL `.
 
 ## Start locally
 
