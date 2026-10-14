@@ -84,7 +84,10 @@ for (const f of tracked(PLUGIN)) {
 const WIDGET_DIST = join(ROOT, "packages/widget/dist");
 for (const f of readdirSync(WIDGET_DIST)) {
   if (f.endsWith(".map")) continue;
-  copyFile(join(WIDGET_DIST, f), join(STAGE, "assets/widget", f));
+  const from = join(WIDGET_DIST, f);
+  // Package builds also drop dist/types/ next to the browser files. The plugin serves the files only.
+  if (!statSync(from).isFile()) continue;
+  copyFile(from, join(STAGE, "assets/widget", f));
 }
 const LIB = "packages/server-php";
 for (const f of tracked(LIB)) copyFile(join(ROOT, f), join(STAGE, "lib/server-php", relative(LIB, f)));
