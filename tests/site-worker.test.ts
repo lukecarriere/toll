@@ -12,6 +12,8 @@ import type { AddressInfo } from "node:net";
 import { fileURLToPath } from "node:url";
 import { chromium } from "playwright";
 import { solveWork } from "../packages/work-adapter/src/index.ts";
+// @ts-ignore plain JS build script
+import { DOC_PAGES, pagePath, pluginRelease } from "../website/build.mjs";
 
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
 const SECRET = randomBytes(24).toString("hex");
@@ -115,6 +117,32 @@ test("existing pages: 200, site CSP unchanged, body byte-identical to the build"
     lines.push(p + " 200 CSP site " + built.length + " bytes");
   }
   record("page bytes", lines.join("\n"));
+});
+
+test("docs and download: 200, site CSP, body matches the build, zip bytes match", () => {
+  const rel = pluginRelease();
+  const lines: string[] = [];
+  for (const p of DOC_PAGES) {
+    const route = pagePath(p.file);
+    const res = curl(route);
+    assert.equal(res.status, 200, route + " " + res.body.slice(0, 180));
+    const csp = /content-security-policy:\s*(.+)/i.exec(res.headers)?.[1]?.trim();
+    assert.equal(csp, SITE_CSP, route);
+    const built = readFileSync(ROOT + "website/dist/" + p.file + ".html");
+    assert.deepEqual(Buffer.from(res.body), built, route);
+    const h1 = /<h1>([^<]*)<\/h1>/.exec(res.body)?.[1] ?? "";
+    lines.push(route + " 200 " + h1);
+  }
+  const zipPath = "/download/" + rel.zip;
+  const bin = spawnSync("curl", ["-fsS", BASE + zipPath]);
+  assert.equal(bin.status, 0, bin.stderr?.toString());
+  const zipFile = readFileSync(ROOT + "website/dist/download/" + rel.zip);
+  assert.deepEqual(bin.stdout, zipFile, "zip bytes");
+  const sha = curl(zipPath + ".sha256");
+  assert.equal(sha.status, 200);
+  assert.equal(sha.body, readFileSync(ROOT + "website/dist/download/" + rel.shaName, "utf8"));
+  lines.push(zipPath + " 200 " + zipFile.length + " B");
+  record("docs and download", lines.join("\n"));
 });
 
 test("demo page: demo CSP, and a pass-less POST is 403 with a challenge", () => {

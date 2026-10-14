@@ -13,7 +13,7 @@ import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
 import { chromium } from "playwright";
 // @ts-ignore plain JS build script
-import { build, PAGES, HOME, HOME_ASSETS, ICON_FILES, SITE_FILES } from "../website/build.mjs";
+import { build, PAGES, HOME, HOME_ASSETS, ICON_FILES, SITE_FILES, DOC_PAGES, DOC_META, pluginRelease } from "../website/build.mjs";
 // @ts-ignore plain JS helper
 import { section, lintText } from "../scripts/copy-lib.mjs";
 import { parseSiteUrl } from "../packages/protocol/src/site-url.ts";
@@ -51,7 +51,10 @@ test("build: website/dist/index.html exists and no .html href is left in website
 
 test("build: a fresh build has the homepage, ships exactly its files, and has no .html href", () => {
   checkDist(OUT);
-  assert.deepEqual(walk(OUT), ["demo.css", "demo.html", "demo.js", "ecosystem.html", "index.html", "mission.html", "site.css", "values.html", "vision.html", ...HOME_ASSETS, ...ICON_FILES, ...SITE_FILES].sort());
+  const rel = pluginRelease();
+  const docs = ["docs.css", ...DOC_PAGES.map((p: any) => p.file + ".html")];
+  const zip = existsSync(OUT + "download/" + rel.zip) ? ["download/" + rel.zip, "download/" + rel.shaName] : [];
+  assert.deepEqual(walk(OUT), ["demo.css", "demo.html", "demo.js", "ecosystem.html", "index.html", "mission.html", "site.css", "values.html", "vision.html", ...HOME_ASSETS, ...ICON_FILES, ...SITE_FILES, ...docs, ...zip].sort());
   for (const f of HOME_ASSETS) assert.deepEqual(readFileSync(OUT + f), readFileSync(ROOT + "website/" + f), f + " is copied unchanged");
   // Every shipped path and text file passes the copy lint list from docs/copy.md, which bans the photo's
   // tree species ("Never name the tree species in alt text, captions, or file names that ship").
@@ -124,7 +127,7 @@ test("links: wordmark '/', pages '/mission', '/vision', '/values', '/ecosystem' 
   assert.match(home, /<a class="sign" href="\/" aria-current="page">Toll<\/a>/, "homepage wordmark is the current page");
   const nav = /<nav aria-label="Main">([\s\S]*?)<\/nav>/.exec(home)![1];
   assert.deepEqual([...nav.matchAll(/<a href="([^"]+)">([^<]+)<\/a>/g)].map((m) => [m[1], decode(m[2])]),
-    [["/mission", "Mission"], ["/vision", "Vision"], ["/values", "Values"], ["/ecosystem", "Where Toll fits"]]);
+    [["/mission", "Mission"], ["/vision", "Vision"], ["/values", "Values"], ["/ecosystem", "Where Toll fits"], ["/docs", "Docs"]]);
   for (const p of PAGES) {
     const h = readFileSync(OUT + p.file + ".html", "utf8");
     assert.match(h, /<a class="mark" href="\/">Toll<\/a>/, p.file);
@@ -174,14 +177,14 @@ test("words: every homepage string is in docs/copy.md verbatim, and the page sho
   assert.ok(head.includes("- `<meta name=\"description\">`: " + HOME.description + "\n"), "description as placed by the PM");
   assert.ok(HOME.title.includes(" \u00B7 "), "the separator is U+00B7 MIDDLE DOT with a space on each side");
   assert.ok(copy.includes('"' + HOME.alt + '"'), "alt text");
-  for (const s of [HOME.kicker, HOME.h1.join(" "), HOME.line, HOME.plate, ...HOME.meta.map((m: string[]) => m.join(" ")), ...PAGES.map((p: any) => p.nav)]) assert.ok(copy.includes(s), s);
+  for (const s of [HOME.kicker, HOME.h1.join(" "), HOME.line, HOME.plate, ...HOME.meta.map((m: string[]) => m.join(" ")), ...PAGES.map((p: any) => p.nav), DOC_META.label]) assert.ok(copy.includes(s), s);
   const h = readFileSync(OUT + "index.html", "utf8");
   assert.match(h, /<html lang="en">/);
   assert.ok(h.includes("<title>" + HOME.title + "</title>"));
   assert.ok(h.includes('<meta name="description" content="' + HOME.description + '">'));
   assert.ok(h.includes(' alt="' + HOME.alt + '" width="1280" height="853" fetchpriority="high">'));
   const text = h.replace(/<head>[\s\S]*<\/head>/, "").replace(/<[^>]+>/g, "\n").split("\n").map((t) => decode(t).trim()).filter(Boolean);
-  assert.deepEqual(text, ["Toll", "Mission", "Vision", "Values", "Where Toll fits", HOME.kicker, ...HOME.h1, HOME.line, ...HOME.meta.flat(), HOME.plate]);
+  assert.deepEqual(text, ["Toll", "Mission", "Vision", "Values", "Where Toll fits", DOC_META.label, HOME.kicker, ...HOME.h1, HOME.line, ...HOME.meta.flat(), HOME.plate]);
   assert.equal(h.match(/<h1>/g)!.length, 1, "one h1");
   assert.doesNotMatch(h, /TODO|lorem/i, "no placeholder left");
 });
@@ -192,7 +195,7 @@ test("homepage: no scripts, no inline styles, no external requests; fonts preloa
   assert.doesNotMatch(h, /https?:|\/\/[a-z0-9]/i, "no absolute or protocol-relative URL");
   const urls = [...h.matchAll(/\s(?:href|src)="([^"]*)"/gi)].map((m) => m[1]);
   const srcset = /\ssrcset="([^"]*)"/.exec(h)![1].split(",").map((c) => c.trim().split(/\s+/)[0]);
-  for (const u of [...urls, ...srcset]) assert.match(u, /^\/(mission|vision|values|ecosystem)?$|^\/(home\.css|img\/forest-road-(1280|2560)\.jpg|fonts\/arvo\/Arvo-Bold\.woff2|favicon\.ico|favicon\.svg|apple-touch-icon\.png)$/, u);
+  for (const u of [...urls, ...srcset]) assert.match(u, /^\/(mission|vision|values|ecosystem|docs)?$|^\/(home\.css|img\/forest-road-(1280|2560)\.jpg|fonts\/arvo\/Arvo-Bold\.woff2|favicon\.ico|favicon\.svg|apple-touch-icon\.png)$/, u);
   assert.match(h, /sizes="\(max-width:760px\) max\(100vw, 69svh\), 150svh"/);
   assert.deepEqual([...h.matchAll(/<link\b[^>]*>/g)].map((m) => m[0]), [
     '<link rel="icon" href="/favicon.ico" sizes="32x32">',

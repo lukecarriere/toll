@@ -181,6 +181,22 @@ Heading: Where Toll fits
 6. HOLD, add only on the day of the first catalog listing: "Agents that need a write check can find Toll in public tool catalogs. The article stays free. The tool call has a cost. Being quoted in an answer is not the same as being chosen as the tool."
 7. Closing line (replaces "Leave the front door open. Lock the counter."): The site stays open. Spam takes another road.
 
+## Docs pages
+
+Visitor guides. Bodies live in the markdown files named here and are linted with everything else under `website/`. The homepage nav label and each page's meta description are exact.
+
+Homepage nav label: Docs
+
+- `website/docs/index` (Docs): How to add Toll: the widget, the Node and PHP servers, the agent SDK, the MCP server, and the WordPress plugin.
+- `website/docs/quick-start` (Quick start): Install the Toll packages at 0.1.0, protect a form, and check each write on your own server. Page views stay free.
+- `website/docs/widget` (Widget): Serve toll.js from your own site and mark a form with data-toll. The check runs in the background. Nothing to solve.
+- `website/docs/server` (Server): @lessspam/server is the Node issuer. PHP checks passes with the library shipped in the plugin. Both speak the /v1 API.
+- `website/docs/agent` (Agent): A client for automated callers. It does the work for a write and retries once. Paid requests stay in test mode.
+- `website/docs/mcp` (MCP): A local server for three write tools. It reads the site manifest and calls that site's /v1 API only.
+- `website/docs/wordpress` (WordPress): Toll keeps comment forms, logins, and write APIs quiet. Visitors read for free and post without solving anything.
+- `website/docs/self-hosting` (Self-hosting): Run Toll on your own server. Checks stay there, page views stay free, and nothing about a visitor is sent out.
+- `website/download/index` (Download): Download Toll Gate for WordPress. The plugin is GPL-2.0-or-later, and the zip is built from this project.
+
 ## Image alt text (exact; PM cleared Oct 1, 2026)
 - Homepage hero photo (merged direction D): "An empty two-lane road through a tall forest."
 - Never name the tree species in alt text, captions, or file names that ship. The hero file ships as `forest-road-*.jpg`.

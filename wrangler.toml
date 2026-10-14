@@ -1,5 +1,7 @@
-# toll-site: the static site plus the work-only demo. Run it with `wrangler dev --local`.
-# No routes and no zones. Do not deploy, publish, or change DNS from this repo.
+# toll-site: the static site plus the work-only demo.
+# From a clean checkout, after `npm ci` and `npm run build`:
+#   npx wrangler deploy
+# workers_dev is on. No routes and no zones. Do not change DNS from this repo.
 name = "toll-site"
 main = "packages/edge-cf/dist/site.js"
 compatibility_date = "2026-09-01"

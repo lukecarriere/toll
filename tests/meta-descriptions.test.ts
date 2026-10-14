@@ -8,7 +8,7 @@ import { readFileSync, existsSync, mkdtempSync, readdirSync, statSync } from "no
 import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
 // @ts-ignore plain JS build script
-import { build, PAGES, HOME } from "../website/build.mjs";
+import { build, PAGES, HOME, DOC_PAGES } from "../website/build.mjs";
 
 const ROOT = new URL("..", import.meta.url).pathname;
 const DIST = ROOT + "website/dist/";
@@ -43,7 +43,8 @@ function metas(h: string) {
 function check(dir: string, label: string) {
   const pm = pmDescriptions();
   const pages = walk(dir).filter((f) => f.endsWith(".html"));
-  assert.deepEqual(pages, ["demo.html", "ecosystem.html", "index.html", "mission.html", "values.html", "vision.html"], label + ": the built pages");
+  const guides = DOC_PAGES.map((p: { file: string }) => p.file + ".html");
+  assert.deepEqual(pages, ["demo.html", "ecosystem.html", "index.html", "mission.html", "values.html", "vision.html", ...guides].sort(), label + ": the built pages");
   for (const f of pages) {
     const m = metas(readFileSync(dir + f, "utf8"));
     assert.equal(m.all.length, 1, `${label} ${f}: exactly one meta description`);
@@ -57,6 +58,11 @@ function check(dir: string, label: string) {
     assert.ok(h.includes(`<meta name="description" content="${pm[p.file].text}">`), `${label} ${p.file}: verbatim in the attribute`);
   }
   assert.equal(metas(readFileSync(dir + "index.html", "utf8")).content[0], HOME.description, label + ": the homepage keeps its description");
+  for (const p of DOC_PAGES) {
+    const h = readFileSync(dir + p.file + ".html", "utf8");
+    assert.equal(metas(h).content[0], p.description, `${label} ${p.file}: docs/copy.md description`);
+    assert.ok(h.includes(`<meta name="description" content="${p.description}">`), `${label} ${p.file}: verbatim in the attribute`);
+  }
 }
 
 test("docs/copy.md: four inner page descriptions, one per page, each the length the PM states", () => {
