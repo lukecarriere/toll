@@ -90,7 +90,7 @@ function curlShow(title: string, urlPath: string, args: string[] = []) {
   return out;
 }
 
-test("wrangler.toml: assets, sqlite durable object, workers_dev, no routes or zones", () => {
+test("wrangler.toml: assets, sqlite durable object, workers_dev, production custom domains only", () => {
   const toml = readFileSync(ROOT + "wrangler.toml", "utf8");
   assert.match(toml, /^name = "toll-site"$/m);
   assert.match(toml, /^main = "packages\/edge-cf\/dist\/site\.js"$/m);
@@ -100,9 +100,14 @@ test("wrangler.toml: assets, sqlite durable object, workers_dev, no routes or zo
   assert.match(toml, /run_worker_first = \[ "\/v1\/\*", "\/toll\/v1\/\*", "\/demo\/\*", "\/\.well-known\/toll\.json", "\/\.well-known\/agents\.json" \]/);
   assert.match(toml, /new_sqlite_classes = \["TollStoreDO"\]/);
   assert.match(toml, /class_name = "TollStoreDO"/);
-  assert.doesNotMatch(toml, /^\s*routes?\s*=|\[\[routes\]\]|zone_id|zone_name|pattern\s*=/m);
+  // Production: exactly the two custom domains, no zone routes.
+  const patterns = [...toml.matchAll(/\{ pattern = "([^"]+)", custom_domain = true \}/g)].map((m) => m[1]);
+  assert.deepEqual(patterns, ["lessspam.dev", "www.lessspam.dev"]);
+  assert.equal([...toml.matchAll(/pattern\s*=/g)].length, 2);
+  assert.doesNotMatch(toml, /\[\[routes\]\]|zone_id|zone_name/m);
+  assert.match(toml, /^TOLL_SITE_URL = "https:\/\/lessspam\.dev"$/m);
   assert.doesNotMatch(toml, /^\s*(SITE_SECRET|TOLL_TEST_HOOKS|STORE_FAIL)\s*=/m);
-  record("wrangler.toml checks", "name, main, assets.run_worker_first, new_sqlite_classes, workers_dev, preview_urls; no routes, zones, or secret");
+  record("wrangler.toml checks", "name, main, assets.run_worker_first, new_sqlite_classes, workers_dev, preview_urls; two custom domains, no zone routes, no secret");
 });
 
 test("existing pages: 200, site CSP unchanged, body byte-identical to the build", () => {
