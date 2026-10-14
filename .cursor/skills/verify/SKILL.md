@@ -218,6 +218,16 @@ GPL-2.0-or-later
 
 Stop the demo and the site server when finished.
 
+## Phone width
+
+`npm test` includes this. To run it on its own, after Install:
+
+```sh
+node --test tests/viewport.test.ts
+```
+
+Expected: exit 0. The reporter includes `# fail 0`. The test serves the built pages and opens `/`, `/demo`, every docs page, and `/download` at 360px and 390px. Each page must satisfy `document.scrollWidth <= window.innerWidth`, and `innerWidth` must be the requested width.
+
 ## Site worker
 
 The same build serves the toll-site worker: static pages, the work-only demo, and the `TollStoreDO` Durable Object. `wrangler.toml` sets `workers_dev = true` and has no route or zone, so this does not change DNS. The published hostname is the account's `workers.dev` name.
@@ -317,4 +327,5 @@ Update this guide in the same change that does any of the following:
 - change a workspace package name, bin, or entrypoint (`packages/*/package.json`, `packages/server-php/composer.json`)
 - add, remove, or retarget a demo or issuer route (`demo/server.ts`, `packages/server-node/src/http.ts`)
 - add or rename a website page (`website/build.mjs`)
+- change page CSS that can widen a phone layout (`website/demo.css`, `website/docs.css`, `website/site.css`, `website/home.css`)
 - change a command or an expected line above
