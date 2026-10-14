@@ -38,7 +38,9 @@ export const ALLOWED_HOSTS = new Map<string, string>([
   ["registry.modelcontextprotocol.io", "docs/catalogs.md: the official MCP registry, a catalog target"],
   ["npmjs.org", "docs/catalogs.md: the npm registry, where an MCP package would be published"],
   ["registry.npmjs.org", "npm registry URL for the manual publish workflow"],
-  ["workers.dev", "toll-site publishes with workers_dev; the verify guide names that hostname. No custom domain and no DNS change"],
+  ["lessspam.dev", "go-live: wrangler.toml custom domains and TOLL_SITE_URL, the one config value docs/copy.md names"],
+  ["www.lessspam.dev", "go-live: wrangler.toml custom domain, same worker as the apex"],
+  ["workers.dev", "toll-site publishes with workers_dev; the verify guide names that hostname. The site is also served on the custom domains set in wrangler.toml"],
 ]);
 
 /** A dotted host name (letters, digits, '-'; last label starts with a letter). Anything else in the field exempts nothing. */

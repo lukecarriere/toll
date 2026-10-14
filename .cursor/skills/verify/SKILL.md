@@ -230,7 +230,7 @@ Expected: exit 0. The reporter includes `# fail 0`. The test serves the built pa
 
 ## Site worker
 
-The same build serves the toll-site worker: static pages, the work-only demo, and the `TollStoreDO` Durable Object. `wrangler.toml` sets `workers_dev = true` and has no route or zone, so this does not change DNS. The published hostname is the account's `workers.dev` name.
+The same build serves the toll-site worker: static pages, the work-only demo, and the `TollStoreDO` Durable Object. `wrangler.toml` keeps `workers_dev = true` and attaches the production custom domains, so a deploy creates or keeps their DNS records. The production hostname is the custom domain; the `workers.dev` name stays as a fallback.
 
 Write a local secret without printing it, then start the worker. `.dev.vars` is gitignored.
 

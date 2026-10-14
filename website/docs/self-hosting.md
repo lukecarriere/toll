@@ -24,7 +24,7 @@ npm run build
 npx wrangler deploy
 ```
 
-`npm run build` writes the worker bundle and the static files the config points at. `npx wrangler deploy` publishes that worker. The config sets `workers_dev` and has no route and no zone, so the command does not change DNS.
+`npm run build` writes the worker bundle and the static files the config points at. `npx wrangler deploy` publishes that worker. Toll's own config also attaches custom domains under `routes`, which makes Cloudflare create their DNS records. For your own copy, change or remove those routes before you deploy.
 
 Set `SITE_SECRET` before the demo can issue checks:
 

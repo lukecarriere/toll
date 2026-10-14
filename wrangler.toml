@@ -1,13 +1,19 @@
 # toll-site: the static site plus the work-only demo.
 # From a clean checkout, after `npm ci` and `npm run build`:
 #   npx wrangler deploy
-# workers_dev is on. No routes and no zones. Do not change DNS from this repo.
+# Production is lessspam.dev and www.lessspam.dev, attached as Workers custom domains (Cloudflare
+# creates their DNS records on deploy). workers_dev stays on as a fallback for now.
 name = "toll-site"
 main = "packages/edge-cf/dist/site.js"
 compatibility_date = "2026-09-01"
 compatibility_flags = ["nodejs_compat"]
 workers_dev = true
 preview_urls = false
+
+routes = [
+  { pattern = "lessspam.dev", custom_domain = true },
+  { pattern = "www.lessspam.dev", custom_domain = true },
+]
 
 [assets]
 directory = "website/dist"
@@ -17,6 +23,7 @@ not_found_handling = "none"
 run_worker_first = [ "/v1/*", "/toll/v1/*", "/demo/*", "/.well-known/toll.json", "/.well-known/agents.json" ]
 
 [vars]
+TOLL_SITE_URL = "https://lessspam.dev"
 SITE_ID = "site_demo"
 WRITE_PATHS = '["/demo/contact"]'
 # SITE_SECRET is a Worker secret (local: .dev.vars, copied from .dev.vars.example). Never commit it.
