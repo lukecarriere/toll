@@ -1,0 +1,28 @@
+# toll-site: the static site plus the work-only demo. Run it with `wrangler dev --local`.
+# No routes and no zones. Do not deploy, publish, or change DNS from this repo.
+name = "toll-site"
+main = "packages/edge-cf/dist/site.js"
+compatibility_date = "2026-09-01"
+compatibility_flags = ["nodejs_compat"]
+workers_dev = true
+preview_urls = false
+
+[assets]
+directory = "website/dist"
+binding = "ASSETS"
+html_handling = "drop-trailing-slash"
+not_found_handling = "none"
+run_worker_first = [ "/v1/*", "/toll/v1/*", "/demo/*", "/.well-known/toll.json", "/.well-known/agents.json" ]
+
+[vars]
+SITE_ID = "site_demo"
+WRITE_PATHS = '["/demo/contact"]'
+# SITE_SECRET is a Worker secret (local: .dev.vars, copied from .dev.vars.example). Never commit it.
+
+[[durable_objects.bindings]]
+name = "TOLL_STORE"
+class_name = "TollStoreDO"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["TollStoreDO"]

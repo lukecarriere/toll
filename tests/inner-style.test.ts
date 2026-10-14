@@ -1,6 +1,6 @@
 // Inner pages style pass (design/HANDOFF-INNER-PAGES.md, CD approved Oct 3, 2026, 6:11 PM CT). One production file
 // changes: website/site.css becomes design/inner-pages/site.css, byte for byte. Everything else the site ships must
-// stay exactly as released at 34e46d6: the five pages' HTML, home.css, _headers (and so the CSP), robots.txt, the
+// stay exactly as released at 34e46d6: the five pages' HTML, home.css, the site-wide CSP line, robots.txt, the
 // icons, the photo and the fonts. The pins below are QA's dist.sha256 for the 34e46d6 release build
 // (TOLL_SITE_URL set to the working domain). The domain is read from docs/copy.md "## Naming" at run time, so this
 // file never names it (tests/no-hardcoded-domains.test.ts).
@@ -64,15 +64,18 @@ test("release pin: the five built pages are the 34e46d6 release HTML byte for by
   assert.deepEqual(hashes(PAGES_HTML), Object.fromEntries(PAGES_HTML.map((f) => [f, RELEASE_34E46D6[f]])));
 });
 
-test("release pin: the build is still the release's 18 files and only site.css differs from 34e46d6", () => {
+test("release pin: the five pages stay byte-identical; the demo files and the /demo CSP rule are the only additions", () => {
   const files = walk(OUT);
-  assert.deepEqual(files, Object.keys(RELEASE_34E46D6).sort(), "the same 18 files, nothing added or dropped");
-  const got = hashes(files);
-  const changed = files.filter((f) => got[f] !== RELEASE_34E46D6[f]);
-  assert.deepEqual(changed, ["site.css"], "only site.css changes hash");
+  const added = ["demo.css", "demo.html", "demo.js"];
+  assert.deepEqual(files, [...Object.keys(RELEASE_34E46D6), ...added].sort(), "the release files plus the demo page");
+  const got = hashes(files.filter((f) => f in RELEASE_34E46D6));
+  const changed = Object.keys(RELEASE_34E46D6).filter((f) => got[f] !== RELEASE_34E46D6[f]);
+  assert.deepEqual(changed.sort(), ["_headers", "site.css"], "existing pages and assets stay; _headers gains the /demo rule");
   assert.equal(got["site.css"], HANDOFF_CSS_SHA256, "dist site.css is the handoff file");
-  // The sources the build copies, for the files the handoff says must not move.
-  for (const f of ["home.css", "_headers", "robots.txt", "fonts/arvo/Arvo-Bold.woff2", "fonts/public-sans/PublicSans-Latin.woff2"]) {
+  const headers = readFileSync(OUT + "_headers", "utf8");
+  assert.ok(headers.includes("  Content-Security-Policy: default-src 'none'; style-src 'self'; img-src 'self'; font-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"), "the site CSP line is still there");
+  // The sources the build copies, for the files the handoff says must not move. _headers is the demo exception.
+  for (const f of ["home.css", "robots.txt", "fonts/arvo/Arvo-Bold.woff2", "fonts/public-sans/PublicSans-Latin.woff2"]) {
     assert.equal(sha256(readFileSync(ROOT + "website/" + f)), RELEASE_34E46D6[f], "website/" + f + " is unchanged");
   }
 });

@@ -86,7 +86,7 @@ test("no analytics: no <script>, no inline handlers, no external URLs, no pixels
   const files = readdirSync(OUT).sort();
   // The homepage (index.html, home.css, img/, fonts/) is checked in tests/homepage.test.ts, the icons in tests/favicon.test.ts,
   // _headers in tests/site-headers.test.ts, robots.txt in tests/robots.test.ts.
-  assert.deepEqual(files, ["_headers", "apple-touch-icon.png", "ecosystem.html", "favicon.ico", "favicon.svg", "fonts", "home.css", "img", "index.html", "mission.html", "robots.txt", "site.css", "values.html", "vision.html"], "nothing else is shipped");
+  assert.deepEqual(files, ["_headers", "apple-touch-icon.png", "demo.css", "demo.html", "demo.js", "ecosystem.html", "favicon.ico", "favicon.svg", "fonts", "home.css", "img", "index.html", "mission.html", "robots.txt", "site.css", "values.html", "vision.html"], "nothing else is shipped");
   for (const p of PAGES) {
     const h = html(p.file);
     assert.doesNotMatch(h, /<script/i, p.file + ": no script tag");

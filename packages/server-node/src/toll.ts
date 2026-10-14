@@ -323,15 +323,22 @@ export function createToll(config: TollConfig, opts: TollOptions = {}) {
       claims = await verifyPassToken(config.secret, token, { now: now(), site: config.site_id, action });
       const ttl = claims.exp - now() + 60;
       let remaining: number;
+      let tagged: { tag: string | undefined } | undefined;
       if (o.consume === false) {
         remaining = (await store.peek("uses:" + claims.jti)) ?? claims.n;
         if (remaining <= 0) throw new TollError("exhausted");
+      } else if (store.consumeTagged) {
+        // One store round trip for the use and the rail tag (edge Durable Object).
+        const r = await store.consumeTagged("uses:" + claims.jti, claims.n, ttl, "pass:" + claims.jti);
+        remaining = r.remaining;
+        if (remaining < 0) throw new TollError("exhausted");
+        tagged = r;
       } else {
         remaining = await store.consume("uses:" + claims.jti, claims.n, ttl);
         if (remaining < 0) throw new TollError("exhausted");
       }
       if (o.consume !== false) {
-        const rail = (await store.getTag("pass:" + claims.jti)) ?? "unknown";
+        const rail = (tagged ? tagged.tag : await store.getTag("pass:" + claims.jti)) ?? "unknown";
         metrics.passAccept({ rail, cls: claims.cls, action, remaining });
       }
       return { ...claims, remaining };

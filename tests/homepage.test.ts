@@ -51,7 +51,7 @@ test("build: website/dist/index.html exists and no .html href is left in website
 
 test("build: a fresh build has the homepage, ships exactly its files, and has no .html href", () => {
   checkDist(OUT);
-  assert.deepEqual(walk(OUT), ["ecosystem.html", "index.html", "mission.html", "site.css", "values.html", "vision.html", ...HOME_ASSETS, ...ICON_FILES, ...SITE_FILES].sort());
+  assert.deepEqual(walk(OUT), ["demo.css", "demo.html", "demo.js", "ecosystem.html", "index.html", "mission.html", "site.css", "values.html", "vision.html", ...HOME_ASSETS, ...ICON_FILES, ...SITE_FILES].sort());
   for (const f of HOME_ASSETS) assert.deepEqual(readFileSync(OUT + f), readFileSync(ROOT + "website/" + f), f + " is copied unchanged");
   // Every shipped path and text file passes the copy lint list from docs/copy.md, which bans the photo's
   // tree species ("Never name the tree species in alt text, captions, or file names that ship").

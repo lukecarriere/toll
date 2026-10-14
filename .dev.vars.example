@@ -1,0 +1,3 @@
+# Copy to .dev.vars (gitignored). Local test secret only; never reuse it anywhere real.
+# Generate a fresh one on the box. Do not print it.
+SITE_SECRET="replace-with-a-random-local-secret"

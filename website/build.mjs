@@ -34,6 +34,9 @@ export const ICON_TAGS = '<link rel="icon" href="/favicon.ico" sizes="32x32"><li
 /** Files at the site root that are not pages; copied unchanged from website/ to dist/. */
 export const SITE_FILES = ["_headers", "robots.txt"];
 
+/** The work-only demo page. Not part of the four mission pages; those stay byte-identical. */
+export const DEMO_FILES = ["demo.html", "demo.css", "demo.js"];
+
 /** Files the homepage ships besides index.html, relative to website/ and to dist/. */
 export const HOME_ASSETS = [
   "home.css",
@@ -125,6 +128,7 @@ export function build(out = HERE + "dist/", site = process.env[SITE_URL_ENV], wa
   copyFileSync(HERE + "site.css", out + "site.css");
   for (const f of ICON_FILES) copyFileSync(HERE + f, out + f);
   for (const f of SITE_FILES) copyFileSync(HERE + f, out + f);
+  for (const f of DEMO_FILES) copyFileSync(HERE + f, out + f);
   for (const f of HOME_ASSETS) {
     mkdirSync(out + f.slice(0, f.lastIndexOf("/") + 1), { recursive: true });
     copyFileSync(HERE + f, out + f);
