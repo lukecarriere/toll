@@ -13,7 +13,7 @@
 // website/robots.txt allows everything, with no Sitemap line and no domain; it ships at /robots.txt unchanged.
 // Canonicals: each page points at itself under TOLL_SITE_URL, validated by @toll/protocol/site-url.
 // Unset or invalid: no canonical tag at all, and the pages are byte-identical to a build without it.
-import { readFileSync, writeFileSync, mkdirSync, copyFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync, mkdirSync, copyFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { parseSiteUrl, SITE_URL_ENV } from "@toll/protocol/site-url";
 
@@ -36,6 +36,41 @@ export const SITE_FILES = ["_headers", "robots.txt"];
 
 /** The work-only demo page. Not part of the four mission pages; those stay byte-identical. */
 export const DEMO_FILES = ["demo.html", "demo.css", "demo.js"];
+
+/**
+ * Visitor guides. Order, nav labels and meta descriptions come from docs/copy.md "## Docs pages".
+ * The homepage links to /docs. The four mission pages do not: their HTML stays the released bytes.
+ */
+const DOC_ORDER = ["docs/index", "docs/quick-start", "docs/widget", "docs/server", "docs/agent", "docs/mcp", "docs/wordpress", "docs/self-hosting", "download/index"];
+
+export function loadDocMeta(copy = readFileSync(fileURLToPath(new URL("../docs/copy.md", import.meta.url)), "utf8")) {
+  const from = copy.indexOf("\n## Docs pages\n");
+  if (from < 0) throw new Error('website: docs/copy.md has no "## Docs pages" section');
+  const next = copy.indexOf("\n## ", from + 1);
+  const sec = copy.slice(from, next < 0 ? undefined : next);
+  const label = /^Homepage nav label: (.+)$/m.exec(sec)?.[1];
+  if (!label) throw new Error("website: docs/copy.md Docs pages section has no homepage nav label");
+  const pages = [];
+  for (const m of sec.matchAll(/^- `website\/([^`]+)` \(([^)]+)\): (.+)$/gm)) pages.push({ file: m[1], nav: m[2], description: m[3] });
+  if (pages.map((p) => p.file).join("\n") !== DOC_ORDER.join("\n")) throw new Error("website: docs page list does not match docs/copy.md");
+  return { label, pages };
+}
+
+export const DOC_META = loadDocMeta();
+export const DOC_PAGES = DOC_META.pages;
+/** Guides listed under the docs nav. The index is the homepage's Docs link, not a second copy of it. */
+export const GUIDE_PAGES = DOC_PAGES.filter((p) => p.file !== "docs/index");
+
+/** Toll Gate header: version and GPL licence the download page and zip name must match. */
+export function pluginRelease() {
+  const php = readFileSync(fileURLToPath(new URL("../packages/wp-toll-gate/toll-gate.php", import.meta.url)), "utf8");
+  const version = /^\s*\*\s*Version:\s*(\S+)\s*$/m.exec(php)?.[1];
+  const license = /^\s*\*\s*License:\s*(\S+)\s*$/m.exec(php)?.[1];
+  if (!version) throw new Error("website: toll-gate.php has no Version header");
+  if (license !== "GPL-2.0-or-later") throw new Error("website: toll-gate.php licence is not GPL-2.0-or-later");
+  const zip = `toll-gate-${version}.zip`;
+  return { version, license, zip, shaName: `${zip}.sha256` };
+}
 
 /** Files the homepage ships besides index.html, relative to website/ and to dist/. */
 export const HOME_ASSETS = [
@@ -65,8 +100,13 @@ export function parse(md) {
   };
 }
 
-/** Root-relative path of a page: "/" for the homepage, "/mission" etc. No extension. */
-export const pagePath = (file) => (file === "index" ? "/" : "/" + file);
+/** Root-relative path of a page: "/" for the homepage, "/mission", "/docs", "/docs/widget", "/download". No extension. */
+export function pagePath(file) {
+  if (file === "index") return "/";
+  if (file === "docs/index") return "/docs";
+  if (file === "download/index") return "/download";
+  return "/" + file;
+}
 
 /** `<link rel="canonical">` for `file` under the validated site root, or "" when there is none. */
 export function canonical(file, base) {
@@ -105,7 +145,7 @@ export const HOME = {
 /** The homepage: markup from design/concepts/d-merged.html, styles in home.css (no inline styles). */
 export function renderHome(base = null) {
   const h = HOME;
-  const nav = PAGES.map((p) => `<a href="${pagePath(p.file)}">${esc(p.nav)}</a>`).join("");
+  const nav = PAGES.map((p) => `<a href="${pagePath(p.file)}">${esc(p.nav)}</a>`).join("") + `<a href="/docs">${esc(DOC_META.label)}</a>`;
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>${esc(h.title)}</title><meta name="description" content="${esc(h.description)}">${canonical("index", base)}
 ${ICON_TAGS}<link rel="preload" href="/fonts/arvo/Arvo-Bold.woff2" as="font" type="font/woff2" crossorigin><link rel="stylesheet" href="/home.css"></head><body><main class="hero"><div class="left">
@@ -115,17 +155,141 @@ ${ICON_TAGS}<link rel="preload" href="/fonts/arvo/Arvo-Bold.woff2" as="font" typ
 </div><figure class="right"><img src="/img/forest-road-1280.jpg" srcset="/img/forest-road-1280.jpg 1280w, /img/forest-road-2560.jpg 2560w" sizes="(max-width:760px) max(100vw, 69svh), 150svh" alt="${esc(h.alt)}" width="1280" height="853" fetchpriority="high"><span class="lane" aria-hidden="true"></span><p class="plate">${esc(h.plate)}</p></figure></main></body></html>`;
 }
 
+/** Inline code and root-relative links. Anything else is escaped. */
+function inline(s) {
+  let out = "";
+  let i = 0;
+  while (i < s.length) {
+    if (s[i] === "`") {
+      const j = s.indexOf("`", i + 1);
+      if (j < 0) { out += esc(s.slice(i)); break; }
+      out += "<code>" + esc(s.slice(i + 1, j)) + "</code>";
+      i = j + 1;
+      continue;
+    }
+    if (s[i] === "[") {
+      const m = /^\[([^\]\n]+)\]\(([^)\s]+)\)/.exec(s.slice(i));
+      if (m && safeHref(m[2])) {
+        out += `<a href="${esc(m[2])}">${inline(m[1])}</a>`;
+        i += m[0].length;
+        continue;
+      }
+    }
+    const next = s.slice(i + 1).search(/[`\[]/);
+    const end = next < 0 ? s.length : i + 1 + next;
+    out += esc(s.slice(i, end));
+    i = end;
+  }
+  return out;
+}
+
+function safeHref(url) {
+  return /^\/(?!\/)[A-Za-z0-9._~/-]*$/.test(url) && !url.includes("..") && !/\.html?(?:$|[?#])/i.test(url);
+}
+
+/** Guide markdown: one h1, h2/h3, paragraphs, "- " lists, and fenced code. */
+export function parseGuide(md) {
+  const lines = md.replace(/\r\n/g, "\n").replace(/\n+$/, "").split("\n");
+  if (!/^# \S/.test(lines[0] ?? "")) throw new Error("website: guide must start with '# Title'");
+  const title = lines[0].slice(2).trim();
+  const blocks = [];
+  let i = 1;
+  const blank = (n) => n >= lines.length || lines[n].trim() === "";
+  while (i < lines.length) {
+    const line = lines[i];
+    if (line.trim() === "") { i++; continue; }
+    if (line.startsWith("```")) {
+      const buf = [];
+      i++;
+      while (i < lines.length && !lines[i].startsWith("```")) buf.push(lines[i++]);
+      if (i >= lines.length) throw new Error("website: unclosed code fence in " + title);
+      i++;
+      blocks.push({ code: buf.join("\n") });
+      continue;
+    }
+    if (line.startsWith("# ")) throw new Error("website: guide has a second h1: " + title);
+    const h = /^(#{2,3}) (.+)$/.exec(line);
+    if (h) { blocks.push({ h: h[1].length, text: h[2].trim() }); i++; continue; }
+    if (line.startsWith("- ")) {
+      const items = [];
+      while (i < lines.length && lines[i].startsWith("- ")) items.push(lines[i++].slice(2).trim());
+      blocks.push({ list: items });
+      continue;
+    }
+    if (/^(?:\* |\d+\. |>)/.test(line)) throw new Error("website: unsupported markdown in " + title + ": " + line);
+    const buf = [];
+    while (i < lines.length && !blank(i) && !lines[i].startsWith("```") && !lines[i].startsWith("#") && !lines[i].startsWith("- ")) buf.push(lines[i++].trim());
+    blocks.push({ p: buf.join(" ") });
+  }
+  return { title, blocks };
+}
+
+function guideBody(blocks) {
+  return blocks.map((b) => {
+    if (b.h) return `<h${b.h}>${inline(b.text)}</h${b.h}>`;
+    if (b.list) return `<ul>${b.list.map((li) => `<li>${inline(li)}</li>`).join("")}</ul>`;
+    if (b.code != null) return `<pre><code>${esc(b.code)}</code></pre>`;
+    return `<p>${inline(b.p)}</p>`;
+  }).join("\n");
+}
+
+function applyTokens(md, rel, sha) {
+  const checksum = sha || "see the .sha256 file next to the zip";
+  return md.replaceAll("{{VERSION}}", rel.version).replaceAll("{{SHA}}", checksum);
+}
+
+export function renderGuide(page, md, base = null, rel = pluginRelease(), sha = "") {
+  const path = pagePath(page.file);
+  const { title, blocks } = parseGuide(applyTokens(md, rel, sha));
+  const inDocs = path === "/docs" || path.startsWith("/docs/");
+  const pagesNav = PAGES.map((p) => `<a href="${pagePath(p.file)}">${esc(p.nav)}</a>`).join("") + `<a href="/docs"${inDocs ? ' aria-current="page"' : ""}>${esc(DOC_META.label)}</a>`;
+  const guides = GUIDE_PAGES.map((g) => `<a href="${pagePath(g.file)}"${pagePath(g.file) === path ? ' aria-current="page"' : ""}>${esc(g.nav)}</a>`).join("");
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>${esc(title)} · Toll</title><meta name="description" content="${esc(page.description)}">${canonical(page.file, base)}${ICON_TAGS}<link rel="stylesheet" href="/site.css"><link rel="stylesheet" href="/docs.css"></head><body>
+<header><div class="bar"><a class="mark" href="/">Toll</a><nav aria-label="Pages">${pagesNav}</nav><nav class="guides" aria-label="Guides">${guides}</nav></div></header>
+<main><h1>${esc(title)}</h1>
+${guideBody(blocks)}
+</main></body></html>`;
+}
+
+/** sha256 of the built plugin zip, or "" when the release dir has not been built yet. */
+function releaseSha(rel) {
+  const file = fileURLToPath(new URL("../dist-release/" + rel.shaName, import.meta.url));
+  if (!existsSync(file)) return "";
+  const hex = readFileSync(file, "utf8").trim().split(/\s+/)[0] ?? "";
+  if (!/^[a-f0-9]{64}$/.test(hex)) throw new Error("website: dist-release/" + rel.shaName + " is not a sha256 line");
+  return hex;
+}
+
+function copyPluginZip(out, rel) {
+  const dir = fileURLToPath(new URL("../dist-release/", import.meta.url));
+  const zip = dir + rel.zip;
+  const sha = dir + rel.shaName;
+  if (!existsSync(zip) || !existsSync(sha)) return false;
+  mkdirSync(out + "download", { recursive: true });
+  copyFileSync(zip, out + "download/" + rel.zip);
+  copyFileSync(sha, out + "download/" + rel.shaName);
+  return true;
+}
+
 /**
  * Build into `out`. `site` is the raw TOLL_SITE_URL value (default: the environment); it is validated
  * by the protocol helper; an invalid value is reported through `warn` (without the value) and treated as unset.
+ * The plugin zip is copied from dist-release/ when that build has been run (npm run build does it first).
  */
 export function build(out = HERE + "dist/", site = process.env[SITE_URL_ENV], warn = console.warn) {
   const { url: base, error } = parseSiteUrl(site);
   if (error) warn(`website: ${error}; ignored, so no page gets a canonical tag`);
+  const rel = pluginRelease();
+  const sha = releaseSha(rel);
   mkdirSync(out, { recursive: true });
   writeFileSync(out + "index.html", renderHome(base));
   for (const p of PAGES) writeFileSync(out + p.file + ".html", render(p, readFileSync(HERE + p.file + ".md", "utf8"), base));
+  mkdirSync(out + "docs", { recursive: true });
+  mkdirSync(out + "download", { recursive: true });
+  for (const p of DOC_PAGES) writeFileSync(out + p.file + ".html", renderGuide(p, readFileSync(HERE + p.file + ".md", "utf8"), base, rel, sha));
   copyFileSync(HERE + "site.css", out + "site.css");
+  copyFileSync(HERE + "docs.css", out + "docs.css");
   for (const f of ICON_FILES) copyFileSync(HERE + f, out + f);
   for (const f of SITE_FILES) copyFileSync(HERE + f, out + f);
   for (const f of DEMO_FILES) copyFileSync(HERE + f, out + f);
@@ -133,6 +297,7 @@ export function build(out = HERE + "dist/", site = process.env[SITE_URL_ENV], wa
     mkdirSync(out + f.slice(0, f.lastIndexOf("/") + 1), { recursive: true });
     copyFileSync(HERE + f, out + f);
   }
+  copyPluginZip(out, rel);
   return out;
 }
 

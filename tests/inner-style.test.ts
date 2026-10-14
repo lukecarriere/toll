@@ -11,7 +11,7 @@ import { existsSync, mkdtempSync, readdirSync, readFileSync, statSync } from "no
 import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
 // @ts-ignore plain JS build script
-import { build } from "../website/build.mjs";
+import { build, DOC_PAGES, pluginRelease } from "../website/build.mjs";
 
 const ROOT = new URL("..", import.meta.url).pathname;
 const HANDOFF_CSS = ROOT + "design/inner-pages/site.css";
@@ -41,7 +41,8 @@ const RELEASE_34E46D6: Record<string, string> = {
   "values.html": "249b8143c550bfcf8a0e8626b62e70b6d6001d81bd5819f1719cb65a22b67d27",
   "vision.html": "83633c385a65cd625f5a2053252bdf8425707d111bdb01456af5b96e427849b5",
 };
-const PAGES_HTML = ["ecosystem.html", "index.html", "mission.html", "values.html", "vision.html"];
+const MISSION_HTML = ["ecosystem.html", "mission.html", "values.html", "vision.html"];
+const REL = pluginRelease();
 
 /** The working domain from docs/copy.md "## Naming", `Domain: \`...\`` (the one place it is recorded). */
 function workingDomain() {
@@ -60,17 +61,19 @@ function walk(dir: string, at = dir): string[] {
 const OUT = build(mkdtempSync(join(tmpdir(), "toll-inner-style-")) + "/", "https://" + workingDomain());
 const hashes = (files: string[]) => Object.fromEntries(files.map((f) => [f, sha256(readFileSync(OUT + f))]));
 
-test("release pin: the five built pages are the 34e46d6 release HTML byte for byte (QA's dist.sha256)", () => {
-  assert.deepEqual(hashes(PAGES_HTML), Object.fromEntries(PAGES_HTML.map((f) => [f, RELEASE_34E46D6[f]])));
+test("release pin: the four mission pages are the 34e46d6 release HTML byte for byte (QA's dist.sha256)", () => {
+  assert.deepEqual(hashes(MISSION_HTML), Object.fromEntries(MISSION_HTML.map((f) => [f, RELEASE_34E46D6[f]])));
 });
 
-test("release pin: the five pages stay byte-identical; the demo files and the /demo CSP rule are the only additions", () => {
+test("release pin: mission pages stay byte-identical; the homepage Docs link, demo, and guides are the additions", () => {
   const files = walk(OUT);
-  const added = ["demo.css", "demo.html", "demo.js"];
-  assert.deepEqual(files, [...Object.keys(RELEASE_34E46D6), ...added].sort(), "the release files plus the demo page");
+  const added = ["demo.css", "demo.html", "demo.js", "docs.css", ...DOC_PAGES.map((p: { file: string }) => p.file + ".html")];
+  if (existsSync(OUT + "download/" + REL.zip)) added.push("download/" + REL.zip, "download/" + REL.shaName);
+  assert.deepEqual(files, [...Object.keys(RELEASE_34E46D6), ...added].sort(), "the release files plus the demo page and the guides");
   const got = hashes(files.filter((f) => f in RELEASE_34E46D6));
   const changed = Object.keys(RELEASE_34E46D6).filter((f) => got[f] !== RELEASE_34E46D6[f]);
-  assert.deepEqual(changed.sort(), ["_headers", "site.css"], "existing pages and assets stay; _headers gains the /demo rule");
+  assert.deepEqual(changed.sort(), ["_headers", "index.html", "site.css"], "mission pages and assets stay; the homepage links to Docs; _headers keeps the /demo rule");
+  assert.match(readFileSync(OUT + "index.html", "utf8"), /<a href="\/docs">Docs<\/a>/);
   assert.equal(got["site.css"], HANDOFF_CSS_SHA256, "dist site.css is the handoff file");
   const headers = readFileSync(OUT + "_headers", "utf8");
   assert.ok(headers.includes("  Content-Security-Policy: default-src 'none'; style-src 'self'; img-src 'self'; font-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"), "the site CSP line is still there");
