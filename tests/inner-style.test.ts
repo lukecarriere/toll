@@ -67,7 +67,7 @@ test("release pin: the four mission pages are the 34e46d6 release HTML byte for 
 
 test("release pin: mission pages stay byte-identical; the homepage Docs link, demo, and guides are the additions", () => {
   const files = walk(OUT);
-  const added = ["demo.css", "demo.html", "demo.js", "docs.css", ...DOC_PAGES.map((p: { file: string }) => p.file + ".html")];
+  const added = ["demo.css", "demo.html", "demo.js", "docs.css", ...DOC_PAGES.map((p: { file: string }) => p.file + ".html"), "privacy.html", "support.html", "terms.html"];
   if (existsSync(OUT + "download/" + REL.zip)) added.push("download/" + REL.zip, "download/" + REL.shaName);
   assert.deepEqual(files, [...Object.keys(RELEASE_34E46D6), ...added].sort(), "the release files plus the demo page and the guides");
   const got = hashes(files.filter((f) => f in RELEASE_34E46D6));

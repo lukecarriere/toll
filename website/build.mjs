@@ -113,6 +113,27 @@ export function canonical(file, base) {
   return base ? `<link rel="canonical" href="${esc(base + pagePath(file))}">` : "";
 }
 
+/** Legal and support pages, rendered like guides but without the guide nav. */
+export const LEGAL_PAGES = [
+  { file: "privacy", nav: "Privacy", description: "What the Toll MCP server and lessspam.dev collect: very little, and nothing from the demo form." },
+  { file: "terms", nav: "Terms", description: "Toll is MIT software, provided as is. Fair use rules for the demo." },
+  { file: "support", nav: "Support", description: "Where to ask questions, report bugs and report security problems." },
+];
+
+/** Footer on every page: root-relative links to the legal and support pages. */
+export const FOOTER = `<footer class="site-foot"><nav aria-label="Site">${LEGAL_PAGES.map((p) => `<a href="/${p.file}">${p.nav}</a>`).join("")}</nav></footer>`;
+
+export function renderLegal(page, md, base = null) {
+  const { title, blocks } = parseGuide(md);
+  const nav = PAGES.map((p) => `<a href="${pagePath(p.file)}">${esc(p.nav)}</a>`).join("") + `<a href="/docs">${esc(DOC_META.label)}</a>`;
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>${esc(title)} · Toll</title><meta name="description" content="${esc(page.description)}">${canonical(page.file, base)}${ICON_TAGS}<link rel="stylesheet" href="/site.css"><link rel="stylesheet" href="/docs.css"></head><body>
+<header><div class="bar"><a class="mark" href="/">Toll</a><nav aria-label="Pages">${nav}</nav></div></header>
+<main><h1>${esc(title)}</h1>
+${guideBody(blocks)}
+</main>${FOOTER}</body></html>`;
+}
+
 export function render(page, md, base = null) {
   const { title, blocks } = parse(md);
   const nav = PAGES.map((p) => `<a href="${pagePath(p.file)}"${p.file === page.file ? ' aria-current="page"' : ""}>${esc(p.nav)}</a>`).join("");
@@ -152,7 +173,7 @@ ${ICON_TAGS}<link rel="preload" href="/fonts/arvo/Arvo-Bold.woff2" as="font" typ
 <header><a class="sign" href="/" aria-current="page">Toll</a><nav aria-label="Main">${nav}</nav></header>
 <div class="copy"><p class="kicker">${esc(h.kicker)}</p><h1>${h.h1.map((l) => `<span>${esc(l)}</span>`).join("")}</h1><p class="line">${esc(h.line)}</p></div>
 <p class="meta">${h.meta.map(([b, t]) => `<span><b>${esc(b)}</b>${esc(t)}</span>`).join("")}</p>
-</div><figure class="right"><img src="/img/forest-road-1280.jpg" srcset="/img/forest-road-1280.jpg 1280w, /img/forest-road-2560.jpg 2560w" sizes="(max-width:760px) max(100vw, 69svh), 150svh" alt="${esc(h.alt)}" width="1280" height="853" fetchpriority="high"><span class="lane" aria-hidden="true"></span><p class="plate">${esc(h.plate)}</p></figure></main></body></html>`;
+</div><figure class="right"><img src="/img/forest-road-1280.jpg" srcset="/img/forest-road-1280.jpg 1280w, /img/forest-road-2560.jpg 2560w" sizes="(max-width:760px) max(100vw, 69svh), 150svh" alt="${esc(h.alt)}" width="1280" height="853" fetchpriority="high"><span class="lane" aria-hidden="true"></span><p class="plate">${esc(h.plate)}</p></figure></main>${FOOTER}</body></html>`;
 }
 
 /** Inline code and root-relative links. Anything else is escaped. */
@@ -249,7 +270,7 @@ export function renderGuide(page, md, base = null, rel = pluginRelease(), sha = 
 <header><div class="bar"><a class="mark" href="/">Toll</a><nav aria-label="Pages">${pagesNav}</nav><nav class="guides" aria-label="Guides">${guides}</nav></div></header>
 <main><h1>${esc(title)}</h1>
 ${guideBody(blocks)}
-</main></body></html>`;
+</main>${FOOTER}</body></html>`;
 }
 
 /** sha256 of the built plugin zip, or "" when the release dir has not been built yet. */
@@ -288,6 +309,7 @@ export function build(out = HERE + "dist/", site = process.env[SITE_URL_ENV], wa
   mkdirSync(out + "docs", { recursive: true });
   mkdirSync(out + "download", { recursive: true });
   for (const p of DOC_PAGES) writeFileSync(out + p.file + ".html", renderGuide(p, readFileSync(HERE + p.file + ".md", "utf8"), base, rel, sha));
+  for (const p of LEGAL_PAGES) writeFileSync(out + p.file + ".html", renderLegal(p, readFileSync(HERE + p.file + ".md", "utf8"), base));
   copyFileSync(HERE + "site.css", out + "site.css");
   copyFileSync(HERE + "docs.css", out + "docs.css");
   for (const f of ICON_FILES) copyFileSync(HERE + f, out + f);

@@ -26,3 +26,6 @@ pre .r{color:#f0a898}
  .demo{grid-template-columns:minmax(0,1fr)}
  .row2{grid-template-columns:minmax(0,1fr)}
 }
+
+.site-foot { max-width: 46rem; margin: 3rem auto 2rem; padding: 0 1.25rem; font-size: .875rem; }
+.site-foot nav { display: flex; gap: 1.25rem; flex-wrap: wrap; }

@@ -8,7 +8,7 @@ import { readFileSync, existsSync, mkdtempSync, readdirSync, statSync } from "no
 import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
 // @ts-ignore plain JS build script
-import { build, PAGES, HOME, DOC_PAGES } from "../website/build.mjs";
+import { build, PAGES, HOME, DOC_PAGES, LEGAL_PAGES } from "../website/build.mjs";
 
 const ROOT = new URL("..", import.meta.url).pathname;
 const DIST = ROOT + "website/dist/";
@@ -43,7 +43,7 @@ function metas(h: string) {
 function check(dir: string, label: string) {
   const pm = pmDescriptions();
   const pages = walk(dir).filter((f) => f.endsWith(".html"));
-  const guides = DOC_PAGES.map((p: { file: string }) => p.file + ".html");
+  const guides = DOC_PAGES.map((p: { file: string }) => p.file + ".html").concat(LEGAL_PAGES.map((p: { file: string }) => p.file + ".html"));
   assert.deepEqual(pages, ["demo.html", "ecosystem.html", "index.html", "mission.html", "values.html", "vision.html", ...guides].sort(), label + ": the built pages");
   for (const f of pages) {
     const m = metas(readFileSync(dir + f, "utf8"));
