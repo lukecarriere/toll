@@ -52,7 +52,7 @@ test("build: website/dist/index.html exists and no .html href is left in website
 test("build: a fresh build has the homepage, ships exactly its files, and has no .html href", () => {
   checkDist(OUT);
   const rel = pluginRelease();
-  const docs = ["docs.css", ...DOC_PAGES.map((p: any) => p.file + ".html")];
+  const docs = ["docs.css", ...DOC_PAGES.map((p: any) => p.file + ".html"), ...LEGAL_PAGES.map((p: any) => p.file + ".html")];
   const zip = existsSync(OUT + "download/" + rel.zip) ? ["download/" + rel.zip, "download/" + rel.shaName] : [];
   assert.deepEqual(walk(OUT), ["demo.css", "demo.html", "demo.js", "ecosystem.html", "index.html", "mission.html", "site.css", "values.html", "vision.html", ...HOME_ASSETS, ...ICON_FILES, ...SITE_FILES, ...docs, ...zip].sort());
   for (const f of HOME_ASSETS) assert.deepEqual(readFileSync(OUT + f), readFileSync(ROOT + "website/" + f), f + " is copied unchanged");
