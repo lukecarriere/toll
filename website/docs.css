@@ -10,3 +10,6 @@ p code,li code{font:0.88em ui-monospace,monospace;background:var(--lane);padding
  main h2{font-size:24px}
  pre{padding:12px}
 }
+
+.site-foot { max-width: 46rem; margin: 3rem auto 2rem; padding: 0 1.25rem; font-size: .875rem; }
+.site-foot nav { display: flex; gap: 1.25rem; flex-wrap: wrap; }

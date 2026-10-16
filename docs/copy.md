@@ -212,3 +212,6 @@ Homepage nav label: Docs
 - Vision (`website/vision`), 149 characters: A site owner shouldn't have to choose between closing the site and cleaning up after a flood. Toll keeps public pages open and the comment box quiet.
 - Values (`website/values`), 151 characters: Mind the traffic, not the driver. Nothing to solve, no tracking pixels, no selling visitor data, and page views stay free. Toll doesn't block crawlers.
 - Where Toll fits (`website/ecosystem`), 138 characters: Toll looks after writes like comments and forms. It doesn't block crawlers, charge for public articles or ask the caller to say who it is.
+
+## Footer
+Links on every page except the four pinned mission pages: Privacy, Terms, Support.
