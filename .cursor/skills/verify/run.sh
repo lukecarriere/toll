@@ -163,7 +163,9 @@ worker=http://127.0.0.1:8788
     echo "$code $p $(grep -o '<h1>[^<]*</h1>' /tmp/toll-page.html)"
   done
 } | tee -a "$TRANSCRIPT"
-zip=$(grep -o '/download/toll-gate-[^"]*\.zip' /tmp/toll-page.html | head -n 1)
+curl -fsS -o /tmp/toll-download.html "$worker/download"
+zip=$(grep -o '/download/toll-gate-[^"]*\.zip' /tmp/toll-download.html | head -n 1)
+[[ -n "$zip" ]]
 mkdir -p "$EVID/worker-zip"
 curl -fsS -o "$EVID/worker-zip/$(basename "$zip")" "$worker$zip"
 curl -fsS -o "$EVID/worker-zip/$(basename "$zip").sha256" "$worker$zip.sha256"
