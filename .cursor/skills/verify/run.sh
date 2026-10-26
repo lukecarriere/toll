@@ -1,10 +1,12 @@
 #!/usr/bin/env bash
 # Full verify run: install, test, then drive the site, the demo form, the npm packages, and the WordPress plugin zip.
-# Evidence stays in docs/runs/verify-e2e/. Cleanup kills only the PIDs this run started.
+# Live evidence goes to .verify-e2e/ (gitignored). docs/runs/verify-e2e/ is a saved run; rewriting
+# those tracked files dirties the tree and scripts/build-wp-zip.mjs refuses to build.
+# Cleanup kills only the PIDs this run started.
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/../../.." && pwd)"
 cd "$ROOT"
-EVID="$ROOT/docs/runs/verify-e2e"
+EVID="$ROOT/.verify-e2e"
 mkdir -p "$EVID"
 PIDFILE="$EVID/pids.txt"
 : > "$PIDFILE"

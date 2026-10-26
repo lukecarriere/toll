@@ -15,7 +15,7 @@ This directory is the maintained source for verifying Toll. Read the index, then
 - Drive with curl, node, and php, as written in each feature file.
 - Read response bodies. A status line alone is not the proof.
 - The human path prints statuses only.
-- Evidence goes to `docs/runs/verify-e2e/` and stays there after cleanup.
+- Evidence goes to `.verify-e2e/` (gitignored) and stays there after cleanup. The saved run in `docs/runs/verify-e2e/` is not rewritten.
 
 ## Proof and skip reporting
 

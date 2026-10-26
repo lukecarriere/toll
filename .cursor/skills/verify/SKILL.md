@@ -9,7 +9,7 @@ Public copy still comes from `docs/copy.md`. This guide is not a public page. Up
 
 Needs Node `>=22.18`, PHP `>=8.1` with `ext-sodium`, Composer, and a full git history (the copy lint reads commit titles). Never print `TOLL_SECRET`, `TOLL_OWNER_KEY`, `demo/.owner-key`, or the worker `SITE_SECRET`. The demo line that a secret was generated for the run is safe. The value is not.
 
-Run from the repository root. One full pass is `bash .cursor/skills/verify/run.sh`. It writes `docs/runs/verify-e2e/` and leaves that directory in place after it stops the processes it started.
+Run from the repository root. One full pass is `bash .cursor/skills/verify/run.sh`. It writes `.verify-e2e/` (gitignored) and leaves that directory in place after it stops the processes it started. The saved run in `docs/runs/verify-e2e/` stays as committed.
 
 Do not run `npx wrangler deploy`. Phase 4 stays locked: the demo uses the stub backend, no real money, and no live payouts.
 
@@ -195,11 +195,11 @@ Phone width is inside `npm test` (`tests/viewport.test.ts`): `/`, `/demo`, the m
 
 ## Evidence
 
-The helper writes `docs/runs/verify-e2e/`. Keep that directory. It holds the transcript, `npm-test.txt`, the demo and worker logs, the contact JSON (error code only, no pass), and the downloaded plugin zip with its `.sha256`. Proof is the command, the response, and the side effect together: a 403 `toll_required` followed by a 200 write, a zip whose `sha256sum -c` prints `OK`, and `# fail 0` from `npm test`.
+The helper writes `.verify-e2e/`. That directory is gitignored, so the run does not modify tracked files. `scripts/build-wp-zip.mjs` still requires a clean tracked tree. Keep `.verify-e2e/`. It holds the transcript, `npm-test.txt`, the demo and worker logs, the contact JSON (error code only, no pass), and the downloaded plugin zip with its `.sha256`. Proof is the command, the response, and the side effect together: a 403 `toll_required` followed by a 200 write, a zip whose `sha256sum -c` prints `OK`, and `# fail 0` from `npm test`. The saved run in `docs/runs/verify-e2e/` is not rewritten.
 
 ## Cleanup
 
-Stop only the PIDs this run recorded in `docs/runs/verify-e2e/pids.txt`, and their children. Do not kill by process name. Delete `.dev.vars`. Leave `docs/runs/verify-e2e/` where it is. `bash .cursor/skills/verify/run.sh` does this on the way out, including after a failed step.
+Stop only the PIDs this run recorded in `.verify-e2e/pids.txt`, and their children. Do not kill by process name. Delete `.dev.vars`. Leave `.verify-e2e/` where it is. Leave `docs/runs/verify-e2e/` untouched. `bash .cursor/skills/verify/run.sh` does this on the way out, including after a failed step.
 
 ## Helpers
 
