@@ -1,90 +1,88 @@
 ---
 name: verify
-description: Install, build, test, lint, start, and smoke-check a Toll checkout. Update this guide when scripts, routes, or packages change.
+description: Launch, doctor, and drive a Toll checkout (site, demo form, @lessspam packages, WordPress plugin). Use after install or when scripts, routes, or packages change.
 ---
 
-# Verify a checkout
+# Verify a Toll checkout
 
-Update this guide whenever root scripts, HTTP routes, or workspace packages change. Public copy still comes from `docs/copy.md`. This guide is not a public page.
+Public copy still comes from `docs/copy.md`. This guide is not a public page. Update it when root scripts, HTTP routes, workspace packages, or website pages change.
 
-Needs Node `>=22.18`, PHP `>=8.1` with `ext-sodium`, Composer, and a full git history (the copy lint reads commit titles). Never print `TOLL_SECRET`, `TOLL_OWNER_KEY`, `demo/.owner-key`, or any other secret. The demo line that a secret was generated for the run is safe; the value is not.
+Needs Node `>=22.18`, PHP `>=8.1` with `ext-sodium`, Composer, and a full git history (the copy lint reads commit titles). Never print `TOLL_SECRET`, `TOLL_OWNER_KEY`, `demo/.owner-key`, or the worker `SITE_SECRET`. The demo line that a secret was generated for the run is safe. The value is not.
 
-Run from the repository root.
+Run from the repository root. One full pass is `bash .cursor/skills/verify/run.sh`. It writes `docs/runs/verify-e2e/` and leaves that directory in place after it stops the processes it started.
 
-## Install
+Do not run `npx wrangler deploy`. Phase 4 stays locked: the demo uses the stub backend, no real money, and no live payouts.
+
+## Launch
+
+Install, then build and test. `npm test` is the ready check for the tree. Servers start after it exits 0.
 
 ```sh
 npm ci
 (cd packages/server-php && composer install --no-interaction --no-progress)
 npx playwright install --with-deps chromium
-```
-
-Expected: each command exits 0. Composer prints `Generating autoload files`. Playwright reports Chromium installed.
-
-## Build
-
-```sh
-npm run build
-```
-
-Expected: exit 0. Stdout includes each of these:
-
-- `strings: wrote packages/widget/src/strings.gen.ts`
-- `widget: dist/toll.js `
-- `widget: dist/toll.worker.js `
-- `widget: dist/toll.worker-argon2id.js `
-- `widget: default path total ` and `budget 25600 B`
-- `packages: @lessspam/widget dist/index.js`
-- `packages: @lessspam/server dist/index.js + dist/widget`
-- `packages: @lessspam/agent dist/index.js dist/agent-pay.js`
-- `packages: @lessspam/mcp dist/index.js`
-- `check-dist: widget dist has no secrets, connection strings, absolute URLs or captcha SaaS references`
-- `check-dist: @lessspam/widget tarball `
-- `check-dist: @lessspam/server tarball `
-- `check-dist: @lessspam/agent tarball `
-- `check-dist: @lessspam/mcp tarball `
-- `build-wp-zip: dist-release/toll-gate-`
-- `build-wp-zip: sha256 `
-- `edge: dist/worker.js dist/site.js`
-- `website: built ` and `website/dist/`
-
-Stdout must not contain `widget: over the 25 KB gzip budget` or a `check-dist:` line that starts with an error.
-
-## Lint
-
-```sh
-npm run lint:copy
-npm run typecheck
-```
-
-Expected: both exit 0. `npm run` prints its script header. The copy lint line matches `copy-lint: <files> files, <titles> commit titles, <rules> rules from docs/copy.md, <vendors> vendor names from docs/adapters.md, 0 hits`. `tsc` prints no diagnostics.
-
-## Test
-
-```sh
 npm test
 ```
 
-Expected: exit 0. The script rebuilds, typechecks, and copy-lints, then runs the Node and PHP suites. The Node reporter includes `# fail 0` and `# cancelled 0`. `# skipped` counts WordPress tests when no local WordPress is running. Each PHP runner's last line matches `passed, 0 failed`. No line starts with `FAIL `.
+Expected: each command exits 0. Composer prints `Generating autoload files`. Playwright reports Chromium installed. `npm test` rebuilds, typechecks, and copy-lints, then runs the Node and PHP suites. The Node reporter includes `# fail 0` and `# cancelled 0`. `# skipped` counts WordPress tests when no local WordPress is running. Each PHP runner's last line matches `passed, 0 failed`. No line starts with `FAIL `.
 
-## Start locally
+Build stdout, inside that test, includes `strings: wrote packages/widget/src/strings.gen.ts`, the widget `dist/toll.js`, `dist/toll.worker.js`, and `dist/toll.worker-argon2id.js` lines, `widget: default path total` and `budget 25600 B`, `@lessspam/widget`, `@lessspam/server`, `@lessspam/agent`, and `@lessspam/mcp` package lines, `check-dist:` lines that are not errors, `build-wp-zip: dist-release/toll-gate-` and `build-wp-zip: sha256 `, `edge: dist/worker.js dist/site.js`, and `website: built` with `website/dist/`. It must not contain `widget: over the 25 KB gzip budget`.
+
+Start the three local surfaces only after that. Each listens on loopback. Refuse to start one whose port is already taken.
 
 ```sh
-npm run demo
+env -u TOLL_SECRET -u TOLL_OWNER_KEY node demo/server.ts
+php -S 127.0.0.1:8791 -t website/dist
+node --input-type=module <<'EOF'
+import { randomBytes } from "node:crypto";
+import { writeFileSync } from "node:fs";
+writeFileSync(".dev.vars", `SITE_SECRET="${randomBytes(24).toString("hex")}"\n`, { mode: 0o600 });
+console.log("wrote .dev.vars");
+EOF
+node_modules/.bin/wrangler dev --local --ip 127.0.0.1 --port 8788 --show-interactive-dev-session=false
 ```
 
-Expected, after the build, on stderr:
+Ready lines: `Toll demo on http://localhost:8787`, the PHP server accepting `http://127.0.0.1:8791/`, and wrangler `Ready on http://127.0.0.1:8788`. `.dev.vars` is gitignored. Delete it in cleanup.
 
+## Doctor
+
+Run this before driving, and again when a request looks wrong. The process must be the one this run started.
+
+```sh
+curl -fsS http://127.0.0.1:8787/v1/health; echo
+curl -fsS -o /dev/null -w '%{http_code}\n' http://127.0.0.1:8791/
+curl -fsS -o /dev/null -w '%{http_code}\n' http://127.0.0.1:8788/
 ```
-[demo] TOLL_SECRET not set; using a random secret for this run.
-[demo] Toll demo on http://localhost:8787  (issuer + widget, paid requests on the local test backend, fixed test rate 100000, standard mode)
+
+Expected health body: `{"ok":true,"v":"1.0.0","settlement":"stub","settlement_degraded":false,"usd_rate":"ok"}`. The site and the worker return `200`. Demo stderr also contains `TOLL_SECRET not set; using a random secret for this run.` when those variables were unset.
+
+## Drive
+
+Drive every feature in `features/`. The commands are curl, node, and php. Read the feature file before the matching block. A live WordPress at `http://127.0.0.1:8888` is optional. When it is down, say so and drive the plugin through the download zip. Do not treat the zip as a pass for the admin UI.
+
+Packages, after the build inside `npm test`:
+
+```sh
+node --input-type=module <<'EOF'
+import { VERSION } from "./packages/server-node/dist/index.js";
+import { createAgent } from "./packages/agent/dist/index.js";
+import { tollJs } from "./packages/widget/dist/index.js";
+import { toolList } from "./packages/mcp/dist/index.js";
+import { statSync } from "node:fs";
+const tools = toolList().map((t) => t.name).join(",");
+if (VERSION !== "1.0.0") throw new Error("server " + VERSION);
+if (typeof createAgent !== "function") throw new Error("agent");
+if (!String(tollJs).endsWith("/toll.js")) throw new Error("widget " + tollJs);
+if (statSync(new URL(tollJs)).size < 100) throw new Error("toll.js");
+if (tools !== "price_write_action,gate_form_write,verify_write_pass") throw new Error("mcp " + tools);
+console.log("packages ok", VERSION, tools);
+EOF
+php -r 'require "packages/server-php/vendor/autoload.php"; $ok = class_exists("Toll\\Protocol") && class_exists("Toll\\Settlement"); echo $ok ? "php ok\n" : "php missing\n"; exit($ok ? 0 : 1);'
 ```
 
-The process listens on `127.0.0.1:8787`. Leave it running for the smoke checks. When `TOLL_SECRET` is already set, the first line is absent.
+Expected: `packages ok 1.0.0 price_write_action,gate_form_write,verify_write_pass` and `php ok`.
 
-## Smoke
-
-Demo, with `npm run demo` running:
+Demo form, with the demo listening:
 
 ```sh
 base=http://127.0.0.1:8787
@@ -99,23 +97,9 @@ curl -sS -o /tmp/toll-contact.json -w '%{http_code}\n' -X POST -H 'accept: appli
 php -r 'echo json_decode(file_get_contents("/tmp/toll-contact.json"))->error, "\n";'
 ```
 
-Expected, in order:
+Expected, in order: `Every form on this page is protected`, `Bot hammer`, the health JSON from Doctor, `Toll reads_free http://127.0.0.1:8787/v1`, `{"manifest":"http://127.0.0.1:8787/.well-known/toll.json"}`, `HTTP/1.1 200 OK`, a stats line ending `test payments on`, `403`, `toll_required`. Run stats before the contact POST. `accepted` may already be above 0.
 
-```
-Every form on this page is protected
-Bot hammer
-{"ok":true,"v":"1.0.0","settlement":"stub","settlement_degraded":false,"usd_rate":"ok"}
-Toll reads_free http://127.0.0.1:8787/v1
-{"manifest":"http://127.0.0.1:8787/.well-known/toll.json"}
-HTTP/1.1 200 OK
-0 0 test payments on
-403
-toll_required
-```
-
-`accepted` may be higher than `0` if a write already landed. `rejected` rises by 1 after the contact check, so run the stats line before that POST.
-
-Human path, still with `npm run demo` running. This does the work, redeems a pass, and retries the write. It prints statuses only. It must not print the pass.
+Human path on the demo. It prints statuses only. It must not print the pass.
 
 ```sh
 WRITE_PATH=/contact node --input-type=module <<'EOF'
@@ -138,34 +122,9 @@ console.log("human path ok", denied.status, deniedBody.error, redeem.status, ok.
 EOF
 ```
 
-Expected:
+Expected: `human path ok 403 toll_required 200 200`.
 
-```
-human path ok 403 toll_required 200 200
-```
-
-Packages and the built site, after `npm run build`:
-
-```sh
-node --input-type=module <<'EOF'
-import { VERSION } from "./packages/server-node/dist/index.js";
-import { createAgent } from "./packages/agent/dist/index.js";
-import { tollJs } from "./packages/widget/dist/index.js";
-import { toolList } from "./packages/mcp/dist/index.js";
-import { statSync } from "node:fs";
-const tools = toolList().map((t) => t.name).join(",");
-if (VERSION !== "1.0.0") throw new Error("server " + VERSION);
-if (typeof createAgent !== "function") throw new Error("agent");
-if (!String(tollJs).endsWith("/toll.js")) throw new Error("widget " + tollJs);
-if (statSync(new URL(tollJs)).size < 100) throw new Error("toll.js");
-if (tools !== "price_write_action,gate_form_write,verify_write_pass") throw new Error("mcp " + tools);
-console.log("packages ok", VERSION, tools);
-EOF
-php -r 'require "packages/server-php/vendor/autoload.php"; $ok = class_exists("Toll\\Protocol") && class_exists("Toll\\Settlement"); echo $ok ? "php ok\n" : "php missing\n"; exit($ok ? 0 : 1);'
-php -S 127.0.0.1:8791 -t website/dist
-```
-
-Leave the site server running, then:
+Static site:
 
 ```sh
 site=http://127.0.0.1:8791
@@ -174,6 +133,9 @@ curl -fsS "$site/mission.html" | grep -o "<h1>Mission</h1>"
 curl -fsS "$site/vision.html" | grep -o "<h1>Vision</h1>"
 curl -fsS "$site/values.html" | grep -o "<h1>Values</h1>"
 curl -fsS "$site/ecosystem.html" | grep -o "<h1>Where Toll fits</h1>"
+curl -fsS "$site/privacy.html" | grep -o "<h1>Privacy</h1>"
+curl -fsS "$site/terms.html" | grep -o "<h1>Terms</h1>"
+curl -fsS "$site/support.html" | grep -o "<h1>Support</h1>"
 curl -fsS "$site/robots.txt"
 curl -fsS "$site/" | grep -o 'href="/docs"'
 for p in docs/index.html docs/quick-start.html docs/widget.html docs/server.html docs/agent.html docs/mcp.html docs/wordpress.html docs/self-hosting.html download/index.html; do
@@ -186,70 +148,17 @@ curl -fsS -o "/tmp/$(basename "$zip").sha256" "$site$zip.sha256"
 (cd /tmp && sha256sum -c "$(basename "$zip").sha256")
 unzip -t "/tmp/$(basename "$zip")" >/tmp/toll-unzip.txt
 unzip -p "/tmp/$(basename "$zip")" toll-gate/toll-gate.php | grep -o "GPL-2.0-or-later"
+unzip -p "/tmp/$(basename "$zip")" toll-gate/toll-gate.php | grep -o "Plugin Name: Toll Gate"
 ```
 
-Expected:
+Expected headings match the file names (`<h1>Docs</h1>`, `<h1>Quick start</h1>`, `<h1>Widget</h1>`, `<h1>Server</h1>`, `<h1>Agent SDK</h1>`, `<h1>MCP server</h1>`, `<h1>WordPress plugin</h1>`, `<h1>Self-hosting</h1>`, `<h1>Download</h1>`), plus `Less traffic.`, the four mission and three legal headings, `User-agent: *`, `Allow: /`, `href="/docs"`, a `sha256sum` line ending `OK`, `GPL-2.0-or-later`, and `Plugin Name: Toll Gate`. `unzip -t` exits 0.
 
-```
-packages ok 1.0.0 price_write_action,gate_form_write,verify_write_pass
-php ok
-Less traffic.
-<h1>Mission</h1>
-<h1>Vision</h1>
-<h1>Values</h1>
-<h1>Where Toll fits</h1>
-User-agent: *
-Allow: /
-href="/docs"
-200 docs/index.html <h1>Docs</h1>
-200 docs/quick-start.html <h1>Quick start</h1>
-200 docs/widget.html <h1>Widget</h1>
-200 docs/server.html <h1>Server</h1>
-200 docs/agent.html <h1>Agent SDK</h1>
-200 docs/mcp.html <h1>MCP server</h1>
-200 docs/wordpress.html <h1>WordPress plugin</h1>
-200 docs/self-hosting.html <h1>Self-hosting</h1>
-200 download/index.html <h1>Download</h1>
-toll-gate-0.1.0.zip: OK
-GPL-2.0-or-later
-```
-
-`unzip -t` exits 0. The sha256 line names whatever version the plugin header has; `0.1.0` is that version today.
-
-Stop the demo and the site server when finished.
-
-## Phone width
-
-`npm test` includes this. To run it on its own, after Install:
-
-```sh
-node --test tests/viewport.test.ts
-```
-
-Expected: exit 0. The reporter includes `# fail 0`. The test serves the built pages and opens `/`, `/demo`, every docs page, and `/download` at 360px and 390px. Each page must satisfy `document.scrollWidth <= window.innerWidth`, and `innerWidth` must be the requested width.
-
-## Site worker
-
-The same build serves the toll-site worker: static pages, the work-only demo, and the `TollStoreDO` Durable Object. `wrangler.toml` keeps `workers_dev = true` and attaches the production custom domains, so a deploy creates or keeps their DNS records. The production hostname is the custom domain; the `workers.dev` name stays as a fallback.
-
-Write a local secret without printing it, then start the worker. `.dev.vars` is gitignored.
-
-```sh
-node --input-type=module <<'EOF'
-import { randomBytes } from "node:crypto";
-import { writeFileSync } from "node:fs";
-writeFileSync(".dev.vars", `SITE_SECRET="${randomBytes(24).toString("hex")}"\n`, { mode: 0o600 });
-console.log("wrote .dev.vars");
-EOF
-npx wrangler dev --local --ip 127.0.0.1 --port 8788 --show-interactive-dev-session=false
-```
-
-Expected: `Ready on http://127.0.0.1:8788`. Leave it running.
+Worker, same pages under extension-less paths, then the demo form on the worker:
 
 ```sh
 worker=http://127.0.0.1:8788
 curl -fsS "$worker/" | grep -o 'href="/docs"'
-for p in /docs /docs/quick-start /docs/widget /docs/server /docs/agent /docs/mcp /docs/wordpress /docs/self-hosting /download; do
+for p in /docs /docs/quick-start /docs/widget /docs/server /docs/agent /docs/mcp /docs/wordpress /docs/self-hosting /download /privacy /terms /support /mission; do
   code=$(curl -sS -o /tmp/toll-page.html -w '%{http_code}' "$worker$p")
   echo "$code $p $(grep -o '<h1>[^<]*</h1>' /tmp/toll-page.html)"
 done
@@ -280,48 +189,25 @@ console.log("human path ok", denied.status, deniedBody.error, redeem.status, ok.
 EOF
 ```
 
-Expected:
+Expected: `200` and the same headings for each path, `sha256sum` `OK`, `403`, `toll_required`, and `human path ok 403 toll_required 200 200`.
 
-```
-href="/docs"
-200 /docs <h1>Docs</h1>
-200 /docs/quick-start <h1>Quick start</h1>
-200 /docs/widget <h1>Widget</h1>
-200 /docs/server <h1>Server</h1>
-200 /docs/agent <h1>Agent SDK</h1>
-200 /docs/mcp <h1>MCP server</h1>
-200 /docs/wordpress <h1>WordPress plugin</h1>
-200 /docs/self-hosting <h1>Self-hosting</h1>
-200 /download <h1>Download</h1>
-toll-gate-0.1.0.zip: OK
-403
-toll_required
-human path ok 403 toll_required 200 200
-```
+Phone width is inside `npm test` (`tests/viewport.test.ts`): `/`, `/demo`, the mission pages, the docs pages, `/download`, and the legal pages at 360 and 390. `document.scrollWidth` stays `<= window.innerWidth`.
 
-Stop the worker when finished.
+## Evidence
 
-## Deploy
+The helper writes `docs/runs/verify-e2e/`. Keep that directory. It holds the transcript, `npm-test.txt`, the demo and worker logs, the contact JSON (error code only, no pass), and the downloaded plugin zip with its `.sha256`. Proof is the command, the response, and the side effect together: a 403 `toll_required` followed by a 200 write, a zip whose `sha256sum -c` prints `OK`, and `# fail 0` from `npm test`.
 
-From the repository root, after Install and Build, on a clean checkout. This is the command that publishes the toll-site worker. It does not change DNS. Do not run it as part of a local check.
+## Cleanup
 
-```sh
-npx wrangler deploy
-```
+Stop only the PIDs this run recorded in `docs/runs/verify-e2e/pids.txt`, and their children. Do not kill by process name. Delete `.dev.vars`. Leave `docs/runs/verify-e2e/` where it is. `bash .cursor/skills/verify/run.sh` does this on the way out, including after a failed step.
 
-Check the bundle without publishing:
+## Helpers
 
-```sh
-npx wrangler deploy --dry-run --outdir /tmp/toll-site-dry
-```
-
-Expected: exit 0, and a `gzip:` size for the worker script. `--dry-run` does not deploy.
-
-`SITE_SECRET` is a Worker secret. Set it with `npx wrangler secret put SITE_SECRET` before the demo can issue checks. Never print it. Never commit it.
+`bash .cursor/skills/verify/run.sh` runs Launch, Doctor, Drive, Evidence, and Cleanup in order. The feature map is the list of what that script drives.
 
 ## Maintenance
 
-Update this guide in the same change that does any of the following:
+Update this skill in the same change that does any of the following:
 
 - change root `package.json` scripts, `engines`, or `workspaces`
 - change a workspace package name, bin, or entrypoint (`packages/*/package.json`, `packages/server-php/composer.json`)
