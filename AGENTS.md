@@ -1,7 +1,7 @@
 # Agent instructions
 
 - Run `npm test` before finishing a change. It builds, typechecks, runs the copy lint, and runs the Node and PHP tests.
-- Verify a checkout with `.cursor/skills/verify/SKILL.md`. pstack skills are vendored under `.cursor/skills/` (MIT, Lauren Tan). The reasoning budget is small (medium). Skip `/swarm` and `/arena` unless a design is contested.
+- Verify a checkout with `.cursor/skills/verify/SKILL.md`. pstack skills are vendored under `.cursor/skills/` (MIT, Lauren Tan). The reasoning budget is low. Skip `/swarm` and `/arena` unless a design is contested.
 - The copy lint keeps vendor names off public surfaces. Public strings come from `docs/copy.md`. Vendor names may appear only in `docs/adapters.md`, in package pins, and in the bundled licence notices.
 - Phase 4 stays locked. Settlement is test-only: the stub backend, no real money, and no live payouts.
 - Never deploy, publish, change DNS, or change repository visibility.
@@ -22,4 +22,4 @@
 | Settlement stays on the stub. Live mode throws. | `tests/settlement-stub.test.ts` |
 | `X-Forwarded-For` is not taken from the leftmost hop. | `tests/xff-trust.test.ts` |
 | The site-key field is `type=text` and the admin line height is at least 1.75. | `tests/wp.test.ts` |
-| pstack budget is small. Skip `/swarm` and `/arena` unless a design is contested. | `.cursor/rules/pstack-models.mdc` and this file |
+| pstack budget is low. Skip `/swarm` and `/arena` unless a design is contested. | `.cursor/rules/pstack-models.mdc` and this file |
