@@ -1,0 +1,43 @@
+
+ ⛅️ wrangler 4.145.0 (update available 4.152.0)
+───────────────────────────────────────────────
+Using secrets defined in .dev.vars
+Your Worker has access to the following bindings:
+Binding                                         Resource                  Mode
+env.TOLL_STORE (TollStoreDO)                    Durable Object            local
+env.ASSETS                                      Assets                    local
+env.TOLL_SITE_URL ("https://lessspam.dev")      Environment Variable      local
+env.SITE_ID ("site_demo")                       Environment Variable      local
+env.WRITE_PATHS ("["/demo/contact"]")           Environment Variable      local
+env.SITE_SECRET ("(hidden)")                    Environment Variable      local
+
+⎔ Starting local server...
+[wrangler:info] ✨ Parsed 7 valid header rules.
+[wrangler:info] Ready on http://127.0.0.1:8788
+[wrangler:info] GET / 200 OK (8ms)
+[wrangler:info] GET /docs 200 OK (3ms)
+[wrangler:info] GET /docs/quick-start 200 OK (2ms)
+[wrangler:info] GET /docs/widget 200 OK (2ms)
+[wrangler:info] GET /docs/server 200 OK (2ms)
+[wrangler:info] GET /docs/agent 200 OK (3ms)
+[wrangler:info] GET /docs/mcp 200 OK (2ms)
+[wrangler:info] GET /docs/wordpress 200 OK (2ms)
+[wrangler:info] GET /docs/self-hosting 200 OK (3ms)
+[wrangler:info] GET /download 200 OK (2ms)
+[wrangler:info] GET /privacy 200 OK (2ms)
+[wrangler:info] GET /terms 200 OK (2ms)
+[wrangler:info] GET /support 200 OK (2ms)
+[wrangler:info] GET /mission 200 OK (2ms)
+[wrangler:info] GET /download 200 OK (2ms)
+[wrangler:info] GET /download/toll-gate-0.1.0.zip 200 OK (3ms)
+[wrangler:info] GET /download/toll-gate-0.1.0.zip.sha256 200 OK (2ms)
+{"ts":"2026-10-26T04:54:46.989Z","event":"pass_absent","action":"write","status":403}
+{"ts":"2026-10-26T04:54:47.018Z","event":"challenge_minted","cls":"write","client":"widget","ua_class":"desktop","mode":"standard","alg":"pbkdf2-sha256","counter_max":512,"expected_tries":256.5,"velocity_mult":1,"escalated":false,"source":"middleware"}
+[wrangler:info] POST /demo/contact 403 Forbidden (35ms)
+{"ts":"2026-10-26T04:54:47.106Z","event":"pass_absent","action":"write","status":403}
+{"ts":"2026-10-26T04:54:47.116Z","event":"challenge_minted","cls":"write","client":"widget","ua_class":"desktop","mode":"standard","alg":"pbkdf2-sha256","counter_max":512,"expected_tries":256.5,"velocity_mult":1,"escalated":false,"source":"middleware"}
+[wrangler:info] POST /demo/contact 403 Forbidden (13ms)
+{"ts":"2026-10-26T04:54:47.146Z","event":"redeem_ok","rail":"work","cls":"write","took_ms":1,"ua_class":null,"client":"widget","verify_ms":1}
+[wrangler:info] POST /v1/redeem 200 OK (9ms)
+{"ts":"2026-10-26T04:54:47.152Z","event":"pass_accept","rail":"work","cls":"write","action":"write","remaining":19}
+[wrangler:info] POST /demo/contact 200 OK (8ms)
