@@ -20,6 +20,7 @@ import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statS
 import { dirname, join, relative } from "node:path";
 import { crc32, deflateRawSync } from "node:zlib";
 import { ROOT, readCopy, section, lintText, lintVendor } from "./copy-lib.mjs";
+import { pluginNameProblems } from "./plugin-name.mjs";
 
 const ALLOW_DIRTY = process.argv.includes("--allow-dirty");
 const fail = (msg) => { console.error("build-wp-zip: " + msg); process.exit(1); };
@@ -55,6 +56,7 @@ if (marker) fail(`docs/copy.md is not final: it contains "${marker[1]}"`);
 const naming = /display name "([^"]+)"/.exec(copy);
 if (!naming) fail('docs/copy.md: no WordPress plugin display name ("display name "...") found');
 if (naming[1] !== name) fail(`Plugin Name header "${name}" is not the copy.md display name "${naming[1]}"`);
+for (const problem of pluginNameProblems(mainPhp, copy)) fail(problem);
 const oneLinerBlock = /Plugin one-liner \(readme\.txt\)[^\n]*\n((?:- [^\n]*\n)+)/.exec(copy);
 if (!oneLinerBlock) fail("docs/copy.md: plugin one-liner block not found");
 const oneLiners = [...oneLinerBlock[1].matchAll(/"([^"]+)"/g)].map((m) => m[1]);
