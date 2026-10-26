@@ -1,6 +1,6 @@
 // Phone width: a 390px layout of /demo was 423px wide because the curl line set the grid's
-// minimum, and the form fields ran past the right edge. Every public page must stay within
-// the viewport at 360 and 390. npm test runs this in CI.
+// minimum, and the form fields ran past the right edge. Every public page the build emits
+// must stay within the viewport at 360 and 390. npm test runs this in CI.
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { existsSync, mkdtempSync, readFileSync } from "node:fs";
@@ -9,10 +9,16 @@ import { tmpdir } from "node:os";
 import { join, extname } from "node:path";
 import { chromium } from "playwright";
 // @ts-ignore plain JS build script
-import { build, DOC_PAGES, pagePath } from "../website/build.mjs";
+import { build, PAGES, DOC_PAGES, LEGAL_PAGES, pagePath } from "../website/build.mjs";
 
 const OUT = build(mkdtempSync(join(tmpdir(), "toll-viewport-")) + "/", "");
-const PATHS = ["/", "/demo", ...DOC_PAGES.map((p: { file: string }) => pagePath(p.file))];
+const PATHS = [
+  "/",
+  "/demo",
+  ...PAGES.map((p: { file: string }) => pagePath(p.file)),
+  ...DOC_PAGES.map((p: { file: string }) => pagePath(p.file)),
+  ...LEGAL_PAGES.map((p: { file: string }) => pagePath(p.file)),
+];
 const WIDTHS = [360, 390];
 
 let server: Server;
@@ -34,8 +40,8 @@ before(async () => {
 });
 after(() => server?.close());
 
-test("phone width: scrollWidth <= innerWidth at 360 and 390 for /, /demo, the docs pages and /download", async () => {
-  for (const p of ["/", "/demo", "/docs", "/docs/quick-start", "/docs/widget", "/docs/server", "/docs/agent", "/docs/mcp", "/docs/wordpress", "/docs/self-hosting", "/download"]) {
+test("phone width: scrollWidth <= innerWidth at 360 and 390 for every built public page", async () => {
+  for (const p of ["/", "/demo", "/mission", "/vision", "/values", "/ecosystem", "/docs", "/docs/quick-start", "/docs/widget", "/docs/server", "/docs/agent", "/docs/mcp", "/docs/wordpress", "/docs/self-hosting", "/download", "/privacy", "/terms", "/support"]) {
     assert.ok(PATHS.includes(p), p + " is covered");
   }
   assert.ok(PATHS.filter((p) => p.startsWith("/docs")).length >= 8, "every docs page");
