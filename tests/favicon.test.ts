@@ -12,6 +12,7 @@ import { createHash } from "node:crypto";
 import { createServer, type Server } from "node:http";
 import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
+import { drain } from "./helpers.ts";
 // @ts-ignore plain JS build script
 import { build, PAGES, ICON_FILES, ICON_TAGS } from "../website/build.mjs";
 
@@ -102,7 +103,7 @@ test("icons: each file returns 200 from a static server on website/dist with its
     const html = await r.text();
     const hrefs = [...html.matchAll(/<link\b[^>]*rel="(?:icon|apple-touch-icon)"[^>]*href="([^"]+)"/g)].map((m) => m[1]);
     assert.deepEqual(hrefs, ["/favicon.ico", "/favicon.svg", "/apple-touch-icon.png"], p);
-    for (const h of hrefs) assert.equal((await fetch(base + h)).status, 200, `${p}: ${h}`);
+    for (const h of hrefs) assert.equal((await drain(await fetch(base + h))).status, 200, `${p}: ${h}`);
   }
-  for (const missing of ["/icon-192.png", "/icon-512.png", "/manifest.webmanifest", "/site.webmanifest", "/manifest.json"]) assert.equal((await fetch(base + missing)).status, 404, missing + " is not shipped");
+  for (const missing of ["/icon-192.png", "/icon-512.png", "/manifest.webmanifest", "/site.webmanifest", "/manifest.json"]) assert.equal((await drain(await fetch(base + missing))).status, 404, missing + " is not shipped");
 });

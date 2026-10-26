@@ -2,7 +2,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { solveWork } from "../packages/work-adapter/src/index.ts";
-import { startDemo } from "./helpers.ts";
+import { startDemo, drain } from "./helpers.ts";
 
 test("19.6 adaptive work cost is non-decreasing under a burst of redeems from one client", async () => {
   const S = await startDemo({ adaptive: { velocity: true }, work: { standard: { cost: 100, unit_tries: 2 } } });
@@ -11,6 +11,7 @@ test("19.6 adaptive work cost is non-decreasing under a burst of redeems from on
       const { challenge } = await (await fetch(`${S.url}/v1/challenge?action=write`)).json();
       const sol = (await solveWork(challenge.work))!;
       const r = await fetch(`${S.url}/v1/redeem`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ challenge_id: challenge.id, challenge, solution: { work: { counter: sol.counter, derivedKey: sol.derivedKey } } }) });
+      await drain(r);
       assert.equal(r.status, 200);
     }
     // The work size is issuer-side only (the counter range is never sent), so read it from the mint log.

@@ -5,6 +5,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
+import { drain } from "./helpers.ts";
 
 const DEMO = process.env.TOLL_DEMO ?? "http://127.0.0.1:8787";
 const WP = process.env.TOLL_WP ?? "http://127.0.0.1:8888";
@@ -15,7 +16,7 @@ const WPPATH = process.env.WP_PATH ?? "/workspace/wp-local/site";
 const ROUNDS = 20;
 
 async function up(url: string) {
-  try { return (await fetch(url, { signal: AbortSignal.timeout(2000) })).ok; } catch { return false; }
+  try { return (await drain(await fetch(url, { signal: AbortSignal.timeout(2000) }))).ok; } catch { return false; }
 }
 const demoUp = await up(DEMO + "/v1/health");
 const wpUp = (await up(WP + "/wp-json/toll/v1/health")) && existsSync(WPCLI);
@@ -73,7 +74,7 @@ test("M10 edge: GETs are proxied before any Toll code, even under write and acco
   const r = await hammer(EDGE, [...paths, ...own]);
   for (const p of own) assert.deepEqual(r[p], { 200: ROUNDS * 2 }, p + " (served by the edge itself)");
   for (const p of paths) {
-    const direct = (await fetch(DEMO + p, { redirect: "manual" })).status;
+    const direct = (await drain(await fetch(DEMO + p, { redirect: "manual" }))).status;
     assert.deepEqual(r[p], { [direct]: ROUNDS * 2 }, `${p}: the origin's own answer (${direct})`);
   }
   assert.equal(await demoMinted(), before, "origin minted nothing");

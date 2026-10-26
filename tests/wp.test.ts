@@ -9,6 +9,7 @@ import assert from "node:assert/strict";
 import { existsSync, readFileSync, mkdirSync } from "node:fs";
 import { chromium, type Browser, type BrowserContext, type Page } from "playwright";
 import { solveWork } from "../packages/work-adapter/src/index.ts";
+import { drain } from "./helpers.ts";
 
 // @ts-ignore plain JS helper
 const { lintRegexes, vendorRegexes } = await import("../scripts/copy-lib.mjs");
@@ -23,7 +24,7 @@ const TEST_HELP = "In test mode, no real money moves and clients do the backgrou
 const COUNTERS = ["pass_accept", "pass_reject", "pass_absent", "turned_away", "offer_shown", "paid", "work_after_402"];
 
 async function up(url: string) {
-  try { return (await fetch(url, { signal: AbortSignal.timeout(2000) })).ok; } catch { return false; }
+  try { return (await drain(await fetch(url, { signal: AbortSignal.timeout(2000) }))).ok; } catch { return false; }
 }
 const wpUp = (await up(WP + "/wp-json/toll/v1/health")) && existsSync(CREDS);
 const skip = wpUp ? false : `local WordPress not running at ${WP} (run packages/wp-toll-gate/dev/setup-local-wp.sh)`;
@@ -153,7 +154,7 @@ test("WP issuer: health, challenge, redeem -> 900 s / 20-use pass + HttpOnly coo
   assert.deepEqual(ch.offers, [], "WordPress takes no payments: never an offer");
   assert.equal(ch.challenge.alg, "pbkdf2-sha256");
   assert.equal(ch.challenge.bound.action, "write");
-  assert.equal((await fetch(WP + "/wp-json/toll/v1/challenge?action=read")).status, 400);
+  assert.equal((await drain(await fetch(WP + "/wp-json/toll/v1/challenge?action=read"))).status, 400);
   const { c, s, r, j } = await getPass();
   assert.equal(r.status, 200);
   assert.equal(j.cls, "write");
@@ -168,6 +169,7 @@ test("WP issuer: health, challenge, redeem -> 900 s / 20-use pass + HttpOnly coo
   const again = await fetch(WP + "/wp-json/toll/v1/redeem", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ challenge_id: c.id, challenge: c, solution: { work: { counter: s!.counter, derivedKey: s!.derivedKey } } }) });
   assert.deepEqual([again.status, await again.json()], [401, { error: "replay" }]);
   const paid = await fetch(WP + "/wp-json/toll/v1/redeem", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ offer_id: "x", kind: "ln402", preimage: "00", macaroon: "x" }) });
+  await drain(paid);
   assert.equal(paid.status, 400);
 });
 
@@ -184,7 +186,7 @@ test("comments fail closed: accepted with a pass (one use spent), 403 with none 
   assert.match(await none.text(), /This form needs JavaScript\./);
   assert.equal((await postComment({ "toll-pass": "not-a-pass" })).status, 403);
   // The pass cookie works as well as the hidden field.
-  assert.equal((await fetch(WP + "/wp-comments-post.php", { method: "POST", redirect: "manual", headers: { cookie: "toll_pass=" + j.pass }, body: new URLSearchParams({ comment: "cookie " + Math.random(), author: "Ann", email: "ann@example.test", comment_post_ID: postId }) })).status, 302);
+  assert.equal((await drain(await fetch(WP + "/wp-comments-post.php", { method: "POST", redirect: "manual", headers: { cookie: "toll_pass=" + j.pass }, body: new URLSearchParams({ comment: "cookie " + Math.random(), author: "Ann", email: "ann@example.test", comment_post_ID: postId }) }))).status, 302);
   const after = await exportCsv();
   const d = Object.fromEntries(COUNTERS.map((k) => [k, after[k] - before[k]]));
   assert.deepEqual(d, { pass_accept: 2, pass_reject: 1, pass_absent: 1, turned_away: 2, offer_shown: 0, paid: 0, work_after_402: 0 });

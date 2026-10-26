@@ -3,7 +3,7 @@
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { FixedTestRate, StubSettler } from "../packages/settlement-ln/src/index.ts";
-import { startDemo, PAID_ON, type Running } from "./helpers.ts";
+import { startDemo, PAID_ON, drain, type Running } from "./helpers.ts";
 
 const KEY = "owner-test-key-0123456789abcdef";
 let S: Running;
@@ -23,12 +23,13 @@ async function payOne() {
   const offer = (await (await fetch(`${S.url}/v1/challenge?action=write&client=agent`)).json() as any).offers[0];
   const { preimage } = await (await fetch(`${S.url}/demo/stub-pay`, { method: "POST", headers: json, body: JSON.stringify({ invoice: offer.invoice }) })).json() as any;
   const r = await fetch(`${S.url}/v1/redeem`, { method: "POST", headers: json, body: JSON.stringify({ offer_id: offer.id, kind: "ln402", preimage, macaroon: offer.macaroon }) });
+  await drain(r);
   assert.equal(r.status, 200);
 }
 
 test("owner API is off without settlement.owner_key, and needs the key", async () => {
-  assert.equal((await fetch(`${OFF.url}/v1/owner/balance`, { headers: { authorization: `Bearer ${KEY}` } })).status, 404);
-  assert.equal((await fetch(`${S.url}/v1/owner/balance`)).status, 401);
+  assert.equal((await drain(await fetch(`${OFF.url}/v1/owner/balance`, { headers: { authorization: `Bearer ${KEY}` } }))).status, 404);
+  assert.equal((await drain(await fetch(`${S.url}/v1/owner/balance`))).status, 401);
   assert.equal((await owner("balance", {}, KEY + "x")).status, 401);
 });
 

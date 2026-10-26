@@ -6,7 +6,7 @@ import { readFileSync } from "node:fs";
 import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
 import { createToll, loadConfig, normalizeConfig, classifyPath, protect, Metrics, MemoryStore, PAGE_VIEW_WARNING, PAGE_VIEW_CONFIRM } from "../packages/server-node/src/index.ts";
-import { TEST_SECRET } from "./helpers.ts";
+import { TEST_SECRET, drain } from "./helpers.ts";
 
 const COPY = readFileSync(new URL("../docs/copy.md", import.meta.url), "utf8");
 const INSTALL = "Toll checks writes, not page views. Leave public pages open so people and answer engines can read you. Turn Toll on for comments, forms, logins, and APIs.";
@@ -83,6 +83,7 @@ test("protect() mounted on the whole site: page loads pass through untouched (no
     assert.equal(toll.metrics.c.challenges_minted, 0);
     assert.equal(toll.metrics.c.pass_absent, 0);
     const w = await fetch(u + "/contact", { method: "POST", headers: { accept: "application/json", "content-type": "application/json" }, body: "{}" });
+    await drain(w);
     assert.equal(w.status, 403);
     assert.equal(toll.metrics.c.challenges_minted, 1);
   } finally {

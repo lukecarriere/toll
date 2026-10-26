@@ -15,6 +15,7 @@ import { execFileSync } from "node:child_process";
 import { createServer, type Server } from "node:http";
 import { chromium, type Browser, type Page } from "playwright";
 import { agentPay } from "../packages/agent/src/agent-pay.ts";
+import { drain } from "./helpers.ts";
 
 const WP = (process.env.WP_URL ?? "http://127.0.0.1:8888").replace(/\/$/, "");
 const CREDS = process.env.WP_ADMIN_CREDENTIALS ?? "/workspace/wp-local/ADMIN_CREDENTIALS.txt";
@@ -29,7 +30,7 @@ const COUNTERS = ["pass_accept", "pass_reject", "pass_absent", "turned_away", "o
 type Counts = Record<(typeof COUNTERS)[number], number>;
 
 async function up(url: string) {
-  try { return (await fetch(url, { signal: AbortSignal.timeout(2000) })).ok; } catch { return false; }
+  try { return (await drain(await fetch(url, { signal: AbortSignal.timeout(2000) }))).ok; } catch { return false; }
 }
 const wpUp = (await up(WP + "/wp-json/toll/v1/health")) && existsSync(CREDS) && existsSync(WPCLI);
 const skip = wpUp ? false : `local WordPress not running at ${WP} (run packages/wp-toll-gate/dev/setup-local-wp.sh)`;
@@ -186,6 +187,7 @@ test("(d) Payment server: an agent gets the Node 402 (WWW-Authenticate relayed, 
   assert.equal(oj.offers.length, 1);
   assert.equal(counts().offer_shown, c2.offer_shown);
   const b = await fetch(WP + "/wp-comments-post.php", { method: "POST", redirect: "manual", body: new URLSearchParams({ ...FORM(), comment: "b " + Math.random() }) });
+  await drain(b);
   assert.equal(b.status, 403, "no agent flag: the usual no-JavaScript 403");
   // Login form for an agent: the same 402 for the account class.
   const l = await fetch(WP + "/wp-login.php", { method: "POST", redirect: "manual", headers: { "toll-client": "agent", cookie: "wordpress_test_cookie=WP%20Cookie%20check" }, body: new URLSearchParams({ log: "admin", pwd: "wrong" }) });
@@ -376,5 +378,5 @@ test("(c) Payment server slow or broken: agents wait at most ~1.5 s, then work; 
     assert.equal(x.headers.get("set-cookie"), null);
   }
   fakeRedeem = () => ({ status: 500, body: { error: "boom" } });
-  assert.equal((await fetch(ISSUER + "/v1/redeem", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ offer_id: "o", kind: "ln402", preimage: "00".repeat(32), macaroon: "m" }) })).status, 503);
+  assert.equal((await drain(await fetch(ISSUER + "/v1/redeem", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ offer_id: "o", kind: "ln402", preimage: "00".repeat(32), macaroon: "m" }) }))).status, 503);
 });
