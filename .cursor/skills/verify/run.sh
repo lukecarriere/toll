@@ -72,11 +72,11 @@ EOF
 php -r 'require "packages/server-php/vendor/autoload.php"; $ok = class_exists("Toll\\Protocol") && class_exists("Toll\\Settlement"); echo $ok ? "php ok\n" : "php missing\n"; exit($ok ? 0 : 1);' | tee -a "$TRANSCRIPT"
 
 log "demo"
-env -u TOLL_SECRET -u TOLL_OWNER_KEY node demo/server.ts > "$EVID/demo.log" 2>&1 &
+env -u TOLL_SECRET -u TOLL_OWNER_KEY node demo/server.ts > "$EVID/demo.txt" 2>&1 &
 echo $! >> "$PIDFILE"
 wait_http http://127.0.0.1:8787/v1/health 60
-grep -F "Toll demo on http://localhost:8787" "$EVID/demo.log" | tee -a "$TRANSCRIPT"
-grep -F "TOLL_SECRET not set" "$EVID/demo.log" | tee -a "$TRANSCRIPT"
+grep -F "Toll demo on http://localhost:8787" "$EVID/demo.txt" | tee -a "$TRANSCRIPT"
+grep -F "TOLL_SECRET not set" "$EVID/demo.txt" | tee -a "$TRANSCRIPT"
 base=http://127.0.0.1:8787
 {
   curl -fsS "$base/" | grep -o "Every form on this page is protected"
@@ -111,7 +111,7 @@ console.log("human path ok", denied.status, deniedBody.error, redeem.status, ok.
 EOF
 
 log "static site"
-php -S 127.0.0.1:8791 -t website/dist > "$EVID/site.log" 2>&1 &
+php -S 127.0.0.1:8791 -t website/dist > "$EVID/site.txt" 2>&1 &
 echo $! >> "$PIDFILE"
 wait_http http://127.0.0.1:8791/ 30
 site=http://127.0.0.1:8791
@@ -146,15 +146,15 @@ import { writeFileSync } from "node:fs";
 writeFileSync(".dev.vars", `SITE_SECRET="${randomBytes(24).toString("hex")}"\n`, { mode: 0o600 });
 console.log("wrote .dev.vars");
 EOF
-node_modules/.bin/wrangler dev --local --ip 127.0.0.1 --port 8788 --show-interactive-dev-session=false > "$EVID/worker.log" 2>&1 &
+node_modules/.bin/wrangler dev --local --ip 127.0.0.1 --port 8788 --show-interactive-dev-session=false > "$EVID/worker.txt" 2>&1 &
 echo $! >> "$PIDFILE"
 ready=0
 for ((i = 1; i <= 90; i++)); do
-  if grep -q "Ready on http://127.0.0.1:8788" "$EVID/worker.log"; then ready=1; break; fi
+  if grep -q "Ready on http://127.0.0.1:8788" "$EVID/worker.txt"; then ready=1; break; fi
   sleep 1
 done
 [[ "$ready" -eq 1 ]]
-grep -F "Ready on http://127.0.0.1:8788" "$EVID/worker.log" | tee -a "$TRANSCRIPT"
+grep -F "Ready on http://127.0.0.1:8788" "$EVID/worker.txt" | tee -a "$TRANSCRIPT"
 worker=http://127.0.0.1:8788
 {
   curl -fsS "$worker/" | grep -o 'href="/docs"'
