@@ -4,6 +4,7 @@
 // its "Homepage head tags" description (tests/homepage.test.ts).
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
 import { readFileSync, existsSync, mkdtempSync, readdirSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
@@ -63,6 +64,11 @@ function check(dir: string, label: string) {
     assert.equal(metas(h).content[0], p.description, `${label} ${p.file}: docs/copy.md description`);
     assert.ok(h.includes(`<meta name="description" content="${p.description}">`), `${label} ${p.file}: verbatim in the attribute`);
   }
+  for (const p of LEGAL_PAGES) {
+    const h = readFileSync(dir + p.file + ".html", "utf8");
+    assert.equal(metas(h).content[0], p.description, `${label} ${p.file}: docs/copy.md legal description`);
+    assert.ok(h.includes(`<meta name="description" content="${p.description}">`), `${label} ${p.file}: verbatim in the attribute`);
+  }
 }
 
 test("docs/copy.md: four inner page descriptions, one per page, each the length the PM states", () => {
@@ -81,6 +87,18 @@ test("meta description: every built page has exactly one, none empty, the inner 
   check(SET, "fresh build with a site root");
   assert.ok(existsSync(DIST), "website/dist/ is missing: run `npm run build` (or `npm run build:website`) first");
   check(DIST, "website/dist");
+});
+
+test("5cd9c85: legal descriptions were inlined in the build, not in docs/copy.md", () => {
+  const copy = execFileSync("git", ["show", "5cd9c85:docs/copy.md"], { encoding: "utf8" });
+  const build = execFileSync("git", ["show", "5cd9c85:website/build.mjs"], { encoding: "utf8" });
+  assert.equal(copy.includes("## Legal page descriptions"), false);
+  assert.match(build, /What the Toll MCP server and lessspam\.dev collect/);
+  const now = readFileSync(ROOT + "docs/copy.md", "utf8");
+  const src = readFileSync(ROOT + "website/build.mjs", "utf8");
+  assert.ok(now.includes("## Legal page descriptions"));
+  assert.equal(src.includes("What the Toll MCP server and lessspam.dev collect"), false);
+  assert.equal(LEGAL_PAGES.find((p: { file: string }) => p.file === "privacy").description, "What the Toll MCP server and lessspam.dev collect: very little, and nothing from the demo form.");
 });
 
 test("meta description: the parser catches a missing, doubled or empty tag", () => {

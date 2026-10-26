@@ -19,6 +19,9 @@ packages/server-php/vendor/
 .wrangler/
 demo/.owner-key
 
+# Live output from .cursor/skills/verify/run.sh. The saved run in docs/runs/verify-e2e/ stays tracked.
+/.verify-e2e/
+
 # Plugin zip builds (scripts/build-wp-zip.mjs)
 dist-release/
 

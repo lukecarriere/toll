@@ -213,5 +213,12 @@ Homepage nav label: Docs
 - Values (`website/values`), 151 characters: Mind the traffic, not the driver. Nothing to solve, no tracking pixels, no selling visitor data, and page views stay free. Toll doesn't block crawlers.
 - Where Toll fits (`website/ecosystem`), 138 characters: Toll looks after writes like comments and forms. It doesn't block crawlers, charge for public articles or ask the caller to say who it is.
 
+## Legal page descriptions
+`<meta name="description">` for the legal and support pages. Nav labels are Privacy, Terms, Support.
+
+- `website/privacy` (Privacy): What the Toll MCP server and lessspam.dev collect: very little, and nothing from the demo form.
+- `website/terms` (Terms): Toll is MIT software, provided as is. Fair use rules for the demo.
+- `website/support` (Support): Where to ask questions, report bugs and report security problems.
+
 ## Footer
 Links on every page except the four pinned mission pages: Privacy, Terms, Support.

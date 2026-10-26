@@ -1,0 +1,67 @@
+[Mon Oct 26 04:54:43 2026] PHP 8.3.6 Development Server (http://127.0.0.1:8791) started
+[Mon Oct 26 04:54:44 2026] 127.0.0.1:58972 Accepted
+[Mon Oct 26 04:54:44 2026] 127.0.0.1:58972 [200]: GET /
+[Mon Oct 26 04:54:44 2026] 127.0.0.1:58972 Closing
+[Mon Oct 26 04:54:44 2026] 127.0.0.1:58978 Accepted
+[Mon Oct 26 04:54:44 2026] 127.0.0.1:58978 [200]: GET /
+[Mon Oct 26 04:54:44 2026] 127.0.0.1:58978 Closing
+[Mon Oct 26 04:54:44 2026] 127.0.0.1:58988 Accepted
+[Mon Oct 26 04:54:44 2026] 127.0.0.1:58988 [200]: GET /mission.html
+[Mon Oct 26 04:54:44 2026] 127.0.0.1:58988 Closing
+[Mon Oct 26 04:54:44 2026] 127.0.0.1:58996 Accepted
+[Mon Oct 26 04:54:44 2026] 127.0.0.1:58996 [200]: GET /vision.html
+[Mon Oct 26 04:54:44 2026] 127.0.0.1:58996 Closing
+[Mon Oct 26 04:54:44 2026] 127.0.0.1:59000 Accepted
+[Mon Oct 26 04:54:44 2026] 127.0.0.1:59000 [200]: GET /values.html
+[Mon Oct 26 04:54:44 2026] 127.0.0.1:59000 Closing
+[Mon Oct 26 04:54:44 2026] 127.0.0.1:59012 Accepted
+[Mon Oct 26 04:54:44 2026] 127.0.0.1:59012 [200]: GET /ecosystem.html
+[Mon Oct 26 04:54:44 2026] 127.0.0.1:59012 Closing
+[Mon Oct 26 04:54:44 2026] 127.0.0.1:59024 Accepted
+[Mon Oct 26 04:54:44 2026] 127.0.0.1:59024 [200]: GET /privacy.html
+[Mon Oct 26 04:54:44 2026] 127.0.0.1:59024 Closing
+[Mon Oct 26 04:54:44 2026] 127.0.0.1:59040 Accepted
+[Mon Oct 26 04:54:44 2026] 127.0.0.1:59040 [200]: GET /terms.html
+[Mon Oct 26 04:54:44 2026] 127.0.0.1:59040 Closing
+[Mon Oct 26 04:54:44 2026] 127.0.0.1:59054 Accepted
+[Mon Oct 26 04:54:44 2026] 127.0.0.1:59054 [200]: GET /support.html
+[Mon Oct 26 04:54:44 2026] 127.0.0.1:59054 Closing
+[Mon Oct 26 04:54:44 2026] 127.0.0.1:59062 Accepted
+[Mon Oct 26 04:54:44 2026] 127.0.0.1:59062 [200]: GET /robots.txt
+[Mon Oct 26 04:54:44 2026] 127.0.0.1:59062 Closing
+[Mon Oct 26 04:54:44 2026] 127.0.0.1:59066 Accepted
+[Mon Oct 26 04:54:44 2026] 127.0.0.1:59066 [200]: GET /
+[Mon Oct 26 04:54:44 2026] 127.0.0.1:59066 Closing
+[Mon Oct 26 04:54:44 2026] 127.0.0.1:59078 Accepted
+[Mon Oct 26 04:54:44 2026] 127.0.0.1:59078 [200]: GET /docs/index.html
+[Mon Oct 26 04:54:44 2026] 127.0.0.1:59078 Closing
+[Mon Oct 26 04:54:44 2026] 127.0.0.1:59080 Accepted
+[Mon Oct 26 04:54:44 2026] 127.0.0.1:59080 [200]: GET /docs/quick-start.html
+[Mon Oct 26 04:54:44 2026] 127.0.0.1:59080 Closing
+[Mon Oct 26 04:54:44 2026] 127.0.0.1:59082 Accepted
+[Mon Oct 26 04:54:44 2026] 127.0.0.1:59082 [200]: GET /docs/widget.html
+[Mon Oct 26 04:54:44 2026] 127.0.0.1:59082 Closing
+[Mon Oct 26 04:54:44 2026] 127.0.0.1:59092 Accepted
+[Mon Oct 26 04:54:44 2026] 127.0.0.1:59092 [200]: GET /docs/server.html
+[Mon Oct 26 04:54:44 2026] 127.0.0.1:59092 Closing
+[Mon Oct 26 04:54:44 2026] 127.0.0.1:59098 Accepted
+[Mon Oct 26 04:54:44 2026] 127.0.0.1:59098 [200]: GET /docs/agent.html
+[Mon Oct 26 04:54:44 2026] 127.0.0.1:59098 Closing
+[Mon Oct 26 04:54:44 2026] 127.0.0.1:59114 Accepted
+[Mon Oct 26 04:54:44 2026] 127.0.0.1:59114 [200]: GET /docs/mcp.html
+[Mon Oct 26 04:54:44 2026] 127.0.0.1:59114 Closing
+[Mon Oct 26 04:54:44 2026] 127.0.0.1:59120 Accepted
+[Mon Oct 26 04:54:44 2026] 127.0.0.1:59120 [200]: GET /docs/wordpress.html
+[Mon Oct 26 04:54:44 2026] 127.0.0.1:59120 Closing
+[Mon Oct 26 04:54:44 2026] 127.0.0.1:59128 Accepted
+[Mon Oct 26 04:54:44 2026] 127.0.0.1:59128 [200]: GET /docs/self-hosting.html
+[Mon Oct 26 04:54:44 2026] 127.0.0.1:59128 Closing
+[Mon Oct 26 04:54:44 2026] 127.0.0.1:59132 Accepted
+[Mon Oct 26 04:54:44 2026] 127.0.0.1:59132 [200]: GET /download/index.html
+[Mon Oct 26 04:54:44 2026] 127.0.0.1:59132 Closing
+[Mon Oct 26 04:54:44 2026] 127.0.0.1:59136 Accepted
+[Mon Oct 26 04:54:44 2026] 127.0.0.1:59136 [200]: GET /download/toll-gate-0.1.0.zip
+[Mon Oct 26 04:54:44 2026] 127.0.0.1:59136 Closing
+[Mon Oct 26 04:54:44 2026] 127.0.0.1:59150 Accepted
+[Mon Oct 26 04:54:44 2026] 127.0.0.1:59150 [200]: GET /download/toll-gate-0.1.0.zip.sha256
+[Mon Oct 26 04:54:44 2026] 127.0.0.1:59150 Closing

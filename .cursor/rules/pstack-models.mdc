@@ -1,0 +1,26 @@
+---
+description: pstack per-role model choices (overrides skill defaults)
+alwaysApply: true
+---
+# pstack model configuration. One line per role. Delete a line to fall back to the skill default.
+# `inherit-parent` or `auto` as a value: the role runs on the parent chat model (omit Task `model`). Alias entries in a panel list still count toward its fan-out.
+# Repo copy of the rule /setup-pstack writes to ~/.cursor/rules/pstack-models.mdc, so agents in this checkout see it.
+# budget: low (low)
+# Skip /swarm and /arena unless a design is contested. See AGENTS.md.
+feature, refactoring: grok-4.7-low-fast
+bug-fix: grok-4.7-low-fast
+perf-issue: grok-4.7-low-fast
+hillclimb: grok-4.7-low-fast
+judgment and prose: claude-opus-5-5-low
+hardest tasks: claude-opus-5-5-low
+how explorer: grok-4.7-low-fast
+how explainer: claude-opus-5-5-low
+why investigators: grok-4.7-low-fast
+why synthesizer: claude-opus-5-5-low
+reflect tooling: grok-4.7-low-fast
+reflect judgment, divergent, synthesizer: claude-opus-5-5-low
+arena runners: claude-opus-5-5-low, grok-4.7-low-fast
+arena cross-judge pool: claude-opus-5-5-low, grok-4.7-low-fast
+swarm workers: grok-4.7-low-fast
+architect runners: claude-opus-5-5-low, grok-4.7-low-fast
+interrogate reviewers: claude-opus-5-5-low, grok-4.7-low-fast

@@ -1,0 +1,109 @@
+verify e2e 2026-10-26T04:52:13Z
+node v22.23.4 php PHP 8.3.6 (cli) (built: Oct 19 2026 15:16:58) (NTS)
+install
+npm test
+ok   classic: no pass (402), then resubmit with a paid pass: one 402, one offer_shown, one pass_accept
+ok   classic: the same one-use pass submitted twice: one goes through, the second gets one 402; one pass_accept, one pass_reject
+ok   classic: validation fails, then resubmit with the same pass: it works; no 402, exactly one pass_accept
+ok   cf7_rest: no pass (402), then resubmit with a paid pass: one 402, one offer_shown, one pass_accept
+ok   cf7_rest: the same one-use pass submitted twice: one goes through, the second gets one 402; one pass_accept, one pass_reject
+ok   cf7_rest: validation fails, then resubmit with the same pass: it works; no 402, exactly one pass_accept
+ok   cf7_post: no pass (402), then resubmit with a paid pass: one 402, one offer_shown, one pass_accept
+ok   cf7_post: the same one-use pass submitted twice: one goes through, the second gets one 402; one pass_accept, one pass_reject
+ok   cf7_post: validation fails, then resubmit with the same pass: it works; no 402, exactly one pass_accept
+ok   block checkout, declared agent, CF7 on too: order placed as stock; no 402/403, no counter, no server call, nothing spent, no Toll callback acts
+ok   block checkout, declared agent, WooCommerce only: order placed as stock; no 402/403, no counter, no server call, nothing spent, no Toll callback acts
+ok   block checkout, declared agent, WooCommerce only: no Toll callback runs at all
+ok   block checkout, browser buyer, CF7 on too: order placed as stock; no 402/403, no counter, no server call, nothing spent, no Toll callback acts
+ok   block checkout, browser buyer, WooCommerce only: order placed as stock; no 402/403, no counter, no server call, nothing spent, no Toll callback acts
+ok   block checkout, browser buyer, WooCommerce only: no Toll callback runs at all
+ok   block checkout, declared agent with a pass, CF7 on too: order placed as stock; no 402/403, no counter, no server call, nothing spent, no Toll callback acts
+ok   block checkout, declared agent with a pass, WooCommerce only: order placed as stock; no 402/403, no counter, no server call, nothing spent, no Toll callback acts
+ok   block checkout, declared agent with a pass, WooCommerce only: no Toll callback runs at all
+ok   no woocommerce_store_api_* hook is registered
+ok   admin: the WooCommerce help line is the PM's exact words and is shown under the option
+ok   docs: every sentence that names the block checkout says it isn't covered
+ok   classic: two requests race for one pass's last use: exactly one goes through, the other gets the 402
+ok   cf7_rest: two requests race for one pass's last use: exactly one goes through, the other gets the 402
+
+PHP 8.3.6 gate: 65 passed, 0 failed
+ok   transients with fixed names found in the plugin code
+ok   transients with per-key names found (rate limit per IP and minute, admin notice per user)
+ok   no site transients (nothing network-wide to delete on multisite)
+ok   options deleted as before
+ok   counter, use-count and replay rows deleted as before
+ok   the cleanup event is unscheduled as before
+ok   options table: every toll_gate transient and timeout row is gone, expired ones included
+ok   delete_transient('toll_gate_price_cache') is called
+ok   delete_transient('toll_gate_server_down') is called
+ok   delete_transient('toll_gate_site_url_warned') is called
+ok   nothing else is touched (other plugins, look-alike names, WordPress)
+ok   persistent object cache: the fixed-name transients are gone
+ok   persistent object cache: options deleted, nothing else touched
+
+PHP 8.3.6 uninstall: 13 passed, 0 failed
+npm test exit 0
+packages
+packages ok 1.0.0 price_write_action,gate_form_write,verify_write_pass
+php ok
+demo
+[demo] Toll demo on http://localhost:8787  (issuer + widget, paid requests on the local test backend, fixed test rate 100000, standard mode)
+[demo] TOLL_SECRET not set; using a random secret for this run.
+Every form on this page is protected
+Bot hammer
+{"ok":true,"v":"1.0.0","settlement":"stub","settlement_degraded":false,"usd_rate":"ok"}
+Toll reads_free http://127.0.0.1:8787/v1
+{"manifest":"http://127.0.0.1:8787/.well-known/toll.json"}
+HTTP/1.1 200 OK
+0 0 test payments on
+403
+toll_required
+human path
+human path ok 403 toll_required 200 200
+static site
+Less traffic.
+<h1>Mission</h1>
+<h1>Vision</h1>
+<h1>Values</h1>
+<h1>Where Toll fits</h1>
+<h1>Privacy</h1>
+<h1>Terms</h1>
+<h1>Support</h1>
+User-agent: *
+Allow: /
+href="/docs"
+200 docs/index.html <h1>Docs</h1>
+200 docs/quick-start.html <h1>Quick start</h1>
+200 docs/widget.html <h1>Widget</h1>
+200 docs/server.html <h1>Server</h1>
+200 docs/agent.html <h1>Agent SDK</h1>
+200 docs/mcp.html <h1>MCP server</h1>
+200 docs/wordpress.html <h1>WordPress plugin</h1>
+200 docs/self-hosting.html <h1>Self-hosting</h1>
+200 download/index.html <h1>Download</h1>
+toll-gate-0.1.0.zip: OK
+GPL-2.0-or-later
+Plugin Name: Toll Gate
+worker
+[wrangler:info] Ready on http://127.0.0.1:8788
+href="/docs"
+200 /docs <h1>Docs</h1>
+200 /docs/quick-start <h1>Quick start</h1>
+200 /docs/widget <h1>Widget</h1>
+200 /docs/server <h1>Server</h1>
+200 /docs/agent <h1>Agent SDK</h1>
+200 /docs/mcp <h1>MCP server</h1>
+200 /docs/wordpress <h1>WordPress plugin</h1>
+200 /docs/self-hosting <h1>Self-hosting</h1>
+200 /download <h1>Download</h1>
+200 /privacy <h1>Privacy</h1>
+200 /terms <h1>Terms</h1>
+200 /support <h1>Support</h1>
+200 /mission <h1>Mission</h1>
+toll-gate-0.1.0.zip: OK
+403
+toll_required
+human path ok 403 toll_required 200 200
+wordpress live: not running. The plugin journey is the download zip above.
+evidence
+verify e2e ok

@@ -11,6 +11,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { McpClient } from "./mcp-client.ts";
 import { TOOLS, INPUT_SCHEMAS, BASE_PRICE_NOTE } from "../packages/server-node/src/manifest.ts";
 import { solveWork } from "../packages/work-adapter/src/index.ts";
+import { drain } from "./helpers.ts";
 
 const DEMO = process.env.TOLL_DEMO ?? "http://127.0.0.1:8787";
 const WP = process.env.TOLL_WP ?? "http://127.0.0.1:8888";
@@ -22,7 +23,7 @@ const WPPATH = process.env.WP_PATH ?? "/workspace/wp-local/site";
 const DEMO_KEY_FILE = new URL("../demo/.owner-key", import.meta.url);
 
 async function up(url: string) {
-  try { return (await fetch(url, { signal: AbortSignal.timeout(2000) })).ok; } catch { return false; }
+  try { return (await drain(await fetch(url, { signal: AbortSignal.timeout(2000) }))).ok; } catch { return false; }
 }
 const demoUp = await up(DEMO + "/v1/health");
 const demoKey = existsSync(DEMO_KEY_FILE) ? readFileSync(DEMO_KEY_FILE, "utf8").trim() : "";
@@ -116,6 +117,7 @@ test("A3 Node demo: manifest free, prices equal the live 402, MCP flow with a te
   const p = await mcp.call("gate_form_write", { site: DEMO, action: "write", payment: { offer_id: o.id, kind: o.kind, preimage: await pay(o), macaroon: o.macaroon } });
   assert.equal(p.paid, true);
   const w = await fetch(DEMO + "/comments", { method: "POST", redirect: "manual", headers: { authorization: "Toll " + p.pass, "toll-client": "agent", accept: "application/json", "content-type": "application/x-www-form-urlencoded" }, body: "name=mcp&comment=paid+via+mcp" });
+  await drain(w);
   assert.ok(w.status < 400, "paid write accepted: " + w.status);
   // The live demo's site secret is random per run, so only the refusal path is checkable here (the valid path is in discovery.test.ts).
   assert.equal((await mcp.call("verify_write_pass", { site: DEMO, secret: "not-the-secret", pass: p.pass })).reason, "invalid-input-secret");
@@ -134,7 +136,7 @@ test("A3 WordPress (Payment server = demo, test backend): manifest free, prices 
     assert.equal(doc.api, WP + "/wp-json/toll/v1");
     assert.deepEqual(Object.keys(doc.tools[1].price.by_action), ["write", "account", "admin"], "WordPress lists no search price");
     assert.ok(!/search/i.test(JSON.stringify(doc)), "the WordPress manifest never says search");
-    assert.equal((await fetch(WP + "/wp-json/toll/v1/price?action=search")).status, 400, "search is not a priced action on WordPress");
+    assert.equal((await drain(await fetch(WP + "/wp-json/toll/v1/price?action=search"))).status, 400, "search is not a priced action on WordPress");
     const post = await (await fetch(WP + "/wp-json/wp/v2/posts?per_page=1")).json();
     const shown: Record<string, string> = {};
     const w = await agentPost(WP + "/wp-comments-post.php", { comment_post_ID: String(post[0]?.id ?? 1), author: "Agent", email: "agent@example.test", comment: "price check" });

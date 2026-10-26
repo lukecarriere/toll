@@ -81,7 +81,7 @@ export function assertChallengeShape(c: unknown): asserts c is Challenge {
   if (!c || typeof c !== "object" || Array.isArray(c)) throw new TollError("malformed", "challenge must be an object");
   const o = c as Record<string, unknown>;
   const allowed = new Set(["v", "id", "site", "alg", "work", "bound", "iat", "exp", "sig"]);
-  for (const k of Object.keys(o)) if (!allowed.has(k)) throw new TollError("malformed", "unknown field " + k);
+  for (const k of Object.keys(o)) if (!allowed.has(k)) throw new TollError("malformed", "unknown field");
   if (o.v !== 1) throw new TollError("unsupported", "unsupported version");
   if (!WORK_ALGS.includes(o.alg as WorkAlg)) throw new TollError("unsupported", "unsupported alg");
   if (typeof o.id !== "string" || !/^[0-9a-f]{32}$/.test(o.id)) throw new TollError("malformed", "bad id");

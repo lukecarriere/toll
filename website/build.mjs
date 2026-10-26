@@ -113,12 +113,22 @@ export function canonical(file, base) {
   return base ? `<link rel="canonical" href="${esc(base + pagePath(file))}">` : "";
 }
 
-/** Legal and support pages, rendered like guides but without the guide nav. */
-export const LEGAL_PAGES = [
-  { file: "privacy", nav: "Privacy", description: "What the Toll MCP server and lessspam.dev collect: very little, and nothing from the demo form." },
-  { file: "terms", nav: "Terms", description: "Toll is MIT software, provided as is. Fair use rules for the demo." },
-  { file: "support", nav: "Support", description: "Where to ask questions, report bugs and report security problems." },
-];
+/**
+ * Legal and support pages. Order, nav labels and meta descriptions come from docs/copy.md
+ * "## Legal page descriptions". Rendered like guides but without the guide nav.
+ */
+export function loadLegalMeta(copy = readFileSync(fileURLToPath(new URL("../docs/copy.md", import.meta.url)), "utf8")) {
+  const from = copy.indexOf("\n## Legal page descriptions\n");
+  if (from < 0) throw new Error('website: docs/copy.md has no "## Legal page descriptions" section');
+  const next = copy.indexOf("\n## ", from + 1);
+  const sec = copy.slice(from, next < 0 ? undefined : next);
+  const pages = [];
+  for (const m of sec.matchAll(/^- `website\/([^`]+)` \(([^)]+)\): (.+)$/gm)) pages.push({ file: m[1], nav: m[2], description: m[3] });
+  if (pages.map((p) => p.file).join("\n") !== "privacy\nterms\nsupport") throw new Error("website: legal page list does not match docs/copy.md");
+  return pages;
+}
+
+export const LEGAL_PAGES = loadLegalMeta();
 
 /** Footer on every page: root-relative links to the legal and support pages. */
 export const FOOTER = `<footer class="site-foot"><nav aria-label="Site">${LEGAL_PAGES.map((p) => `<a href="/${p.file}">${p.nav}</a>`).join("")}</nav></footer>`;

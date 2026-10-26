@@ -53,3 +53,9 @@ export async function startDemo(over: Record<string, any> = {}, opts: { pickCoun
     close: () => new Promise((ok) => { server.closeAllConnections?.(); server.close(() => ok()); }),
   };
 }
+
+/** Read a response body to the end. PHP's built-in server closes the socket; an unread body pauses undici. */
+export async function drain(r: Response): Promise<Response> {
+  await r.arrayBuffer();
+  return r;
+}

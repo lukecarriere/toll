@@ -3,7 +3,7 @@ import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { mintChallenge, signChallenge } from "../packages/protocol/src/index.ts";
 import { createWorkAdapter, solveWork } from "../packages/work-adapter/src/index.ts";
-import { startDemo, TEST_SECRET, type Running } from "./helpers.ts";
+import { startDemo, TEST_SECRET, drain, type Running } from "./helpers.ts";
 
 let S: Running;
 // Lighter engine cost so the Node-side solver keeps the suite fast; the shape is the default.
@@ -103,6 +103,7 @@ test("19.11 settlement off: offers is empty, health says off, work flow still wo
   assert.deepEqual(w.offers, []);
   assert.deepEqual(await (await fetch(`${S.url}/v1/health`)).json(), { ok: true, v: "1.0.0", settlement: "off" });
   const paid = await fetch(`${S.url}/v1/redeem`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ offer_id: "off_x", kind: "ln402", preimage: "00", macaroon: "x" }) });
+  await drain(paid);
   assert.equal(paid.status, 400);
   const p = await solvePass();
   assert.equal((await postContact({ authorization: `Toll ${p.pass}`, ...json })).status, 200);
@@ -154,8 +155,8 @@ test("challenge TTL is at most 120s, bound to site/action/path prefix, not IP", 
   assert.deepEqual(c.bound, { action: "write", path_prefix: "/contact" });
   assert.equal(c.site, "site_test");
   assert.ok(!JSON.stringify(c).includes("127.0.0.1"));
-  assert.equal((await fetch(`${S.url}/v1/challenge?action=read`)).status, 400);
-  assert.equal((await fetch(`${S.url}/v1/challenge?action=write&site=other`)).status, 401);
+  assert.equal((await drain(await fetch(`${S.url}/v1/challenge?action=read`))).status, 400);
+  assert.equal((await drain(await fetch(`${S.url}/v1/challenge?action=write&site=other`))).status, 401);
 });
 
 test("mobile user agents get lighter work (device_mult 0.6); the work size never appears in the challenge", async () => {

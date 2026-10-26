@@ -6,7 +6,7 @@ import { createToll, MemoryStore, Metrics, normalizeConfig } from "../packages/s
 import { FixedTestRate, MemoryLedger, StubSettler } from "../packages/settlement-ln/src/index.ts";
 import { createAgent, testBackendPayer } from "../packages/agent/src/index.ts";
 import { agentPay } from "../packages/agent/src/agent-pay.ts";
-import { startDemo, testConfig, PAID_ON, type Running } from "./helpers.ts";
+import { startDemo, testConfig, PAID_ON, drain, type Running } from "./helpers.ts";
 
 let S: Running;
 const settler = new StubSettler();
@@ -204,6 +204,7 @@ test("degraded backend: offers [], 403 not 402, settlement_degraded logged, writ
     // The same agent falls back to the work rail.
     const agent = createAgent({ base: S.url, pay: testBackendPayer(S.url) });
     const w = await agent.fetch("/contact", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ message: "work" }) });
+    await drain(w.response);
     assert.equal(w.via, "work");
     assert.equal(w.response.status, 200);
   } finally {
@@ -313,6 +314,7 @@ test("lazy work challenge: a paid write mints no challenge; challenge_url mints 
   const agent = createAgent({ base: S.url, pay: testBackendPayer(S.url), work: false });
   for (let i = 0; i < 3; i++) {
     const w = await agent.fetch("/contact", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ message: "paid " + i }) });
+    await drain(w.response);
     assert.equal(w.via, "paid");
     assert.equal(w.response.status, 200);
     assert.equal(w.timings?.challenge_ms, undefined, "the paid path never fetches a challenge");
@@ -342,6 +344,7 @@ test("agent work fallback fetches challenge_url on demand: no payer, payment dec
   };
   for (const [name, agent] of Object.entries(cases)) {
     const w = await agent.fetch("/contact", body);
+    await drain(w.response);
     assert.equal(w.gate, 402, name);
     assert.equal(w.via, "work", name);
     assert.equal(w.response.status, 200, name);

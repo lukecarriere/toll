@@ -1,0 +1,2197 @@
+
+> toll@0.1.0 test
+> npm run build && npm run typecheck && npm run lint:copy && node --test --test-concurrency=1 tests/*.test.ts && php tests/php/run-vectors.php && php tests/php/run-settlement-vectors.php && php tests/php/run-issuer.php && php tests/php/run-net-vectors.php && php tests/php/run-gate.php && php tests/php/run-uninstall.php
+
+
+> toll@0.1.0 build
+> node scripts/gen-strings.mjs && node packages/widget/build.mjs && node scripts/build-packages.mjs && node scripts/check-dist.mjs && node scripts/build-wp-zip.mjs && node packages/edge-cf/build.mjs && node website/build.mjs
+
+strings: wrote packages/widget/src/strings.gen.ts checking, verified, verify, error, retry, nojs
+widget: dist/toll.js 15577 B, 5953 B gzipped
+widget: dist/toll.worker.js 5292 B, 1723 B gzipped
+widget: dist/toll.worker-argon2id.js 45425 B, 14471 B gzipped (hardened mode only, loaded on demand)
+widget: default path total 7676 B gzipped (budget 25600 B); hardened path 20424 B
+packages: @lessspam/widget dist/index.js
+packages: @lessspam/server dist/index.js + dist/widget
+packages: @lessspam/agent dist/index.js dist/agent-pay.js
+packages: @lessspam/mcp dist/index.js
+check-dist: widget dist has no secrets, connection strings, absolute URLs or captcha SaaS references
+check-dist: @lessspam/widget tarball lessspam-widget-0.1.0.tgz (9 entries) has no TypeScript sources, tests or secrets
+check-dist: @lessspam/server tarball lessspam-server-0.1.0.tgz (35 entries) has no TypeScript sources, tests or secrets
+check-dist: @lessspam/agent tarball lessspam-agent-0.1.0.tgz (27 entries) has no TypeScript sources, tests or secrets
+check-dist: @lessspam/mcp tarball lessspam-mcp-0.1.0.tgz (17 entries) has no TypeScript sources, tests or secrets
+strings: wrote packages/widget/src/strings.gen.ts checking, verified, verify, error, retry, nojs
+widget: dist/toll.js 15577 B, 5953 B gzipped
+widget: dist/toll.worker.js 5292 B, 1723 B gzipped
+widget: dist/toll.worker-argon2id.js 45425 B, 14471 B gzipped (hardened mode only, loaded on demand)
+widget: default path total 7676 B gzipped (budget 25600 B); hardened path 20424 B
+check-dist: widget dist has no secrets, connection strings, absolute URLs or captcha SaaS references
+check-dist: @lessspam/widget tarball lessspam-widget-0.1.0.tgz (9 entries) has no TypeScript sources, tests or secrets
+check-dist: @lessspam/server tarball lessspam-server-0.1.0.tgz (35 entries) has no TypeScript sources, tests or secrets
+check-dist: @lessspam/agent tarball lessspam-agent-0.1.0.tgz (27 entries) has no TypeScript sources, tests or secrets
+check-dist: @lessspam/mcp tarball lessspam-mcp-0.1.0.tgz (17 entries) has no TypeScript sources, tests or secrets
+build-wp-zip: dist-release/toll-gate-0.1.0.zip, 85 files, 130573 B, commit e11b502
+build-wp-zip: sha256 66cfad6b68feda473f9918d453eb3ae373c7621038220b966237b4b165ce2a21
+edge: dist/worker.js dist/site.js
+website: built /workspace/website/dist/
+
+> toll@0.1.0 typecheck
+> tsc -p tsconfig.json
+
+
+> toll@0.1.0 lint:copy
+> node scripts/copy-lint.mjs
+
+copy-lint: 128 files, 83 commit titles, 46 rules from docs/copy.md, 22 vendor names from docs/adapters.md, 0 hits
+TAP version 13
+# Subtest: policy: velocity steps raise work; standard escalates to Argon2id at x4 and for admin; adaptive off never escalates
+ok 1 - policy: velocity steps raise work; standard escalates to Argon2id at x4 and for admin; adaptive off never escalates
+  ---
+  duration_ms: 1.313479
+  type: 'test'
+  ...
+# Subtest: issuer: one coarse key's paid redeems raise the next challenge's work AND the offer's amount_msat; Argon2id at x4
+ok 2 - issuer: one coarse key's paid redeems raise the next challenge's work AND the offer's amount_msat; Argon2id at x4
+  ---
+  duration_ms: 1841.373164
+  type: 'test'
+  ...
+# Subtest: escalated Argon2id challenge still solves and redeems to a normal human pass (900 s, 20 uses)
+ok 3 - escalated Argon2id challenge still solves and redeems to a normal human pass (900 s, 20 uses)
+  ---
+  duration_ms: 81.44342
+  type: 'test'
+  ...
+# Subtest: settle pass is single-use (n = 1) and lives at most 60 s; config refuses anything else
+ok 4 - settle pass is single-use (n = 1) and lives at most 60 s; config refuses anything else
+  ---
+  duration_ms: 3.10224
+  type: 'test'
+  ...
+# Subtest: agent-pay reads every body: a server that closes after each response is left with no half-read connection
+ok 5 - agent-pay reads every body: a server that closes after each response is left with no half-read connection
+  ---
+  duration_ms: 65.906353
+  type: 'test'
+  ...
+# Subtest: 19.2 the engine's workers, as served by the issuer, solve the vector challenges in the browser (both modes)
+ok 6 - 19.2 the engine's workers, as served by the issuer, solve the vector challenges in the browser (both modes)
+  ---
+  duration_ms: 347.462384
+  type: 'test'
+  ...
+# Subtest: hardened mode: the demo form submits without thinking with the Argon2id engine (no CSP violations)
+ok 7 - hardened mode: the demo form submits without thinking with the Argon2id engine (no CSP violations)
+  ---
+  duration_ms: 798.567181
+  type: 'test'
+  ...
+# Subtest: forms: submit without thinking is accepted; offers empty with settlement off (19.11); no CSP violations; no field values sent to the issuer
+ok 8 - forms: submit without thinking is accepted; offers empty with settlement off (19.11); no CSP violations; no field values sent to the issuer
+  ---
+  duration_ms: 405.962583
+  type: 'test'
+  ...
+# Subtest: 19.7 the widget skips work when a valid pass exists
+ok 9 - 19.7 the widget skips work when a valid pass exists
+  ---
+  duration_ms: 1912.515946
+  type: 'test'
+  ...
+# Subtest: 19.8 bot hammer: without the check >= 95% rejected; with the widget >= 95% accepted
+ok 10 - 19.8 bot hammer: without the check >= 95% rejected; with the widget >= 95% accepted
+  ---
+  duration_ms: 8085.39422
+  type: 'test'
+  ...
+# Subtest: state 1: a solve under 500ms renders nothing, ever (and never shows Verified)
+ok 11 - state 1: a solve under 500ms renders nothing, ever (and never shows Verified)
+  ---
+  duration_ms: 1091.30767
+  type: 'test'
+  ...
+# took_ms [13]
+# Subtest: states 2 and 3: Checking… appears at 500ms (not before), then Verified; host submit button untouched; placement after submit
+ok 12 - states 2 and 3: Checking… appears at 500ms (not before), then Verified; host submit button untouched; placement after submit
+  ---
+  duration_ms: 2579.886976
+  type: 'test'
+  ...
+# Subtest: state 4: reduced motion keeps solving with a static bar; normal motion animates
+ok 13 - state 4: reduced motion keeps solving with a static bar; normal motion animates
+  ---
+  duration_ms: 5192.345898
+  type: 'test'
+  ...
+# Subtest: states 5-7: checkbox mode is a real, keyboard-operable button; no work before it is pressed
+ok 14 - states 5-7: checkbox mode is a real, keyboard-operable button; no work before it is pressed
+  ---
+  duration_ms: 950.818472
+  type: 'test'
+  ...
+# Subtest: state 8: issuer unreachable shows Couldn't check this form. + Try again; the write stays blocked until a pass exists
+ok 15 - state 8: issuer unreachable shows Couldn't check this form. + Try again; the write stays blocked until a pass exists
+  ---
+  duration_ms: 1185.691921
+  type: 'test'
+  ...
+# Subtest: 8s cap (owner setting): a solve that runs past the cap switches to checkbox mode
+ok 16 - 8s cap (owner setting): a solve that runs past the cap switches to checkbox mode
+  ---
+  duration_ms: 838.492712
+  type: 'test'
+  ...
+# Subtest: acceptance gap 1: an idle solve that finishes leaves the widget exactly as it was on load; the first interaction draws nothing and Submit posts with the ready pass
+ok 17 - acceptance gap 1: an idle solve that finishes leaves the widget exactly as it was on load; the first interaction draws nothing and Submit posts with the ready pass
+  ---
+  duration_ms: 4703.541355
+  type: 'test'
+  ...
+# Subtest: acceptance gap 1: an idle solve that hits the cap stops the worker and shows nothing; the checkbox appears on the first interaction and works
+ok 18 - acceptance gap 1: an idle solve that hits the cap stops the worker and shows nothing; the checkbox appears on the first interaction and works
+  ---
+  duration_ms: 5120.157795
+  type: 'test'
+  ...
+# Subtest: gap 1: an idle challenge failure shows nothing until focus, then shows the error; the write stays blocked
+ok 19 - gap 1: an idle challenge failure shows nothing until focus, then shows the error; the write stays blocked
+  ---
+  duration_ms: 2140.659306
+  type: 'test'
+  ...
+# Subtest: gap 1: an interaction in the middle of an idle solve shows Checking… no earlier than 480ms after the interaction, then Verified after at least 400ms
+ok 20 - gap 1: an interaction in the middle of an idle solve shows Checking… no earlier than 480ms after the interaction, then Verified after at least 400ms
+  ---
+  duration_ms: 2560.947041
+  type: 'test'
+  ...
+# Subtest: gap 1: challenge fetch count is unchanged: exactly 1 per page for the demo forms page
+ok 21 - gap 1: challenge fetch count is unchanged: exactly 1 per page for the demo forms page
+  ---
+  duration_ms: 5960.739407
+  type: 'test'
+  ...
+# Subtest: hidden widget parts take no space in any state: Checking…, Verified, error, checkbox (button is 0x0 whenever hidden)
+ok 22 - hidden widget parts take no space in any state: Checking…, Verified, error, checkbox (button is 0x0 whenever hidden)
+  ---
+  duration_ms: 5222.746114
+  type: 'test'
+  ...
+# Subtest: state 9: without JavaScript the form shows the note and the POST is rejected
+ok 23 - state 9: without JavaScript the form shows the note and the POST is rejected
+  ---
+  duration_ms: 130.964738
+  type: 'test'
+  ...
+# Subtest: toll.fetch attaches a pass and retries once on 403 toll_required
+ok 24 - toll.fetch attaches a pass and retries once on 403 toll_required
+  ---
+  duration_ms: 101.151405
+  type: 'test'
+  ...
+# Subtest: vendor names never reach the visitor: rendered text, shadow markup and accessibility tree in all nine states; zero third-party requests
+ok 25 - vendor names never reach the visitor: rendered text, shadow markup and accessibility tree in all nine states; zero third-party requests
+  ---
+  duration_ms: 6326.160813
+  type: 'test'
+  ...
+# Subtest: phase 2 demo: USD-only stats and owner block, live after 5 paid agent writes; no msat, coin or vendor words; '—' + Rate unavailable when the rate is down; widget flow unchanged
+ok 26 - phase 2 demo: USD-only stats and owner block, live after 5 paid agent writes; no msat, coin or vendor words; '—' + Rate unavailable when the rate is down; widget flow unchanged
+  ---
+  duration_ms: 2274.339587
+  type: 'test'
+  ...
+# Subtest: owner toggle (demo-only): untick -> 'work-only' tag, balance still shown, agents fall back to work; tick -> 'test payments on', agents pay; checkbox is a live, full-contrast control
+ok 27 - owner toggle (demo-only): untick -> 'work-only' tag, balance still shown, agents fall back to work; tick -> 'test payments on', agents pay; checkbox is a live, full-contrast control
+  ---
+  duration_ms: 4082.278603
+  type: 'test'
+  ...
+# Subtest: lint list is read from docs/copy.md, including sats and on-chain
+ok 28 - lint list is read from docs/copy.md, including sats and on-chain
+  ---
+  duration_ms: 2.19306
+  type: 'test'
+  ...
+# Subtest: 'sats' and 'on-chain' are caught on a public surface and ignored in exempt paths
+ok 29 - 'sats' and 'on-chain' are caught on a public surface and ignored in exempt paths
+  ---
+  duration_ms: 2.362454
+  type: 'test'
+  ...
+# Subtest: whole words only: no false hits inside other words; phrases and risk-score percentages caught
+ok 30 - whole words only: no false hits inside other words; phrases and risk-score percentages caught
+  ---
+  duration_ms: 0.951908
+  type: 'test'
+  ...
+# Subtest: copy lint passes on every public surface of this repo
+ok 31 - copy lint passes on every public surface of this repo
+  ---
+  duration_ms: 71.5555
+  type: 'test'
+  ...
+# Subtest: README starts with the exact block from docs/copy.md
+ok 32 - README starts with the exact block from docs/copy.md
+  ---
+  duration_ms: 0.312902
+  type: 'test'
+  ...
+# Subtest: widget strings come from docs/copy.md and are the only visible text in toll.js
+ok 33 - widget strings come from docs/copy.md and are the only visible text in toll.js
+  ---
+  duration_ms: 0.53885
+  type: 'test'
+  ...
+# Subtest: every demo string is backed by docs/copy.md (Demo strings section; noJs from Widget strings)
+ok 34 - every demo string is backed by docs/copy.md (Demo strings section; noJs from Widget strings)
+  ---
+  duration_ms: 0.355668
+  type: 'test'
+  ...
+# Subtest: demo pages: the action class in each card description is in code style, like the prototype
+ok 35 - demo pages: the action class in each card description is in code style, like the prototype
+  ---
+  duration_ms: 0.654599
+  type: 'test'
+  ...
+# Subtest: demo pages, paid requests on: phase 2 stats and owner block use copy.md strings, USD only, '—' + 'Rate unavailable' when the rate is down
+ok 36 - demo pages, paid requests on: phase 2 stats and owner block use copy.md strings, USD only, '—' + 'Rate unavailable' when the rate is down
+  ---
+  duration_ms: 0.963552
+  type: 'test'
+  ...
+# Subtest: USD rounding follows the rule confirmed in docs/copy.md 'Money': owner totals round down to the cent, offers round up to $0.0001
+ok 37 - USD rounding follows the rule confirmed in docs/copy.md 'Money': owner totals round down to the cent, offers round up to $0.0001
+  ---
+  duration_ms: 0.721847
+  type: 'test'
+  ...
+# Subtest: {fee} placeholder (docs/copy.md 'Money'): 1000 -> 10, 750 -> 7.5, 25 -> 0.25; filled in the demo and WordPress templates
+ok 38 - {fee} placeholder (docs/copy.md 'Money'): 1000 -> 10, 750 -> 7.5, 25 -> 0.25; filled in the demo and WordPress templates
+  ---
+  duration_ms: 0.339707
+  type: 'test'
+  ...
+# Subtest: vendor names (docs/adapters.md list) are caught on public surfaces and allowed only in adapters.md, package.json and licence notices
+ok 39 - vendor names (docs/adapters.md list) are caught on public surfaces and allowed only in adapters.md, package.json and licence notices
+  ---
+  duration_ms: 56.839435
+  type: 'test'
+  ...
+# Subtest: the widget dist names no captcha or risk-score service and loads nothing from a CDN
+ok 40 - the widget dist names no captcha or risk-score service and loads nothing from a CDN
+  ---
+  duration_ms: 0.487094
+  type: 'test'
+  ...
+# Subtest: commit titles are linted after TITLE_LINT_AFTER: an old title with a banned word is skipped, a new one still fails
+ok 41 - commit titles are linted after TITLE_LINT_AFTER: an old title with a banned word is skipped, a new one still fails
+  ---
+  duration_ms: 41.344212
+  type: 'test'
+  ...
+# A3 acceptance {}
+# Subtest: MCP tools/list returns exactly the three tools with the exact copy
+ok 42 - MCP tools/list returns exactly the three tools with the exact copy
+  ---
+  duration_ms: 2.16738
+  type: 'test'
+  ...
+# Subtest: A3 Node demo: manifest free, prices equal the live 402, MCP flow with a test payment
+ok 43 - A3 Node demo: manifest free, prices equal the live 402, MCP flow with a test payment # SKIP demo not running
+  ---
+  duration_ms: 0.117625
+  type: 'test'
+  ...
+# Subtest: A3 WordPress (Payment server = demo, test backend): manifest free, prices equal the live 402, MCP flow with a test payment
+ok 44 - A3 WordPress (Payment server = demo, test backend): manifest free, prices equal the live 402, MCP flow with a test payment # SKIP WordPress or the demo not running
+  ---
+  duration_ms: 0.058424
+  type: 'test'
+  ...
+# Subtest: A3 edge (work only): manifest free, no paid price anywhere (manifest, MCP, live answer), MCP flow with the work check
+ok 45 - A3 edge (work only): manifest free, no paid price anywhere (manifest, MCP, live answer), MCP flow with the work check # SKIP edge worker not running
+  ---
+  duration_ms: 0.047411
+  type: 'test'
+  ...
+# Subtest: M11: MCP counters per UTC day for tools/list, each tool call, offers and paid calls
+ok 46 - M11: MCP counters per UTC day for tools/list, each tool call, offers and paid calls # SKIP demo not running
+  ---
+  duration_ms: 0.132633
+  type: 'test'
+  ...
+# Subtest: copy: tool names and descriptions, the 135-character description and not_for are docs/copy.md verbatim, in Node and WordPress
+ok 47 - copy: tool names and descriptions, the 135-character description and not_for are docs/copy.md verbatim, in Node and WordPress
+  ---
+  duration_ms: 65.465505
+  type: 'test'
+  ...
+# Subtest: WordPress manifest lists no search class or search price (search is a free read on WordPress); Node keeps it
+ok 48 - WordPress manifest lists no search class or search price (search is a free read on WordPress); Node keeps it
+  ---
+  duration_ms: 25.060079
+  type: 'test'
+  ...
+# Subtest: GET /.well-known/toll.json and agents.json: 200, no pass, no challenge, challenges_minted unchanged, counted
+ok 49 - GET /.well-known/toll.json and agents.json: 200, no pass, no challenge, challenges_minted unchanged, counted
+  ---
+  duration_ms: 26.154645
+  type: 'test'
+  ...
+# Subtest: prices at load multiplier 1: manifest (base), /v1/price and MCP price_write_action (current) equal the live 402 offer (write $0.0100, search $0.0020, both (test))
+ok 50 - prices at load multiplier 1: manifest (base), /v1/price and MCP price_write_action (current) equal the live 402 offer (write $0.0100, search $0.0020, both (test))
+  ---
+  duration_ms: 47.468923
+  type: 'test'
+  ...
+# Subtest: settlement off: prices are null with status stub, payment lists no method, x402 stub
+ok 51 - settlement off: prices are null with status stub, payment lists no method, x402 stub
+  ---
+  duration_ms: 8.623661
+  type: 'test'
+  ...
+# Subtest: load raised: MCP price_write_action returns the price that applies now and matches a live 402 at the raised price; the manifest stays the base
+ok 52 - load raised: MCP price_write_action returns the price that applies now and matches a live 402 at the raised price; the manifest stays the base
+  ---
+  duration_ms: 58.555766
+  type: 'test'
+  ...
+# Subtest: base-price note follows load pricing: present only when a priced action's offers can rise
+ok 53 - base-price note follows load pricing: present only when a priced action's offers can rise
+  ---
+  duration_ms: 7.307448
+  type: 'test'
+  ...
+# Subtest: MCP tools/list: exactly the three tools with the exact copy and input schemas
+ok 54 - MCP tools/list: exactly the three tools with the exact copy and input schemas
+  ---
+  duration_ms: 0.897302
+  type: 'test'
+  ...
+# Subtest: MCP end to end with a test payment: offer -> pay (test backend) -> pass -> write accepted -> verify_write_pass
+ok 55 - MCP end to end with a test payment: offer -> pay (test backend) -> pass -> write accepted -> verify_write_pass
+  ---
+  duration_ms: 20.148283
+  type: 'test'
+  ...
+# Subtest: MCP adds no reads gating: GET / stays 200 and mints nothing while the tools are in use
+ok 56 - MCP adds no reads gating: GET / stays 200 and mints nothing while the tools are in use
+  ---
+  duration_ms: 3.257812
+  type: 'test'
+  ...
+# Subtest: lint: only payment objects may name the payment method; descriptions stay under the full list
+ok 57 - lint: only payment objects may name the payment method; descriptions stay under the full list
+  ---
+  duration_ms: 6.519395
+  type: 'test'
+  ...
+# Subtest: guides: one h1, the copy.md description, icons, docs.css, no script, no .html href
+ok 58 - guides: one h1, the copy.md description, icons, docs.css, no script, no .html href
+  ---
+  duration_ms: 15.279545
+  type: 'test'
+  ...
+# Subtest: guides: canonicals point at the extensionless path, and only when a site root is set
+ok 59 - guides: canonicals point at the extensionless path, and only when a site root is set
+  ---
+  duration_ms: 0.71069
+  type: 'test'
+  ...
+# Subtest: download and WordPress pages link the GPL plugin zip
+ok 60 - download and WordPress pages link the GPL plugin zip
+  ---
+  duration_ms: 0.257188
+  type: 'test'
+  ...
+# Subtest: guides in a browser: 200, same-origin, no sideways scroll at phone width
+ok 61 - guides in a browser: 200, same-origin, no sideways scroll at phone width
+  ---
+  duration_ms: 14809.233309
+  type: 'test'
+  ...
+# Subtest: root build writes the worker bundle and the plugin zip before the site
+ok 62 - root build writes the worker bundle and the plugin zip before the site
+  ---
+  duration_ms: 1.339348
+  type: 'test'
+  ...
+# Subtest: website/dist/download serves the built zip and a matching sha256
+ok 63 - website/dist/download serves the built zip and a matching sha256
+  ---
+  duration_ms: 33.461457
+  type: 'test'
+  ...
+# Subtest: edge: reads proxy to the origin; health says edge, settlement off; widget served same-origin
+ok 64 - edge: reads proxy to the origin; health says edge, settlement off; widget served same-origin
+  ---
+  duration_ms: 1080.748395
+  type: 'test'
+  ...
+# Subtest: edge: gated POST without a pass -> 403 with a fresh challenge (JSON) or the interstitial (HTML); origin untouched
+ok 65 - edge: gated POST without a pass -> 403 with a fresh challenge (JSON) or the interstitial (HTML); origin untouched
+  ---
+  duration_ms: 19.560733
+  type: 'test'
+  ...
+# Subtest: edge: challenge -> solve -> redeem -> pass (cookie + body) -> gated POST proxied; replayed challenge 401
+ok 66 - edge: challenge -> solve -> redeem -> pass (cookie + body) -> gated POST proxied; replayed challenge 401
+  ---
+  duration_ms: 259.527515
+  type: 'test'
+  ...
+# Subtest: edge: /v1/siteverify (form and JSON) per spec §8.5: secret check, pass or redeem payload, action, no coin fields
+ok 67 - edge: /v1/siteverify (form and JSON) per spec §8.5: secret check, pass or redeem payload, action, no coin fields
+  ---
+  duration_ms: 223.514194
+  type: 'test'
+  ...
+# Subtest: edge: paid redeem is refused at the edge (work-only), offers always []
+ok 68 - edge: paid redeem is refused at the edge (work-only), offers always []
+  ---
+  duration_ms: 8.999028
+  type: 'test'
+  ...
+# Subtest: assertChallengeShape does not echo the unknown field name
+ok 69 - assertChallengeShape does not echo the unknown field name
+  ---
+  duration_ms: 1.598605
+  type: 'test'
+  ...
+# Subtest: current Node and PHP sources do not interpolate the field name
+ok 70 - current Node and PHP sources do not interpolate the field name
+  ---
+  duration_ms: 30.79936
+  type: 'test'
+  ...
+# Subtest: 650c81a parent: PHP echoed the field name
+ok 71 - 650c81a parent: PHP echoed the field name
+  ---
+  duration_ms: 3.538151
+  type: 'test'
+  ...
+# Subtest: 5cd9c85: Node still concatenated the field name
+ok 72 - 5cd9c85: Node still concatenated the field name
+  ---
+  duration_ms: 2.664354
+  type: 'test'
+  ...
+# Subtest: icons: the three files are in a fresh build and in website/dist, byte-identical, with all three tags on every page
+ok 73 - icons: the three files are in a fresh build and in website/dist, byte-identical, with all three tags on every page
+  ---
+  duration_ms: 7.172913
+  type: 'test'
+  ...
+# Subtest: icons: the pinned hashes are the Designer's files (checked whenever design/brand/favicon/ is present)
+ok 74 - icons: the pinned hashes are the Designer's files (checked whenever design/brand/favicon/ is present)
+  ---
+  duration_ms: 0.158596
+  type: 'test'
+  ...
+# Subtest: icons: each file returns 200 from a static server on website/dist with its type and exact bytes; every page links them
+ok 75 - icons: each file returns 200 from a static server on website/dist with its type and exact bytes; every page links them
+  ---
+  duration_ms: 42.456546
+  type: 'test'
+  ...
+# Subtest: working tree: tests and the agent client read every status-checked fetch body
+ok 76 - working tree: tests and the agent client read every status-checked fetch body
+  ---
+  duration_ms: 14.306597
+  type: 'test'
+  ...
+# Subtest: f935537 parent: agent-pay left three fetch bodies unread
+ok 77 - f935537 parent: agent-pay left three fetch bodies unread
+  ---
+  duration_ms: 3.706265
+  type: 'test'
+  ...
+# Subtest: e6fb4a6 parent: the WordPress counter test left two fetch bodies unread
+ok 78 - e6fb4a6 parent: the WordPress counter test left two fetch bodies unread
+  ---
+  duration_ms: 2.508052
+  type: 'test'
+  ...
+# Subtest: guardFetch: no peer address -> exactly one warning per process naming info.remoteAddr / o.remoteAddr(), with no address or header value in it
+ok 79 - guardFetch: no peer address -> exactly one warning per process naming info.remoteAddr / o.remoteAddr(), with no address or header value in it
+  ---
+  duration_ms: 52.768575
+  type: 'test'
+  ...
+# Subtest: build: website/dist/index.html exists and no .html href is left in website/dist (run `npm run build` first)
+ok 80 - build: website/dist/index.html exists and no .html href is left in website/dist (run `npm run build` first)
+  ---
+  duration_ms: 7.913021
+  type: 'test'
+  ...
+# Subtest: build: a fresh build has the homepage, ships exactly its files, and has no .html href
+ok 81 - build: a fresh build has the homepage, ships exactly its files, and has no .html href
+  ---
+  duration_ms: 19.31434
+  type: 'test'
+  ...
+# Subtest: root-relative: every src, srcset entry, href and CSS url() on the five pages starts with '/' (canonical aside)
+ok 82 - root-relative: every src, srcset entry, href and CSS url() on the five pages starts with '/' (canonical aside)
+  ---
+  duration_ms: 10.541443
+  type: 'test'
+  ...
+# Subtest: links: wordmark '/', pages '/mission', '/vision', '/values', '/ecosystem' on the homepage and on every page
+ok 83 - links: wordmark '/', pages '/mission', '/vision', '/values', '/ecosystem' on the homepage and on every page
+  ---
+  duration_ms: 0.55725
+  type: 'test'
+  ...
+# Subtest: canonical: TOLL_SITE_URL unset (null), empty or invalid means no canonical tag on any page
+ok 84 - canonical: TOLL_SITE_URL unset (null), empty or invalid means no canonical tag on any page
+  ---
+  duration_ms: 22.285689
+  type: 'test'
+  ...
+# Subtest: canonical: TOLL_SITE_URL=https://site.example gives each page a canonical to itself
+ok 85 - canonical: TOLL_SITE_URL=https://site.example gives each page a canonical to itself
+  ---
+  duration_ms: 11.946287
+  type: 'test'
+  ...
+# Subtest: words: every homepage string is in docs/copy.md verbatim, and the page shows exactly them
+ok 86 - words: every homepage string is in docs/copy.md verbatim, and the page shows exactly them
+  ---
+  duration_ms: 0.585615
+  type: 'test'
+  ...
+# Subtest: homepage: no scripts, no inline styles, no external requests; fonts preloaded locally with their OFL texts
+ok 87 - homepage: no scripts, no inline styles, no external requests; fonts preloaded locally with their OFL texts
+  ---
+  duration_ms: 0.789793
+  type: 'test'
+  ...
+# Subtest: in a browser under CSP default-src 'self': only same-origin requests, no CSP violations, no sideways scroll
+ok 88 - in a browser under CSP default-src 'self': only same-origin requests, no CSP violations, no sideways scroll
+  ---
+  duration_ms: 2885.837897
+  type: 'test'
+  ...
+# Subtest: 19.3 mint -> solve -> redeem -> POST accepted (header, form field and cookie)
+ok 89 - 19.3 mint -> solve -> redeem -> POST accepted (header, form field and cookie)
+  ---
+  duration_ms: 80.129702
+  type: 'test'
+  ...
+# Subtest: 19.4 POST without a pass is rejected (curl, JSON client, browser without JS)
+ok 90 - 19.4 POST without a pass is rejected (curl, JSON client, browser without JS)
+  ---
+  duration_ms: 11.215879
+  type: 'test'
+  ...
+# Subtest: 19.5 replayed challenge, expired challenge and bad signature are rejected
+ok 91 - 19.5 replayed challenge, expired challenge and bad signature are rejected
+  ---
+  duration_ms: 61.712331
+  type: 'test'
+  ...
+# Subtest: expired pass, wrong class and used-up pass are rejected
+ok 92 - expired pass, wrong class and used-up pass are rejected
+  ---
+  duration_ms: 87.589461
+  type: 'test'
+  ...
+# Subtest: 19.11 settlement off: offers is empty, health says off, work flow still works
+ok 93 - 19.11 settlement off: offers is empty, health says off, work flow still works
+  ---
+  duration_ms: 37.70905
+  type: 'test'
+  ...
+# Subtest: replay store down: redeem and protected writes fail closed (503), never accepted
+ok 94 - replay store down: redeem and protected writes fail closed (503), never accepted
+  ---
+  duration_ms: 87.117455
+  type: 'test'
+  ...
+# Subtest: status reports the cookie or bearer pass; siteverify works (form and JSON) without coin fields
+ok 95 - status reports the cookie or bearer pass; siteverify works (form and JSON) without coin fields
+  ---
+  duration_ms: 69.548557
+  type: 'test'
+  ...
+# Subtest: CORS echoes configured origins only, never * with credentials
+ok 96 - CORS echoes configured origins only, never * with credentials
+  ---
+  duration_ms: 3.35974
+  type: 'test'
+  ...
+# Subtest: challenge TTL is at most 120s, bound to site/action/path prefix, not IP
+ok 97 - challenge TTL is at most 120s, bound to site/action/path prefix, not IP
+  ---
+  duration_ms: 4.397038
+  type: 'test'
+  ...
+# Subtest: mobile user agents get lighter work (device_mult 0.6); the work size never appears in the challenge
+ok 98 - mobile user agents get lighter work (device_mult 0.6); the work size never appears in the challenge
+  ---
+  duration_ms: 3.649736
+  type: 'test'
+  ...
+# Subtest: logs: raw took_ms with rail and cls tags, counters with settled_msat and settlement_degraded, no secrets or bodies
+ok 99 - logs: raw took_ms with rail and cls tags, counters with settled_msat and settlement_degraded, no secrets or bodies
+  ---
+  duration_ms: 14.235402
+  type: 'test'
+  ...
+# Subtest: the pass cookie is first-party only: no Set-Cookie for a cross-origin redeem
+ok 100 - the pass cookie is first-party only: no Set-Cookie for a cross-origin redeem
+  ---
+  duration_ms: 50.891249
+  type: 'test'
+  ...
+# Subtest: release pin: the four mission pages are the 34e46d6 release HTML byte for byte (QA's dist.sha256)
+ok 101 - release pin: the four mission pages are the 34e46d6 release HTML byte for byte (QA's dist.sha256)
+  ---
+  duration_ms: 1.587493
+  type: 'test'
+  ...
+# Subtest: release pin: mission pages stay byte-identical; the homepage Docs link, demo, and guides are the additions
+ok 102 - release pin: mission pages stay byte-identical; the homepage Docs link, demo, and guides are the additions
+  ---
+  duration_ms: 3.73219
+  type: 'test'
+  ...
+# Subtest: site.css: website/site.css is the CD-approved design/inner-pages/site.css byte for byte (pinned hash)
+ok 103 - site.css: website/site.css is the CD-approved design/inner-pages/site.css byte for byte (pinned hash)
+  ---
+  duration_ms: 0.514395
+  type: 'test'
+  ...
+# Subtest: site.css: byte for byte the live handoff file in design/inner-pages/
+ok 104 - site.css: byte for byte the live handoff file in design/inner-pages/ # SKIP design/ not present (gitignored)
+  ---
+  duration_ms: 0.087809
+  type: 'test'
+  ...
+# Subtest: plugin header and server-php composer.json say GPL-2.0-or-later; both carry the full GPL-2.0 text
+ok 105 - plugin header and server-php composer.json say GPL-2.0-or-later; both carry the full GPL-2.0 text
+  ---
+  duration_ms: 1.501206
+  type: 'test'
+  ...
+# Subtest: root LICENSE is MIT and names the 2026 copyright holder
+ok 106 - root LICENSE is MIT and names the 2026 copyright holder
+  ---
+  duration_ms: 0.271876
+  type: 'test'
+  ...
+# Subtest: every Node package.json is MIT
+ok 107 - every Node package.json is MIT
+  ---
+  duration_ms: 0.329558
+  type: 'test'
+  ...
+# Subtest: bundled third-party code is MIT (GPL-compatible)
+ok 108 - bundled third-party code is MIT (GPL-compatible)
+  ---
+  duration_ms: 0.942537
+  type: 'test'
+  ...
+# Subtest: vectors: Node coarseNet gives the expected network for every address, and the plugin's PHP gives the same
+ok 109 - vectors: Node coarseNet gives the expected network for every address, and the plugin's PHP gives the same
+  ---
+  duration_ms: 23.260421
+  type: 'test'
+  ...
+# Subtest: vectors: the PHP runner passes on its own (npm test runs it too)
+ok 110 - vectors: the PHP runner passes on its own (npm test runs it too)
+  ---
+  duration_ms: 17.883496
+  type: 'test'
+  ...
+# Subtest: coarseKey: a network from coarseNet keys the same velocity bucket as any address in it (so a relayed net and the server's own 402 share a count)
+ok 111 - coarseKey: a network from coarseNet keys the same velocity bucket as any address in it (so a relayed net and the server's own 402 share a count)
+  ---
+  duration_ms: 0.879883
+  type: 'test'
+  ...
+# Subtest: isCoarseNet: only the exact coarseNet form is accepted as net
+ok 112 - isCoarseNet: only the exact coarseNet form is accepted as net
+  ---
+  duration_ms: 0.149577
+  type: 'test'
+  ...
+# Subtest: client address (TOLL_TRUSTED_PROXIES): every vector, from the shared fixture, on the plugin's PHP
+ok 113 - client address (TOLL_TRUSTED_PROXIES): every vector, from the shared fixture, on the plugin's PHP
+  ---
+  duration_ms: 17.180419
+  type: 'test'
+  ...
+# Subtest: client address vectors on Node: the net for each expected address is what coarseNet gives (so a mapped IPv4 client is its IPv4 network on both sides)
+ok 114 - client address vectors on Node: the net for each expected address is what coarseNet gives (so a mapped IPv4 client is its IPv4 network on both sides)
+  ---
+  duration_ms: 0.281469
+  type: 'test'
+  ...
+# Subtest: TOLL_TRUSTED_PROXIES from wp-config: unset or empty reads REMOTE_ADDR only; set, a forged header from elsewhere is ignored and the proxy's is honoured
+ok 115 - TOLL_TRUSTED_PROXIES from wp-config: unset or empty reads REMOTE_ADDR only; set, a forged header from elsewhere is ignored and the proxy's is honoured
+  ---
+  duration_ms: 170.702282
+  type: 'test'
+  ...
+# Subtest: the challenge rate limit still keys on REMOTE_ADDR (toll_gate_ip unchanged); only the network for pricing uses the proxy list
+ok 116 - the challenge rate limit still keys on REMOTE_ADDR (toll_gate_ip unchanged); only the network for pricing uses the proxy list
+  ---
+  duration_ms: 0.531488
+  type: 'test'
+  ...
+# Subtest: GET /v1/owner/price: load_pricing true only with ?net=1 and velocity on; an older site (no ?net=1) never gets true
+ok 117 - GET /v1/owner/price: load_pricing true only with ?net=1 and velocity on; an older site (no ?net=1) never gets true
+  ---
+  duration_ms: 74.940322
+  type: 'test'
+  ...
+# Subtest: relay prices like the server's own 402: same amount for a network and its addresses, rising with paid redeems relayed with that net; other networks and a missing or bad net stay at the base
+ok 118 - relay prices like the server's own 402: same amount for a network and its addresses, rising with paid redeems relayed with that net; other networks and a missing or bad net stay at the base
+  ---
+  duration_ms: 148.205234
+  type: 'test'
+  ...
+# Subtest: velocity off: a valid net changes nothing (base price everywhere)
+ok 119 - velocity off: a valid net changes nothing (base price everywhere)
+  ---
+  duration_ms: 21.291707
+  type: 'test'
+  ...
+# Subtest: POST /v1/owner/quote: owner key required; answer shape; read-only (velocity, ledger, offer store and metrics unchanged after many calls)
+ok 120 - POST /v1/owner/quote: owner key required; answer shape; read-only (velocity, ledger, offer store and metrics unchanged after many calls)
+  ---
+  duration_ms: 70.089888
+  type: 'test'
+  ...
+# Subtest: net is never logged, echoed in an error, or stored: offers, redeem and quote with a distinctive network
+ok 121 - net is never logged, echoed in an error, or stored: offers, redeem and quote with a distinctive network
+  ---
+  duration_ms: 70.968412
+  type: 'test'
+  ...
+# Subtest: WP manifest: asks GET /v1/owner/price?net=1 and shows the base-price note only when the server reports load_pricing true
+ok 122 - WP manifest: asks GET /v1/owner/price?net=1 and shows the base-price note only when the server reports load_pricing true
+  ---
+  duration_ms: 69.546072
+  type: 'test'
+  ...
+# Subtest: WP price cache: an answer cached without the net_declared mark (an older plugin) is asked again, so a declared and an undeclared answer never mix; a marked one is reused
+ok 123 - WP price cache: an answer cached without the net_declared mark (an older plugin) is asked again, so a declared and an undeclared answer never mix; a marked one is reused
+  ---
+  duration_ms: 32.445045
+  type: 'test'
+  ...
+# Subtest: WP /price: load-priced, it quotes the visitor's network (load_multiplier a number); quote down or wrong: base with null; not load-priced: no quote, x1
+ok 124 - WP /price: load-priced, it quotes the visitor's network (load_multiplier a number); quote down or wrong: base with null; not load-priced: no quote, x1
+  ---
+  duration_ms: 134.68405
+  type: 'test'
+  ...
+# Subtest: WP relay: offers and paid redeems carry the visitor's network (from REMOTE_ADDR, or X-Forwarded-For only behind a listed proxy), never the address
+ok 125 - WP relay: offers and paid redeems carry the visitor's network (from REMOTE_ADDR, or X-Forwarded-For only behind a listed proxy), never the address
+  ---
+  duration_ms: 77.366582
+  type: 'test'
+  ...
+# Subtest: docs/copy.md: four inner page descriptions, one per page, each the length the PM states
+ok 126 - docs/copy.md: four inner page descriptions, one per page, each the length the PM states
+  ---
+  duration_ms: 1.357343
+  type: 'test'
+  ...
+# Subtest: meta description: every built page has exactly one, none empty, the inner four are docs/copy.md word for word
+ok 127 - meta description: every built page has exactly one, none empty, the inner four are docs/copy.md word for word
+  ---
+  duration_ms: 4.418599
+  type: 'test'
+  ...
+# Subtest: 5cd9c85: legal descriptions were inlined in the build, not in docs/copy.md
+ok 128 - 5cd9c85: legal descriptions were inlined in the build, not in docs/copy.md
+  ---
+  duration_ms: 5.778646
+  type: 'test'
+  ...
+# Subtest: meta description: the parser catches a missing, doubled or empty tag
+ok 129 - meta description: the parser catches a missing, doubled or empty tag
+  ---
+  duration_ms: 0.164036
+  type: 'test'
+  ...
+# Subtest: canary: a non-allowlisted host in a file is caught in URL form and in bare prose
+ok 130 - canary: a non-allowlisted host in a file is caught in URL form and in bare prose
+  ---
+  duration_ms: 2.560847
+  type: 'test'
+  ...
+# Subtest: canary: a bare .ai host in prose is caught; https://localhost is still allowed
+ok 131 - canary: a bare .ai host in prose is caught; https://localhost is still allowed
+  ---
+  duration_ms: 0.619127
+  type: 'test'
+  ...
+# Subtest: canary: a non-allowlisted host in a commit title is caught
+ok 132 - canary: a non-allowlisted host in a commit title is caught
+  ---
+  duration_ms: 0.246189
+  type: 'test'
+  ...
+# Subtest: the location exemption is narrow: only the Naming `Domain:` field and the recorded commit title
+ok 133 - the location exemption is narrow: only the Naming `Domain:` field and the recorded commit title
+  ---
+  duration_ms: 1.223827
+  type: 'test'
+  ...
+# Subtest: a missing, empty or garbage `Domain:` field exempts nothing: the scan still runs and flags the canary
+ok 134 - a missing, empty or garbage `Domain:` field exempts nothing: the scan still runs and flags the canary
+  ---
+  duration_ms: 3.357267
+  type: 'test'
+  ...
+# Subtest: tuned: file names, code and reserved names are not hosts
+ok 135 - tuned: file names, code and reserved names are not hosts
+  ---
+  duration_ms: 0.276208
+  type: 'test'
+  ...
+# Subtest: excluded paths: lockfiles, vendor, node_modules, licence texts, binaries
+ok 136 - excluded paths: lockfiles, vendor, node_modules, licence texts, binaries
+  ---
+  duration_ms: 0.200415
+  type: 'test'
+  ...
+# Subtest: the repo: every host in tracked files and commit titles is allowed
+ok 137 - the repo: every host in tracked files and commit titles is allowed
+  ---
+  duration_ms: 69.152234
+  type: 'test'
+  ...
+# scanned 311 files (19 skipped: excluded path, symlink, binary), 83 commit titles, 331 hosts
+# allowlist hits outside this file: github.com=14 api.github.com=0 packagist.org=0 getcomposer.org=0 gnu.org=0 www.gnu.org=2 fsf.org=0 wordpress.org=1 downloads.wordpress.org=1 schema.org=0 www.w3.org=1 json-schema.org=0 datatracker.ietf.org=0 www.rfc-editor.org=0 cdn.jsdelivr.net=1 trycap.dev=1 docs.x402.org=1 registry.modelcontextprotocol.io=1 npmjs.org=1 registry.npmjs.org=2 lessspam.dev=10 www.lessspam.dev=3 workers.dev=0
+# allowed by rule: 266; exempt by location (the recorded working domain): 0
+# Subtest: owner API is off without settlement.owner_key, and needs the key
+ok 138 - owner API is off without settlement.owner_key, and needs the key
+  ---
+  duration_ms: 36.187622
+  type: 'test'
+  ...
+# Subtest: balance: integer msat after the fee plus the owner's USD string
+ok 139 - balance: integer msat after the fee plus the owner's USD string
+  ---
+  duration_ms: 35.014336
+  type: 'test'
+  ...
+# Subtest: withdraw: checked against the balance before paying; bad invoices refused; one withdrawal row
+ok 140 - withdraw: checked against the balance before paying; bad invoices refused; one withdrawal row
+  ---
+  duration_ms: 8.711507
+  type: 'test'
+  ...
+# Subtest: payment backend down: balance says degraded, withdraw is 503 and nothing is booked
+ok 141 - payment backend down: balance says degraded, withdraw is 503 and nothing is booked
+  ---
+  duration_ms: 3.852841
+  type: 'test'
+  ...
+# Subtest: owner offers + redeem (WordPress Payment server): offers relayed with a ready WWW-Authenticate value; redeem books the payment once
+ok 142 - owner offers + redeem (WordPress Payment server): offers relayed with a ready WWW-Authenticate value; redeem books the payment once
+  ---
+  duration_ms: 15.375104
+  type: 'test'
+  ...
+# added 75 packages in 2s
+# import ok price_write_action,gate_form_write,verify_write_pass
+# {"ts":"2026-10-26T04:53:58.681Z","event":"challenge_minted","cls":"write","client":"widget","ua_class":"desktop","mode":"standard","alg":"pbkdf2-sha256","counter_max":32,"expected_tries":16.5,"velocity_mult":1,"escalated":false,"source":"middleware"}
+# {"ts":"2026-10-26T04:53:58.681Z","event":"pass_absent","action":"write","status":403}
+# {"ts":"2026-10-26T04:53:58.684Z","event":"challenge_minted","cls":"write","client":"widget","ua_class":"desktop","mode":"standard","alg":"pbkdf2-sha256","counter_max":32,"expected_tries":16.5,"velocity_mult":1,"escalated":false,"source":"challenge_endpoint"}
+# {"ts":"2026-10-26T04:53:58.689Z","event":"redeem_ok","rail":"work","cls":"write","took_ms":1,"ua_class":"desktop","client":"widget","verify_ms":0.6}
+# {"ts":"2026-10-26T04:53:58.691Z","event":"pass_accept","rail":"work","cls":"write","action":"write","remaining":19}
+# express flow ok 200
+# npx toll-mcp tools/list price_write_action, gate_form_write, verify_write_pass
+# Subtest: installed tarballs import as JavaScript, toll-mcp lists 3 tools, and an Express app redeems a pass
+ok 143 - installed tarballs import as JavaScript, toll-mcp lists 3 tools, and an Express app redeems a pass
+  ---
+  duration_ms: 3059.28233
+  type: 'test'
+  ...
+# Subtest: PHP Policy.workParams == Node workParams (adaptive off) for every class, device and mode
+ok 144 - PHP Policy.workParams == Node workParams (adaptive off) for every class, device and mode
+  ---
+  duration_ms: 0.809947
+  type: 'test'
+  ...
+# Subtest: a PHP-minted challenge passes the Node envelope check, and the browser solver's answer verifies on PHP
+ok 145 - a PHP-minted challenge passes the Node envelope check, and the browser solver's answer verifies on PHP
+  ---
+  duration_ms: 41.157119
+  type: 'test'
+  ...
+# Subtest: a PHP pass verifies on Node with the same claims (900 s, 20 uses)
+ok 146 - a PHP pass verifies on Node with the same claims (900 s, 20 uses)
+  ---
+  duration_ms: 0.815032
+  type: 'test'
+  ...
+# Subtest: current header and display name are Toll Gate
+ok 147 - current header and display name are Toll Gate
+  ---
+  duration_ms: 0.994022
+  type: 'test'
+  ...
+# Subtest: ffb9c3d header fails: Plugin Name was Toll for WordPress
+ok 148 - ffb9c3d header fails: Plugin Name was Toll for WordPress
+  ---
+  duration_ms: 3.108439
+  type: 'test'
+  ...
+# Subtest: 47cb86d copy fails: display name was Toll for WordPress
+ok 149 - 47cb86d copy fails: display name was Toll for WordPress
+  ---
+  duration_ms: 3.635038
+  type: 'test'
+  ...
+# Subtest: 19.1 work vectors pass on Node: canonical input, Toll sig, engine verify, pass
+ok 150 - 19.1 work vectors pass on Node: canonical input, Toll sig, engine verify, pass
+  ---
+  duration_ms: 9.099486
+  type: 'test'
+  ...
+# Subtest: engine secrets are derived from the Toll secret as documented
+ok 151 - engine secrets are derived from the Toll secret as documented
+  ---
+  duration_ms: 0.634531
+  type: 'test'
+  ...
+# Subtest: 19.1 / 19.5 invalid work vectors are rejected with the expected code on Node
+ok 152 - 19.1 / 19.5 invalid work vectors are rejected with the expected code on Node
+  ---
+  duration_ms: 3.341941
+  type: 'test'
+  ...
+# Subtest: engine solver (Node) finds the vector counters
+ok 153 - engine solver (Node) finds the vector counters
+  ---
+  duration_ms: 107.744663
+  type: 'test'
+  ...
+# Subtest: work adapter: issue binds the Toll id; a fresh solve verifies once per payload; bad shapes are rejected
+ok 154 - work adapter: issue binds the Toll id; a fresh solve verifies once per payload; bad shapes are rejected
+  ---
+  duration_ms: 4.696643
+  type: 'test'
+  ...
+# Subtest: pass vectors: invalid rejected, valid accepted, class rules (§8.3)
+ok 155 - pass vectors: invalid rejected, valid accepted, class rules (§8.3)
+  ---
+  duration_ms: 1.374803
+  type: 'test'
+  ...
+# Subtest: canonical JSON: sorted keys, no whitespace, JSON.stringify escaping, integers only
+ok 156 - canonical JSON: sorted keys, no whitespace, JSON.stringify escaping, integers only
+  ---
+  duration_ms: 0.253027
+  type: 'test'
+  ...
+# Subtest: 19.6 adaptive work cost is non-decreasing under burst (velocity on), in both modes; escalation never lowers it
+ok 157 - 19.6 adaptive work cost is non-decreasing under burst (velocity on), in both modes; escalation never lowers it
+  ---
+  duration_ms: 0.699207
+  type: 'test'
+  ...
+# Subtest: policy: class multipliers, mobile discount, mode picks the engine algorithm, velocity off leaves cost flat
+ok 158 - policy: class multipliers, mobile discount, mode picks the engine algorithm, velocity off leaves cost flat
+  ---
+  duration_ms: 0.291554
+  type: 'test'
+  ...
+# Subtest: coarse key uses /24 and /48, never the full address
+ok 159 - coarse key uses /24 and /48, never the full address
+  ---
+  duration_ms: 0.508313
+  type: 'test'
+  ...
+# Subtest: mint rejects TTL over 120s, read challenges and unknown algorithms
+ok 160 - mint rejects TTL over 120s, read challenges and unknown algorithms
+  ---
+  duration_ms: 0.257695
+  type: 'test'
+  ...
+# Subtest: publish workflow is manual, passes the npm token on the job, and publishes through the skip script
+ok 161 - publish workflow is manual, passes the npm token on the job, and publishes through the skip script
+  ---
+  duration_ms: 0.723699
+  type: 'test'
+  ...
+# Subtest: the four public package directories are the @lessspam packages
+ok 162 - the four public package directories are the @lessspam packages
+  ---
+  duration_ms: 0.646544
+  type: 'test'
+  ...
+# publish: @lessspam/widget@0.1.0 is already on the registry; skipping
+# Subtest: an exact version already on the registry is skipped and npm publish is not run
+ok 163 - an exact version already on the registry is skipped and npm publish is not run
+  ---
+  duration_ms: 18.914276
+  type: 'test'
+  ...
+# publish: @lessspam/server@0.1.0 is not on the registry; not publishing
+# Subtest: a missing version is reported and left unpublished unless --publish is passed
+ok 164 - a missing version is reported and left unpublished unless --publish is passed
+  ---
+  duration_ms: 5.272094
+  type: 'test'
+  ...
+# publish: @lessspam/widget@0.1.0 is already on the registry; skipping
+# publish: @lessspam/server@0.1.0 is not on the registry; publishing
+# Subtest: a missing version with --publish runs npm publish --provenance for that package only
+ok 165 - a missing version with --publish runs npm publish --provenance for that package only
+  ---
+  duration_ms: 5.423428
+  type: 'test'
+  ...
+# Subtest: a registry error stops the run before npm publish
+ok 166 - a registry error stops the run before npm publish
+  ---
+  duration_ms: 3.031172
+  type: 'test'
+  ...
+# Subtest: a version document for a different version does not count as published
+ok 167 - a version document for a different version does not count as published
+  ---
+  duration_ms: 2.669459
+  type: 'test'
+  ...
+# Subtest: cli --publish does not invoke npm when that exact version is already on the registry
+ok 168 - cli --publish does not invoke npm when that exact version is already on the registry
+  ---
+  duration_ms: 56.692862
+  type: 'test'
+  ...
+# Subtest: cli --publish invokes npm publish --provenance only for a version the registry does not have
+ok 169 - cli --publish invokes npm publish --provenance only for a version the registry does not have
+  ---
+  duration_ms: 53.332609
+  type: 'test'
+  ...
+# Subtest: challenge endpoint returns 429 after 60 requests per minute from one IP
+ok 170 - challenge endpoint returns 429 after 60 requests per minute from one IP
+  ---
+  duration_ms: 168.955977
+  type: 'test'
+  ...
+# Subtest: the page-view warning and install text are docs/copy.md word for word
+ok 171 - the page-view warning and install text are docs/copy.md word for word
+  ---
+  duration_ms: 0.628737
+  type: 'test'
+  ...
+# Subtest: toll.example.yaml: '/' is an explicit read route first; search 1x; loads without a confirm
+ok 172 - toll.example.yaml: '/' is an explicit read route first; search 1x; loads without a confirm
+  ---
+  duration_ms: 10.390132
+  type: 'test'
+  ...
+# Subtest: classification: every page load is read (mapped or not); writes keep their class; unmapped writes stay write; search can cost 0
+ok 173 - classification: every page load is read (mapped or not); writes keep their class; unmapped writes stay write; search can cost 0
+  ---
+  duration_ms: 0.678458
+  type: 'test'
+  ...
+# Subtest: gating page views ('/' above read, or get: true) refuses to load without confirm_page_view_gating, with the warning text
+ok 174 - gating page views ('/' above read, or get: true) refuses to load without confirm_page_view_gating, with the warning text
+  ---
+  duration_ms: 0.238188
+  type: 'test'
+  ...
+# Subtest: confirmed: GET is gated only where the owner said so; the warning is logged at startup and page_view_gate_confirmed counts it
+ok 175 - confirmed: GET is gated only where the owner said so; the warning is logged at startup and page_view_gate_confirmed counts it
+  ---
+  duration_ms: 1.093767
+  type: 'test'
+  ...
+# Subtest: protect() mounted on the whole site: page loads pass through untouched (no challenge minted); writes are checked
+ok 176 - protect() mounted on the whole site: page loads pass through untouched (no challenge minted); writes are checked
+  ---
+  duration_ms: 36.037168
+  type: 'test'
+  ...
+# Subtest: M10 Node demo: GET / and unmapped pages are free; challenges_minted does not move
+ok 177 - M10 Node demo: GET / and unmapped pages are free; challenges_minted does not move # SKIP demo not running on http://127.0.0.1:8787
+  ---
+  duration_ms: 0.461382
+  type: 'test'
+  ...
+# Subtest: M10 WordPress: GET /, posts, feed, login page and unmapped pages are free; counters do not move
+ok 178 - M10 WordPress: GET /, posts, feed, login page and unmapped pages are free; counters do not move # SKIP WordPress not running on http://127.0.0.1:8888
+  ---
+  duration_ms: 0.087251
+  type: 'test'
+  ...
+# Subtest: M10 edge: GETs are proxied before any Toll code, even under write and account prefixes
+ok 179 - M10 edge: GETs are proxied before any Toll code, even under write and account prefixes # SKIP edge worker not running on http://127.0.0.1:8789
+  ---
+  duration_ms: 0.12247
+  type: 'test'
+  ...
+# Subtest: robots.txt: website/robots.txt and the built file allow everything, with no Sitemap line and no domain
+ok 180 - robots.txt: website/robots.txt and the built file allow everything, with no Sitemap line and no domain
+  ---
+  duration_ms: 19.568899
+  type: 'test'
+  ...
+# Subtest: Q2: offers[] only for agent requests (query or Toll-Client header); widget requests get offers: []
+ok 181 - Q2: offers[] only for agent requests (query or Toll-Client header); widget requests get offers: []
+  ---
+  duration_ms: 44.742277
+  type: 'test'
+  ...
+# Subtest: Q2: protected route -> 402 + WWW-Authenticate for agents; 403 toll_required with no offers for everyone else
+ok 182 - Q2: protected route -> 402 + WWW-Authenticate for agents; 403 toll_required with no offers for everyone else
+  ---
+  duration_ms: 13.802241
+  type: 'test'
+  ...
+# Subtest: Q3: every offer amount is a whole multiple of 1,000 msat (base table per class)
+ok 183 - Q3: every offer amount is a whole multiple of 1,000 msat (base table per class)
+  ---
+  duration_ms: 11.232201
+  type: 'test'
+  ...
+# Subtest: Q6: paying mints a settle pass with n=1 and exp = now+60; second use refused; replayed preimage 401 replay
+ok 184 - Q6: paying mints a settle pass with n=1 and exp = now+60; second use refused; replayed preimage 401 replay
+  ---
+  duration_ms: 22.572493
+  type: 'test'
+  ...
+# Subtest: paid redeem failures: wrong preimage, substituted offer, tampered credential, malformed -> rejected, nothing booked
+ok 185 - paid redeem failures: wrong preimage, substituted offer, tampered credential, malformed -> rejected, nothing booked
+  ---
+  duration_ms: 18.632515
+  type: 'test'
+  ...
+# Subtest: paid redeem fails closed when the replay store is down (503), and nothing is booked
+ok 186 - paid redeem fails closed when the replay store is down (503), and nothing is booked
+  ---
+  duration_ms: 7.176481
+  type: 'test'
+  ...
+# Subtest: §19.10: the agent client pays 5 writes end to end; ledger gross/fee/net in msat, USD on the stats
+ok 187 - §19.10: the agent client pays 5 writes end to end; ledger gross/fee/net in msat, USD on the stats
+  ---
+  duration_ms: 41.655467
+  type: 'test'
+  ...
+# Subtest: Q4: USD hidden when the rate is unavailable; amounts still offered in msat; health and page say so
+ok 188 - Q4: USD hidden when the rate is unavailable; amounts still offered in msat; health and page say so
+  ---
+  duration_ms: 6.41377
+  type: 'test'
+  ...
+# Subtest: degraded backend: offers [], 403 not 402, settlement_degraded logged, writes still pass with work, no 500; recovers
+ok 189 - degraded backend: offers [], 403 not 402, settlement_degraded logged, writes still pass with work, no 500; recovers
+  ---
+  duration_ms: 20.808265
+  type: 'test'
+  ...
+# Subtest: Q5 + Q6 at the SDK level: fee rounds down (1234 bps), settle pass expires after 60 s, offer expiry enforced
+ok 190 - Q5 + Q6 at the SDK level: fee rounds down (1234 bps), settle pass expires after 60 s, offer expiry enforced
+  ---
+  duration_ms: 6.530625
+  type: 'test'
+  ...
+# Subtest: config: settlement accepts only the local test backend and Q6-bounded passes; off by default
+ok 191 - config: settlement accepts only the local test backend and Q6-bounded passes; off by default
+  ---
+  duration_ms: 0.869756
+  type: 'test'
+  ...
+# Subtest: offer_shown: +1 per 402 that carries offers; not for 403s or /v1/challenge; in /demo/stats and the counters line next to paid
+ok 192 - offer_shown: +1 per 402 that carries offers; not for 403s or /v1/challenge; in /demo/stats and the counters line next to paid
+  ---
+  duration_ms: 23.829627
+  type: 'test'
+  ...
+# Subtest: owner toggle (demo-only): unticked -> no offers, agents get 403 and do the work, mode 'work-only' (not 'paused'), balance kept; ticked -> offers back
+ok 193 - owner toggle (demo-only): unticked -> no offers, agents get 403 and do the work, mode 'work-only' (not 'paused'), balance kept; ticked -> offers back
+  ---
+  duration_ms: 88.284496
+  type: 'test'
+  ...
+# Subtest: lazy work challenge: a paid write mints no challenge; challenge_url mints one only when fetched, bound to the same action/site/path, no offers
+ok 194 - lazy work challenge: a paid write mints no challenge; challenge_url mints one only when fetched, bound to the same action/site/path, no offers
+  ---
+  duration_ms: 24.511448
+  type: 'test'
+  ...
+# Subtest: agent work fallback fetches challenge_url on demand: no payer, payment declined, offer over the limit
+ok 195 - agent work fallback fetches challenge_url on demand: no payer, payment declined, offer over the limit
+  ---
+  duration_ms: 96.450962
+  type: 'test'
+  ...
+# Subtest: work_after_402: +1 when an agent that can't pay fetches challenge_url; the paid path leaves it at 0; counters line and /demo/stats
+ok 196 - work_after_402: +1 when an agent that can't pay fetches challenge_url; the paid path leaves it at 0; counters line and /demo/stats
+  ---
+  duration_ms: 40.41404
+  type: 'test'
+  ...
+# Subtest: pass_absent: a first contact with no pass is not a rejection; real rejections keep their reason
+ok 197 - pass_absent: a first contact with no pass is not a rejection; real rejections keep their reason
+  ---
+  duration_ms: 5.029998
+  type: 'test'
+  ...
+# Subtest: stub: invoice + preimage verifies; wrong preimage rejected; replayed preimage rejected
+ok 198 - stub: invoice + preimage verifies; wrong preimage rejected; replayed preimage rejected
+  ---
+  duration_ms: 8.62974
+  type: 'test'
+  ...
+# Subtest: stub: invoice substitution and expiry are rejected
+ok 199 - stub: invoice substitution and expiry are rejected
+  ---
+  duration_ms: 2.463256
+  type: 'test'
+  ...
+# Subtest: stub: shared test preimage mode and outage
+ok 200 - stub: shared test preimage mode and outage
+  ---
+  duration_ms: 0.932654
+  type: 'test'
+  ...
+# Subtest: ledger records gross, fee and net per payment in integer msat; fee is held, not moved
+ok 201 - ledger records gross, fee and net per payment in integer msat; fee is held, not moved
+  ---
+  duration_ms: 0.87863
+  type: 'test'
+  ...
+# Subtest: USD display follows docs/copy.md money rules and hides when FX is stale
+ok 202 - USD display follows docs/copy.md money rules and hides when FX is stale
+  ---
+  duration_ms: 0.160749
+  type: 'test'
+  ...
+# Subtest: engine interface: the stub engine and the proxy client (stub mode) pay and verify through L402 headers; live mode refuses
+ok 203 - engine interface: the stub engine and the proxy client (stub mode) pay and verify through L402 headers; live mode refuses
+  ---
+  duration_ms: 2.734875
+  type: 'test'
+  ...
+# Subtest: settlement vectors: engine secret derivation
+ok 204 - settlement vectors: engine secret derivation
+  ---
+  duration_ms: 4.565289
+  type: 'test'
+  ...
+# Subtest: settlement vectors: Q3 prices round up to whole 1,000 msat
+ok 205 - settlement vectors: Q3 prices round up to whole 1,000 msat
+  ---
+  duration_ms: 0.391899
+  type: 'test'
+  ...
+# Subtest: settlement vectors: Q5 fee rounds down
+ok 206 - settlement vectors: Q5 fee rounds down
+  ---
+  duration_ms: 0.584378
+  type: 'test'
+  ...
+# Subtest: {fee} placeholder: fee_bps / 100 with trailing zeros dropped (docs/copy.md Money): 1000 -> 10, 750 -> 7.5, 25 -> 0.25
+ok 207 - {fee} placeholder: fee_bps / 100 with trailing zeros dropped (docs/copy.md Money): 1000 -> 10, 750 -> 7.5, 25 -> 0.25
+  ---
+  duration_ms: 0.293831
+  type: 'test'
+  ...
+# Subtest: settlement vectors: agent 402 gate body links the work challenge (challenge_url), no inline challenge; WWW-Authenticate from offers[0]
+ok 208 - settlement vectors: agent 402 gate body links the work challenge (challenge_url), no inline challenge; WWW-Authenticate from offers[0]
+  ---
+  duration_ms: 1.09119
+  type: 'test'
+  ...
+# Subtest: settlement vectors: Q4 USD strings, hidden when the rate is stale or missing
+ok 209 - settlement vectors: Q4 USD strings, hidden when the rate is stale or missing
+  ---
+  duration_ms: 0.345717
+  type: 'test'
+  ...
+# Subtest: settlement vectors: offers reproduce; paid redeem verifies; settle pass n=1, 60 s, token reproduces
+ok 210 - settlement vectors: offers reproduce; paid redeem verifies; settle pass n=1, 60 s, token reproduces
+  ---
+  duration_ms: 6.819098
+  type: 'test'
+  ...
+# Subtest: settlement vectors: rejection cases and replay
+ok 211 - settlement vectors: rejection cases and replay
+  ---
+  duration_ms: 1.463145
+  type: 'test'
+  ...
+# Subtest: _headers: the site CSP line is unchanged, and /demo replaces it with the demo policy
+ok 212 - _headers: the site CSP line is unchanged, and /demo replaces it with the demo policy
+  ---
+  duration_ms: 0.814622
+  type: 'test'
+  ...
+# Subtest: _headers: a build copies website/_headers into dist/_headers unchanged (fresh build and website/dist)
+ok 213 - _headers: a build copies website/_headers into dist/_headers unchanged (fresh build and website/dist)
+  ---
+  duration_ms: 0.68625
+  type: 'test'
+  ...
+# Subtest: protocol siteUrl: accepts only an absolute https URL with a host name, strips trailing slashes, null when unset
+ok 214 - protocol siteUrl: accepts only an absolute https URL with a host name, strips trailing slashes, null when unset
+  ---
+  duration_ms: 1.416827
+  type: 'test'
+  ...
+# Subtest: protocol siteUrl: an invalid value is logged once (without the value) and treated as unset
+ok 215 - protocol siteUrl: an invalid value is logged once (without the value) and treated as unset
+  ---
+  duration_ms: 0.233396
+  type: 'test'
+  ...
+# Subtest: PHP toll_gate_parse_site_url: same pattern and same answers as the protocol helper
+ok 216 - PHP toll_gate_parse_site_url: same pattern and same answers as the protocol helper
+  ---
+  duration_ms: 42.001625
+  type: 'test'
+  ...
+# Subtest: unset: toll.json and agents.json from Node, edge and WordPress are byte-identical to 23108ec
+ok 217 - unset: toll.json and agents.json from Node, edge and WordPress are byte-identical to 23108ec
+  ---
+  duration_ms: 378.628434
+  type: 'test'
+  ...
+# Subtest: set: docs is exactly TOLL_SITE_URL in Node, edge and WordPress; nothing else changes
+ok 218 - set: docs is exactly TOLL_SITE_URL in Node, edge and WordPress; nothing else changes
+  ---
+  duration_ms: 285.267265
+  type: 'test'
+  ...
+# Subtest: Node: an explicit discovery.docs_url in the config still wins over TOLL_SITE_URL
+ok 219 - Node: an explicit discovery.docs_url in the config still wins over TOLL_SITE_URL
+  ---
+  duration_ms: 5.773188
+  type: 'test'
+  ...
+# Subtest: demo: demo/toll.yaml through loadConfig takes TOLL_SITE_URL from the environment
+ok 220 - demo: demo/toll.yaml through loadConfig takes TOLL_SITE_URL from the environment
+  ---
+  duration_ms: 9.24034
+  type: 'test'
+  ...
+# Subtest: edge: wrangler.toml sets no TOLL_SITE_URL (unset by default)
+ok 221 - edge: wrangler.toml sets no TOLL_SITE_URL (unset by default)
+  ---
+  duration_ms: 0.136087
+  type: 'test'
+  ...
+# Subtest: invalid: logged once and treated as unset in Node, edge and WordPress (output identical to 23108ec)
+ok 222 - invalid: logged once and treated as unset in Node, edge and WordPress (output identical to 23108ec)
+  ---
+  duration_ms: 765.059414
+  type: 'test'
+  ...
+# Subtest: WordPress: an invalid TOLL_SITE_URL is logged at most once an hour across requests (toll_gate_site_url_warned transient)
+ok 223 - WordPress: an invalid TOLL_SITE_URL is logged at most once an hour across requests (toll_gate_site_url_warned transient)
+  ---
+  duration_ms: 281.205377
+  type: 'test'
+  ...
+# Subtest: wrangler.toml: assets, sqlite durable object, workers_dev, production custom domains only
+ok 224 - wrangler.toml: assets, sqlite durable object, workers_dev, production custom domains only
+  ---
+  duration_ms: 1263.89501
+  type: 'test'
+  ...
+# Subtest: existing pages: 200, site CSP unchanged, body byte-identical to the build
+ok 225 - existing pages: 200, site CSP unchanged, body byte-identical to the build
+  ---
+  duration_ms: 51.852063
+  type: 'test'
+  ...
+# Subtest: docs and download: 200, site CSP, body matches the build, zip bytes match
+ok 226 - docs and download: 200, site CSP, body matches the build, zip bytes match
+  ---
+  duration_ms: 86.964989
+  type: 'test'
+  ...
+# Subtest: demo page: demo CSP, and a pass-less POST is 403 with a challenge
+ok 227 - demo page: demo CSP, and a pass-less POST is 403 with a challenge
+  ---
+  duration_ms: 59.260198
+  type: 'test'
+  ...
+# Subtest: replayed challenge is 401; a spent pass is rejected; price is stub; paid redeem is 400
+ok 228 - replayed challenge is 401; a spent pass is rejected; price is stub; paid redeem is 400
+  ---
+  duration_ms: 429.612895
+  type: 'test'
+  ...
+# Subtest: two concurrent redeems of one challenge give exactly one pass
+ok 229 - two concurrent redeems of one challenge give exactly one pass
+  ---
+  duration_ms: 153.321507
+  type: 'test'
+  ...
+# Subtest: injected store failure rejects writes; pages stay 200
+ok 230 - injected store failure rejects writes; pages stay 200
+  ---
+  duration_ms: 856.577002
+  type: 'test'
+  ...
+# Subtest: demo form submits without thinking; no CSP violations; no third-party requests
+ok 231 - demo form submits without thinking; no CSP violations; no third-party requests
+  ---
+  duration_ms: 1616.49703
+  type: 'test'
+  ...
+# Subtest: the message is not in the worker log
+ok 232 - the message is not in the worker log
+  ---
+  duration_ms: 0.378018
+  type: 'test'
+  ...
+# Subtest: bundle is within the Workers Free limit and dry-run succeeds
+ok 233 - bundle is within the Workers Free limit and dry-run succeeds
+  ---
+  duration_ms: 836.618712
+  type: 'test'
+  ...
+# Subtest: 19.6 adaptive work cost is non-decreasing under a burst of redeems from one client
+ok 234 - 19.6 adaptive work cost is non-decreasing under a burst of redeems from one client
+  ---
+  duration_ms: 6404.274252
+  type: 'test'
+  ...
+# Subtest: current viewport test covers every built public page
+ok 235 - current viewport test covers every built public page
+  ---
+  duration_ms: 1.049283
+  type: 'test'
+  ...
+# Subtest: 6f65ddd parent: no viewport test while the demo page existed
+ok 236 - 6f65ddd parent: no viewport test while the demo page existed
+  ---
+  duration_ms: 6.594468
+  type: 'test'
+  ...
+# Subtest: 5cd9c85: viewport PATHS omitted mission and legal pages that the build emitted
+ok 237 - 5cd9c85: viewport PATHS omitted mission and legal pages that the build emitted
+  ---
+  duration_ms: 4.728027
+  type: 'test'
+  ...
+# Subtest: phone width: scrollWidth <= innerWidth at 360 and 390 for every built public page
+ok 238 - phone width: scrollWidth <= innerWidth at 360 and 390 for every built public page
+  ---
+  duration_ms: 18999.571664
+  type: 'test'
+  ...
+# Subtest: website/*.md match the pages in docs/copy.md, word for word; the held catalog paragraph stays out
+ok 239 - website/*.md match the pages in docs/copy.md, word for word; the held catalog paragraph stays out
+  ---
+  duration_ms: 4.76064
+  type: 'test'
+  ...
+# Subtest: docs/positioning.md is Amendment 2 §B as written (one banned word replaced), with the discovery note
+ok 240 - docs/positioning.md is Amendment 2 §B as written (one banned word replaced), with the discovery note # SKIP AMENDMENT_2.md not present
+  ---
+  duration_ms: 0.101058
+  type: 'test'
+  ...
+# Subtest: built pages carry exactly the markdown text: header, nav with aria-current, list for values, closing line set off
+ok 241 - built pages carry exactly the markdown text: header, nav with aria-current, list for values, closing line set off
+  ---
+  duration_ms: 1.525211
+  type: 'test'
+  ...
+# Subtest: no analytics: no <script>, no inline handlers, no external URLs, no pixels, no cookies in the built HTML and CSS
+ok 242 - no analytics: no <script>, no inline handlers, no external URLs, no pixels, no cookies in the built HTML and CSS
+  ---
+  duration_ms: 0.798454
+  type: 'test'
+  ...
+# Subtest: in a browser each page makes only same-origin requests (the page, site.css and its two fonts), sets no cookies and has no scripts
+ok 243 - in a browser each page makes only same-origin requests (the page, site.css and its two fonts), sets no cookies and has no scripts
+  ---
+  duration_ms: 2302.351637
+  type: 'test'
+  ...
+# Subtest: copy lint covers website/ and docs/positioning.md, and they pass as written
+ok 244 - copy lint covers website/ and docs/positioning.md, and they pass as written
+  ---
+  duration_ms: 73.644271
+  type: 'test'
+  ...
+# Subtest: built pages match the Designer's template byte for byte, apart from the EM's root-relative rulings; site.css is the inner pages handoff file
+ok 245 - built pages match the Designer's template byte for byte, apart from the EM's root-relative rulings; site.css is the inner pages handoff file # SKIP design/ not present (gitignored)
+  ---
+  duration_ms: 0.154532
+  type: 'test'
+  ...
+# Subtest: (b) payouts off, Test mode, or no address: an agent gets the work-only 403 with an inline challenge, never a 402; browsers unchanged
+ok 246 - (b) payouts off, Test mode, or no address: an agent gets the work-only 403 with an inline challenge, never a 402; browsers unchanged # SKIP local WordPress not running at http://127.0.0.1:8888 (run packages/wp-toll-gate/dev/setup-local-wp.sh)
+  ---
+  duration_ms: 0.475926
+  type: 'test'
+  ...
+# Subtest: (b) Test mode: agent-pay 20 on the comment form is 20/20 accepted by doing the work, 0 paid, no 402
+ok 247 - (b) Test mode: agent-pay 20 on the comment form is 20/20 accepted by doing the work, 0 paid, no 402 # SKIP local WordPress not running at http://127.0.0.1:8888 (run packages/wp-toll-gate/dev/setup-local-wp.sh)
+  ---
+  duration_ms: 0.138461
+  type: 'test'
+  ...
+# Subtest: (d) Payment server: an agent gets the Node 402 (WWW-Authenticate relayed, key order error/challenge_url/offers); challenge_url has offers=0 and counts work_after_402; browsers unchanged
+ok 248 - (d) Payment server: an agent gets the Node 402 (WWW-Authenticate relayed, key order error/challenge_url/offers); challenge_url has offers=0 and counts work_after_402; browsers unchanged # SKIP local WordPress not running at http://127.0.0.1:8888 (run packages/wp-toll-gate/dev/setup-local-wp.sh)
+  ---
+  duration_ms: 0.071996
+  type: 'test'
+  ...
+# Subtest: Payment server: agent-pay 20 on the comment form is 20/20 paid; replay rejected; spent pass refused; WP counters and the balance in WP admin match the payment server
+ok 249 - Payment server: agent-pay 20 on the comment form is 20/20 paid; replay rejected; spent pass refused; WP counters and the balance in WP admin match the payment server # SKIP local WordPress not running at http://127.0.0.1:8888 (run packages/wp-toll-gate/dev/setup-local-wp.sh)
+  ---
+  duration_ms: 0.061103
+  type: 'test'
+  ...
+# Subtest: (a) the plugin relays the server's offers as they are and asks the server to check each payment; it mints a pass only on the server's ok
+ok 250 - (a) the plugin relays the server's offers as they are and asks the server to check each payment; it mints a pass only on the server's ok # SKIP local WordPress not running at http://127.0.0.1:8888 (run packages/wp-toll-gate/dev/setup-local-wp.sh)
+  ---
+  duration_ms: 0.071972
+  type: 'test'
+  ...
+# Subtest: (a) no payment code in the plugin's PHP: no proof or credential checks, no Settlement verification helper (preimageMatches) anywhere under packages/wp-toll-gate, paid redeem verified only by the payment server; no invoice parsing in packages/wp-toll-gate or packages/server-php (Amendment 1 §F)
+ok 251 - (a) no payment code in the plugin's PHP: no proof or credential checks, no Settlement verification helper (preimageMatches) anywhere under packages/wp-toll-gate, paid redeem verified only by the payment server; no invoice parsing in packages/wp-toll-gate or packages/server-php (Amendment 1 §F)
+  ---
+  duration_ms: 4.230429
+  type: 'test'
+  ...
+# Subtest: (c) Payment server down: no 402, agents do the work (agent-pay 3/3), redeem is 503 not 500; the settings page shows only the existing notice
+ok 252 - (c) Payment server down: no 402, agents do the work (agent-pay 3/3), redeem is 503 not 500; the settings page shows only the existing notice # SKIP local WordPress not running at http://127.0.0.1:8888 (run packages/wp-toll-gate/dev/setup-local-wp.sh)
+  ---
+  duration_ms: 0.105993
+  type: 'test'
+  ...
+# Subtest: (c) Payment server slow or broken: agents wait at most ~1.5 s, then work; the outage is remembered so the next agents don't wait; 500s never pass through
+ok 253 - (c) Payment server slow or broken: agents wait at most ~1.5 s, then work; the outage is remembered so the next agents don't wait; 500s never pass through # SKIP local WordPress not running at http://127.0.0.1:8888 (run packages/wp-toll-gate/dev/setup-local-wp.sh)
+  ---
+  duration_ms: 0.215366
+  type: 'test'
+  ...
+# Subtest: unit: count() touches no table; flush() is one statement for many rows and adds to what is stored
+ok 254 - unit: count() touches no table; flush() is one statement for many rows and adds to what is stored # SKIP local WordPress not running at http://127.0.0.1:8888
+  ---
+  duration_ms: 0.494639
+  type: 'test'
+  ...
+# Subtest: unit: counting_since is set by the first flush and never moved by later ones
+ok 255 - unit: counting_since is set by the first flush and never moved by later ones # SKIP local WordPress not running at http://127.0.0.1:8888
+  ---
+  duration_ms: 0.122303
+  type: 'test'
+  ...
+# Subtest: unit: a failed flush returns 0, logs one error line and moves no counter (counts are dropped, not retried)
+ok 256 - unit: a failed flush returns 0, logs one error line and moves no counter (counts are dropped, not retried) # SKIP local WordPress not running at http://127.0.0.1:8888
+  ---
+  duration_ms: 0.066869
+  type: 'test'
+  ...
+# Subtest: M10 reads: 0 counter writes and no counter moves on /, a post, the feed, search, the login page and the price lookup
+ok 257 - M10 reads: 0 counter writes and no counter moves on /, a post, the feed, search, the login page and the price lookup # SKIP local WordPress not running at http://127.0.0.1:8888
+  ---
+  duration_ms: 0.057929
+  type: 'test'
+  ...
+# Subtest: discovery GETs keep their existing counts (manifest_fetch, agents_json_fetch) with exactly 1 write each
+ok 258 - discovery GETs keep their existing counts (manifest_fetch, agents_json_fetch) with exactly 1 write each # SKIP local WordPress not running at http://127.0.0.1:8888
+  ---
+  duration_ms: 0.070569
+  type: 'test'
+  ...
+# Subtest: Test mode agent-pay 20: same deltas as before, every write request makes at most 1 counter write
+ok 259 - Test mode agent-pay 20: same deltas as before, every write request makes at most 1 counter write # SKIP local WordPress not running at http://127.0.0.1:8888
+  ---
+  duration_ms: 0.087234
+  type: 'test'
+  ...
+# Subtest: concurrency: 60 parallel challenge requests land exactly +60 challenges_minted
+ok 260 - concurrency: 60 parallel challenge requests land exactly +60 challenges_minted # SKIP local WordPress not running at http://127.0.0.1:8888
+  ---
+  duration_ms: 0.059799
+  type: 'test'
+  ...
+# Subtest: concurrency: 24 parallel processes x 50 flushes on the same rows lose nothing
+ok 261 - concurrency: 24 parallel processes x 50 flushes on the same rows lose nothing # SKIP local WordPress not running at http://127.0.0.1:8888
+  ---
+  duration_ms: 0.135857
+  type: 'test'
+  ...
+# Subtest: CSV: header, 30 day rows oldest first, values read back the same as before batching
+ok 262 - CSV: header, 30 day rows oldest first, values read back the same as before batching # SKIP local WordPress not running at http://127.0.0.1:8888
+  ---
+  duration_ms: 0.206264
+  type: 'test'
+  ...
+# Subtest: parity: the payment server's own 402, the relayed offer, its /v1/price, the site's /price and the site's agent 402 agree for one network, at x1 and after paid writes raise it; another network stays at x1; no network (or a walk stopped by an invalid entry) gets the base
+ok 263 - parity: the payment server's own 402, the relayed offer, its /v1/price, the site's /price and the site's agent 402 agree for one network, at x1 and after paid writes raise it; another network stays at x1; no network (or a walk stopped by an invalid entry) gets the base # SKIP local WordPress not running at http://127.0.0.1:8888 (run packages/wp-toll-gate/dev/setup-local-wp.sh)
+  ---
+  duration_ms: 0.468484
+  type: 'test'
+  ...
+# Subtest: the site's manifest shows the base-price note when its payment server applies load (velocity on, the site sends networks); a site that does not declare it is told false
+ok 264 - the site's manifest shows the base-price note when its payment server applies load (velocity on, the site sends networks); a site that does not declare it is told false # SKIP local WordPress not running at http://127.0.0.1:8888 (run packages/wp-toll-gate/dev/setup-local-wp.sh)
+  ---
+  duration_ms: 0.150672
+  type: 'test'
+  ...
+# Subtest: the site stores no visitor network or address: options and transients (the price cache included) never hold them
+ok 265 - the site stores no visitor network or address: options and transients (the price cache included) never hold them # SKIP local WordPress not running at http://127.0.0.1:8888 (run packages/wp-toll-gate/dev/setup-local-wp.sh)
+  ---
+  duration_ms: 0.079576
+  type: 'test'
+  ...
+# Subtest: WP issuer: health, challenge, redeem -> 900 s / 20-use pass + HttpOnly cookie, replay refused, paid redeem refused
+ok 266 - WP issuer: health, challenge, redeem -> 900 s / 20-use pass + HttpOnly cookie, replay refused, paid redeem refused # SKIP local WordPress not running at http://127.0.0.1:8888 (run packages/wp-toll-gate/dev/setup-local-wp.sh)
+  ---
+  duration_ms: 0.588539
+  type: 'test'
+  ...
+# Subtest: comments fail closed: accepted with a pass (one use spent), 403 with none or a bad one; counters move with the same names as Node
+ok 267 - comments fail closed: accepted with a pass (one use spent), 403 with none or a bad one; counters move with the same names as Node # SKIP local WordPress not running at http://127.0.0.1:8888 (run packages/wp-toll-gate/dev/setup-local-wp.sh)
+  ---
+  duration_ms: 0.08107
+  type: 'test'
+  ...
+# Subtest: login is gated (account class): a write pass does not cover it; no pass -> error, the password is never checked
+ok 268 - login is gated (account class): a write pass does not cover it; no pass -> error, the password is never checked # SKIP local WordPress not running at http://127.0.0.1:8888 (run packages/wp-toll-gate/dev/setup-local-wp.sh)
+  ---
+  duration_ms: 0.065293
+  type: 'test'
+  ...
+# Subtest: siteverify mirrors Node: success with the site secret, invalid-input-secret otherwise; 20 uses per pass, even under a race
+ok 269 - siteverify mirrors Node: success with the site secret, invalid-input-secret otherwise; 20 uses per pass, even under a race # SKIP local WordPress not running at http://127.0.0.1:8888 (run packages/wp-toll-gate/dev/setup-local-wp.sh)
+  ---
+  duration_ms: 0.057587
+  type: 'test'
+  ...
+# Subtest: Export counters: plain link on the 'Challenges issued today' line with the help line; owner-only (login + nonce)
+ok 270 - Export counters: plain link on the 'Challenges issued today' line with the help line; owner-only (login + nonce) # SKIP local WordPress not running at http://127.0.0.1:8888 (run packages/wp-toll-gate/dev/setup-local-wp.sh)
+  ---
+  duration_ms: 0.06334
+  type: 'test'
+  ...
+# Subtest: CSV: one row per UTC day for the last 30 days, oldest first; timezone column; since and exported_at in ISO UTC; challenges_minted counts each challenge and drives 'Challenges issued today'
+ok 271 - CSV: one row per UTC day for the last 30 days, oldest first; timezone column; since and exported_at in ISO UTC; challenges_minted counts each challenge and drives 'Challenges issued today' # SKIP local WordPress not running at http://127.0.0.1:8888 (run packages/wp-toll-gate/dev/setup-local-wp.sh)
+  ---
+  duration_ms: 0.07976
+  type: 'test'
+  ...
+# Subtest: site key field is a text input styled like the other fields, so the underscore in site_… is not clipped
+ok 272 - site key field is a text input styled like the other fields, so the underscore in site_… is not clipped # SKIP local WordPress not running at http://127.0.0.1:8888 (run packages/wp-toll-gate/dev/setup-local-wp.sh)
+  ---
+  duration_ms: 0.051079
+  type: 'test'
+  ...
+# Subtest: install line (Amendment 2 §C): a plain paragraph right under the Toll heading, before the challenges count, on every visit; no page-view switch anywhere
+ok 273 - install line (Amendment 2 §C): a plain paragraph right under the Toll heading, before the challenges count, on every visit; no page-view switch anywhere # SKIP local WordPress not running at http://127.0.0.1:8888 (run packages/wp-toll-gate/dev/setup-local-wp.sh)
+  ---
+  duration_ms: 0.13367
+  type: 'test'
+  ...
+# Subtest: settings default: payouts off, no Balance row, Advanced collapsed, Test mode selected; copy matches docs/copy.md
+ok 274 - settings default: payouts off, no Balance row, Advanced collapsed, Test mode selected; copy matches docs/copy.md # SKIP local WordPress not running at http://127.0.0.1:8888 (run packages/wp-toll-gate/dev/setup-local-wp.sh)
+  ---
+  duration_ms: 0.233729
+  type: 'test'
+  ...
+# Subtest: settings test mode (work-only, like no address): the Balance row holds the no-address warning instead of a balance; Withdraw disabled; address and key rows hidden; test help from docs/copy.md
+ok 275 - settings test mode (work-only, like no address): the Balance row holds the no-address warning instead of a balance; Withdraw disabled; address and key rows hidden; test help from docs/copy.md # SKIP local WordPress not running at http://127.0.0.1:8888 (run packages/wp-toll-gate/dev/setup-local-wp.sh)
+  ---
+  duration_ms: 0.136443
+  type: 'test'
+  ...
+# Subtest: settings Payment server, no address: inline warning in the Balance row, Withdraw disabled; typing an address clears it before saving
+ok 276 - settings Payment server, no address: inline warning in the Balance row, Withdraw disabled; typing an address clears it before saving # SKIP local WordPress not running at http://127.0.0.1:8888 (run packages/wp-toll-gate/dev/setup-local-wp.sh)
+  ---
+  duration_ms: 0.047961
+  type: 'test'
+  ...
+# Subtest: settings Payment server down: notice-warning at the top, '—' over 'Balance will show again shortly', Withdraw disabled
+ok 277 - settings Payment server down: notice-warning at the top, '—' over 'Balance will show again shortly', Withdraw disabled # SKIP local WordPress not running at http://127.0.0.1:8888 (run packages/wp-toll-gate/dev/setup-local-wp.sh)
+  ---
+  duration_ms: 0.038631
+  type: 'test'
+  ...
+# Subtest: settings Payment server connected (local Node issuer, stub backend): balance and fee come from the server; withdraw over the balance refused
+ok 278 - settings Payment server connected (local Node issuer, stub backend): balance and fee come from the server; withdraw over the balance refused # SKIP local WordPress not running at http://127.0.0.1:8888 (run packages/wp-toll-gate/dev/setup-local-wp.sh)
+  ---
+  duration_ms: 0.034284
+  type: 'test'
+  ...
+# Subtest: copy lint on the plugin's screens: no coin words or vendor names on Settings → Toll (every state) or the Plugins row
+ok 279 - copy lint on the plugin's screens: no coin words or vendor names on Settings → Toll (every state) or the Plugins row # SKIP local WordPress not running at http://127.0.0.1:8888 (run packages/wp-toll-gate/dev/setup-local-wp.sh)
+  ---
+  duration_ms: 0.033872
+  type: 'test'
+  ...
+# Subtest: comment form at 390px: posts after the invisible check; no coin or vendor words; hidden widget parts take no space; no third-party requests
+ok 280 - comment form at 390px: posts after the invisible check; no coin or vendor words; hidden widget parts take no space; no third-party requests # SKIP local WordPress not running at http://127.0.0.1:8888 (run packages/wp-toll-gate/dev/setup-local-wp.sh)
+  ---
+  duration_ms: 0.033311
+  type: 'test'
+  ...
+# Subtest: comment form at 1440px: posts after the invisible check; no coin or vendor words; hidden widget parts take no space; no third-party requests
+ok 281 - comment form at 1440px: posts after the invisible check; no coin or vendor words; hidden widget parts take no space; no third-party requests # SKIP local WordPress not running at http://127.0.0.1:8888 (run packages/wp-toll-gate/dev/setup-local-wp.sh)
+  ---
+  duration_ms: 0.031995
+  type: 'test'
+  ...
+# Subtest: no JavaScript: the comment form shows the note and the POST is rejected
+ok 282 - no JavaScript: the comment form shows the note and the POST is rejected # SKIP local WordPress not running at http://127.0.0.1:8888 (run packages/wp-toll-gate/dev/setup-local-wp.sh)
+  ---
+  duration_ms: 0.025973
+  type: 'test'
+  ...
+# Subtest: ip_bytes vectors, natively in JS: protocol ipBytes gives the expected packed address (or null) for every entry
+ok 283 - ip_bytes vectors, natively in JS: protocol ipBytes gives the expected packed address (or null) for every entry
+  ---
+  duration_ms: 2.380054
+  type: 'test'
+  ...
+# Subtest: client_ip vectors, natively in JS: protocol clientIp gives the expected address and network for every entry (raw list and parsed list)
+ok 284 - client_ip vectors, natively in JS: protocol clientIp gives the expected address and network for every entry (raw list and parsed list)
+  ---
+  duration_ms: 1.262972
+  type: 'test'
+  ...
+# Subtest: cross-check: the plugin's PHP gives the same ip_bytes and client_ip output as protocol, entry by entry
+ok 285 - cross-check: the plugin's PHP gives the same ip_bytes and client_ip output as protocol, entry by entry
+  ---
+  duration_ms: 23.956117
+  type: 'test'
+  ...
+# Subtest: TOLL_TRUSTED_PROXIES: read from the environment; bad entries ignored and logged once per value with the count only
+ok 286 - TOLL_TRUSTED_PROXIES: read from the environment; bad entries ignored and logged once per value with the count only
+  ---
+  duration_ms: 0.839544
+  type: 'test'
+  ...
+# Subtest: requestClient: unset, the socket address even with a forged header; set, the walk; no usable client -> ip null and the rate limit on the socket address
+ok 287 - requestClient: unset, the socket address even with a forged header; set, the walk; no usable client -> ip null and the rate limit on the socket address
+  ---
+  duration_ms: 0.251593
+  type: 'test'
+  ...
+# Subtest: Node, TOLL_TRUSTED_PROXIES unset: the socket's network prices the request; a forged X-Forwarded-For changes neither price nor rate-limit bucket
+ok 288 - Node, TOLL_TRUSTED_PROXIES unset: the socket's network prices the request; a forged X-Forwarded-For changes neither price nor rate-limit bucket
+  ---
+  duration_ms: 121.220325
+  type: 'test'
+  ...
+# Subtest: Node, socket not a listed proxy (TOLL_TRUSTED_PROXIES=10.0.0.0/8): X-Forwarded-For from it is ignored
+ok 289 - Node, socket not a listed proxy (TOLL_TRUSTED_PROXIES=10.0.0.0/8): X-Forwarded-For from it is ignored
+  ---
+  duration_ms: 29.129272
+  type: 'test'
+  ...
+# Subtest: Node, behind a listed proxy (TOLL_TRUSTED_PROXIES from the environment): the walk picks the client; a forged leftmost entry changes nothing; no usable client gets the base and the socket's bucket
+ok 290 - Node, behind a listed proxy (TOLL_TRUSTED_PROXIES from the environment): the walk picks the client; a forged leftmost entry changes nothing; no usable client gets the base and the socket's bucket
+  ---
+  duration_ms: 75.363462
+  type: 'test'
+  ...
+# [toll] guardFetch has no peer address for this request, so X-Forwarded-For is not read, the price is the base price and every such request shares one rate-limit bucket. Pass it as info.remoteAddr (the handler's second argument) or set o.remoteAddr(request, info).
+# Subtest: guardFetch: X-Forwarded-For only from a listed peer; a forged leftmost entry or a header from an unlisted peer does not pick the network or the bucket; no peer address means no network
+ok 291 - guardFetch: X-Forwarded-For only from a listed peer; a forged leftmost entry or a header from an unlisted peer does not pick the network or the bucket; no peer address means no network
+  ---
+  duration_ms: 23.059036
+  type: 'test'
+  ...
+# Subtest: SDK calls that omit ip behave exactly like null: no network, base price, no velocity key and no velocity count, after many paid and work redeems
+ok 292 - SDK calls that omit ip behave exactly like null: no network, base price, no velocity key and no velocity count, after many paid and work redeems
+  ---
+  duration_ms: 120.315298
+  type: 'test'
+  ...
+# Subtest: edge: only CF-Connecting-IP is read; a forged X-Forwarded-For alongside it, or without it, never picks a rate-limit bucket
+ok 293 - edge: only CF-Connecting-IP is read; a forged X-Forwarded-For alongside it, or without it, never picks a rate-limit bucket
+  ---
+  duration_ms: 255.701996
+  type: 'test'
+  ...
+1..293
+# tests 293
+# suites 0
+# pass 247
+# fail 0
+# cancelled 0
+# skipped 46
+# todo 0
+# duration_ms 133814.594698
+ok   engine secrets derive from the Toll secret
+ok   canonical signing input: standard write (PBKDF2/SHA-256, cost 5000, counter 41)
+ok   challenge sig reproduces: standard write (PBKDF2/SHA-256, cost 5000, counter 41)
+ok   solution accepted: standard write (PBKDF2/SHA-256, cost 5000, counter 41)
+ok   pass token reproduces: standard write (PBKDF2/SHA-256, cost 5000, counter 41)
+ok   canonical signing input: standard search (PBKDF2/SHA-256, cost 1000, counter 0)
+ok   challenge sig reproduces: standard search (PBKDF2/SHA-256, cost 1000, counter 0)
+ok   solution accepted: standard search (PBKDF2/SHA-256, cost 1000, counter 0)
+ok   pass token reproduces: standard search (PBKDF2/SHA-256, cost 1000, counter 0)
+ok   canonical signing input: hardened account (Argon2id t=2 m=8192 p=1, counter 3)
+ok   challenge sig reproduces: hardened account (Argon2id t=2 m=8192 p=1, counter 3)
+ok   solution accepted: hardened account (Argon2id t=2 m=8192 p=1, counter 3)
+ok   pass token reproduces: hardened account (Argon2id t=2 m=8192 p=1, counter 3)
+ok   rejected (bad_sig): bad Toll signature
+ok   rejected (bad_sig): engine payload changed after signing (cost)
+ok   rejected (bad_sig): field changed after signing (bound.action)
+ok   rejected (bad_sig): unsigned challenge
+ok   rejected (bad_sig): signed with another secret
+ok   rejected (expired): expired
+ok   rejected (not_yet_valid): issued in the future
+ok   rejected (bad_solution): wrong derived key
+ok   rejected (bad_solution): wrong counter with a guessed key
+ok   rejected (bad_solution): solution for another challenge
+ok   rejected (bad_solution): engine payload signed by the engine but its tid points at another challenge (re-signed envelope)
+ok   rejected (bad_solution): engine payload signature broken (re-signed envelope)
+ok   rejected (bad_solution): missing solution
+ok   rejected (malformed): ttl over 120s (re-signed)
+ok   rejected (unsupported): unsupported alg (re-signed)
+ok   pass rejected (expired): expired pass
+ok   pass rejected (class_too_low): class too high for pass (write pass, account action)
+ok   pass rejected (bad_sig): tampered payload
+ok   pass rejected (bad_sig): tampered signature
+ok   pass accepted: write pass covers search
+ok   pass accepted: write pass covers write
+
+PHP 8.3.6: 33 passed, 0 failed
+ok   stub engine secret derives from the Toll secret
+ok   base price table
+ok   price search x1 x1 -> 2000 msat
+ok   price write x1 x1 -> 10000 msat
+ok   price account x1 x1 -> 25000 msat
+ok   price admin x1 x1 -> 100000 msat
+ok   price write x1.1 x1 -> 11000 msat
+ok   price search x1 x1.25 -> 3000 msat
+ok   price search x1.0004 x1 -> 3000 msat
+ok   price write x1.5 x1.3 -> 20000 msat
+ok   price admin x2 x1 -> 200000 msat
+ok   price search x0.3 x1 -> 1000 msat
+ok   fee 10000 msat at 1000 bps -> 1000
+ok   fee 2000 msat at 1234 bps -> 246
+ok   fee 1 msat at 1000 bps -> 0
+ok   fee 999 msat at 10000 bps -> 999
+ok   fee 12345 msat at 0 bps -> 0
+ok   fee 50000 msat at 1000 bps -> 5000
+ok   fee 25000 msat at 333 bps -> 832
+ok   {fee} for 1000 bps -> 10
+ok   {fee} for 750 bps -> 7.5
+ok   {fee} for 25 bps -> 0.25
+ok   {fee} for 0 bps -> 0
+ok   {fee} for 1 bps -> 0.01
+ok   {fee} for 1005 bps -> 10.05
+ok   {fee} for 1230 bps -> 12.3
+ok   {fee} for 1234 bps -> 12.34
+ok   {fee} for 10000 bps -> 100
+ok   {fee} examples from docs/copy.md: 10, 7.5, 0.25
+ok   WordPress copy fills {fee}: "available to withdraw, after the 7.5% platform fee"
+ok   WordPress copy fills {fee}: "7.5% · recorded on each payment"
+ok   usd 180000 msat @ 100000 -> '$0.18' / '0.1800'
+ok   usd 100 msat @ 100000 -> 'less than $0.01' / '0.0001'
+ok   usd 0 msat @ 100000 -> '$0.00' / '0.0000'
+ok   usd 45000 msat @ 100000 -> '$0.04' / '0.0450'
+ok   usd 1000000000 msat @ 100000 -> '$1000.00' / '1000.0000'
+ok   usd 10000 msat @ 100000 -> '$0.01' / '0.0100'
+ok   usd 2000 msat @ 100000 -> 'less than $0.01' / '0.0020'
+ok   usd 10000 msat @ 63412.57 -> 'less than $0.01' / '0.0064'
+ok   usd 25000 msat @ 63412.57 -> '$0.01' / '0.0159'
+ok   usd 1234567 msat @ 63412.57 -> '$0.78' / '0.7829'
+ok   usd 999999999 msat @ 63412.57 -> '$634.12' / '634.1257'
+ok   usd 10000 msat @ 100000 -> '$0.01' / '0.0100'
+ok   usd 10000 msat @ 100000 -> NULL / NULL
+ok   usd 10000 msat @ NULL -> NULL / NULL
+ok   preimage hashes to payment hash: paid write
+ok   ledger split: paid write
+ok   settle pass is one use, 60 s: paid write
+ok   settle pass token reproduces: paid write
+ok   settle pass accepted before exp: paid write
+ok   settle pass expired at exp: paid write
+ok   preimage hashes to payment hash: paid search
+ok   ledger split: paid search
+ok   settle pass is one use, 60 s: paid search
+ok   settle pass token reproduces: paid search
+ok   settle pass accepted before exp: paid search
+ok   settle pass expired at exp: paid search
+ok   preimage hashes to payment hash: paid account
+ok   ledger split: paid account
+ok   settle pass is one use, 60 s: paid account
+ok   settle pass token reproduces: paid account
+ok   settle pass accepted before exp: paid account
+ok   settle pass expired at exp: paid account
+ok   wrong preimage does not match
+ok   malformed preimage does not match
+
+PHP 8.3.6 settlement: 65 passed, 0 failed
+ok   policy: standard desktop write = 512 tries max
+ok   policy: mobile write is 0.6x
+ok   policy: admin is capped at max_units
+ok   policy: hardened write
+ok   policy: read is free
+ok   policy: device class from the user agent
+ok   mint: envelope shape
+ok   mint: engine payload bound to the Toll id
+ok   mint: answer hidden below counter_max
+ok   verify: a PHP-minted challenge verifies
+ok   verify: wrong derived key rejected
+ok   verify: expired after 120 s
+ok   verify: other site rejected
+ok   verify: other secret rejected
+ok   verify: changing the bound action breaks the signature
+ok   verify: engine payload from another challenge rejected
+ok   mint: read is never challenged
+ok   mint: ttl at most 120 s
+ok   mint: hardened challenge verifies
+ok   pass: 900 s, 20 uses
+ok   pass: expired at 900 s
+ok   pass: a write pass does not cover login
+
+PHP 8.3.6 issuer: 22 passed, 0 failed
+ok   coarse net "203.0.113.77" -> "203.0.113.0\/24"
+ok   coarse net "0.0.0.0" -> "0.0.0.0\/24"
+ok   coarse net "255.255.255.255" -> "255.255.255.0\/24"
+ok   coarse net "10.1.2.3" -> "10.1.2.0\/24"
+ok   coarse net "198.51.100.9" -> "198.51.100.0\/24"
+ok   coarse net "::ffff:203.0.113.77" -> "203.0.113.0\/24"
+ok   coarse net "::FFFF:198.51.100.9" -> "198.51.100.0\/24"
+ok   coarse net "2001:db8:abcd:12::1" -> "2001:0db8:abcd::\/48"
+ok   coarse net "2001:0db8:abcd:0012:0000:0000:0000:0001" -> "2001:0db8:abcd::\/48"
+ok   coarse net "2001:DB8:ABCD:12::1" -> "2001:0db8:abcd::\/48"
+ok   coarse net "2001:db8:1::7" -> "2001:0db8:0001::\/48"
+ok   coarse net "2001:db8::" -> "2001:0db8:0000::\/48"
+ok   coarse net "::" -> "0000:0000:0000::\/48"
+ok   coarse net "::1" -> "0000:0000:0000::\/48"
+ok   coarse net "fe80::1" -> "fe80:0000:0000::\/48"
+ok   coarse net "1::" -> "0001:0000:0000::\/48"
+ok   coarse net "1:2:3:4:5:6:7::" -> "0001:0002:0003::\/48"
+ok   coarse net "::2:3:4:5:6:7:8" -> "0000:0002:0003::\/48"
+ok   coarse net "1:2:3:4:5:6:7:8" -> "0001:0002:0003::\/48"
+ok   coarse net "::ffff:7f00:1" -> "0000:0000:0000::\/48"
+ok   coarse net "" -> null
+ok   coarse net "?" -> null
+ok   coarse net "unknown" -> null
+ok   coarse net "1.2.3" -> null
+ok   coarse net "1.2.3.4.5" -> null
+ok   coarse net "256.1.1.1" -> null
+ok   coarse net "1.2.3.256" -> null
+ok   coarse net "01.2.3.4" -> null
+ok   coarse net "1.2.3.4\/24" -> null
+ok   coarse net "203.0.113.0\/24" -> null
+ok   coarse net " 1.2.3.4" -> null
+ok   coarse net "1.2.3.4 " -> null
+ok   coarse net "1.2.3.4\n" -> null
+ok   coarse net "1.2.3.4:80" -> null
+ok   coarse net "\u0661.2.3.4" -> null
+ok   coarse net "1:2:3:4:5:6:7:8:9" -> null
+ok   coarse net "1:2:3:4:5:6:7" -> null
+ok   coarse net ":1:2:3:4:5:6:7" -> null
+ok   coarse net "1:2:3:4:5:6:7:" -> null
+ok   coarse net "1:2:3:4:5:6:7:8::" -> null
+ok   coarse net "1::2::3" -> null
+ok   coarse net ":::" -> null
+ok   coarse net "gggg::1" -> null
+ok   coarse net "12345::1" -> null
+ok   coarse net "fe80::1%eth0" -> null
+ok   coarse net "2001:db8::1.2.3.4" -> null
+ok   coarse net "0:0:0:0:0:ffff:1.2.3.4" -> null
+ok   coarse net "::ffff:999.1.1.1" -> null
+ok   coarse net "[2001:db8::1]" -> null
+ok   coarse net "[2001:db8::1]:443" -> null
+ok   coarse net null -> null
+ok   coarse net 123 -> null
+ok   ip bytes "1.2.3.4" -> "01020304"
+ok   ip bytes "0.0.0.0" -> "00000000"
+ok   ip bytes "255.255.255.255" -> "ffffffff"
+ok   ip bytes "01.2.3.4" -> null
+ok   ip bytes "1.2.3.04" -> null
+ok   ip bytes "256.1.1.1" -> null
+ok   ip bytes "1.2.3" -> null
+ok   ip bytes "1.2.3.4.5" -> null
+ok   ip bytes "0x1.2.3.4" -> null
+ok   ip bytes " 1.2.3.4 " -> "01020304"
+ok   ip bytes "\t203.0.113.9\n" -> "cb007109"
+ok   ip bytes "1.2.3.4:80" -> null
+ok   ip bytes "::" -> "00000000000000000000000000000000"
+ok   ip bytes "::1" -> "00000000000000000000000000000001"
+ok   ip bytes "0:0:0:0:0:0:0:0" -> "00000000000000000000000000000000"
+ok   ip bytes "ABCD::EF01" -> "abcd000000000000000000000000ef01"
+ok   ip bytes "abcd:ef01:2345:6789:abcd:ef01:2345:6789" -> "abcdef0123456789abcdef0123456789"
+ok   ip bytes "1:2:3:4:5::6:7" -> "00010002000300040005000000060007"
+ok   ip bytes "1:2:3:4:5:6:7::" -> "00010002000300040005000600070000"
+ok   ip bytes "::1:2:3:4:5:6:7" -> "00000001000200030004000500060007"
+ok   ip bytes "1:2:3:4::5:6:7:8" -> null
+ok   ip bytes "1:2:3:4:5:6:7:8:9" -> null
+ok   ip bytes "00000::1" -> null
+ok   ip bytes "1::2::3" -> null
+ok   ip bytes ":1::2" -> null
+ok   ip bytes "1::2:" -> null
+ok   ip bytes "::1:" -> null
+ok   ip bytes "1:::2" -> null
+ok   ip bytes ":::" -> null
+ok   ip bytes "g::1" -> null
+ok   ip bytes "::ffff:1.2.3.4" -> "01020304"
+ok   ip bytes "::FFFF:1.2.3.4" -> "01020304"
+ok   ip bytes "::ffff:255.255.255.255" -> "ffffffff"
+ok   ip bytes "::ffff:01.2.3.4" -> null
+ok   ip bytes "::ffff:256.1.1.1" -> null
+ok   ip bytes "::ffff:1.2.3.4.5" -> null
+ok   ip bytes "::ffff:1.2.3.4:80" -> null
+ok   ip bytes "::ffff:7f00:1" -> "00000000000000000000ffff7f000001"
+ok   ip bytes "0:0:0:0:0:ffff:1.2.3.4" -> "00000000000000000000ffff01020304"
+ok   ip bytes "::1.2.3.4" -> "00000000000000000000000001020304"
+ok   ip bytes "::0.0.0.0" -> "00000000000000000000000000000000"
+ok   ip bytes "64:ff9b::1.2.3.4" -> "0064ff9b000000000000000001020304"
+ok   ip bytes "1:2:3:4:5:6:1.2.3.4" -> "00010002000300040005000601020304"
+ok   ip bytes "::2:3:4:5:6:1.2.3.4" -> "00000002000300040005000601020304"
+ok   ip bytes "1::1.2.3.4" -> "00010000000000000000000001020304"
+ok   ip bytes "1:2:3:4:5:6:7:1.2.3.4" -> null
+ok   ip bytes "1::2:3:4:5:6:7:1.2.3.4" -> null
+ok   ip bytes "::01.2.3.4" -> null
+ok   ip bytes "::1.2.3.04" -> null
+ok   ip bytes "[::1]" -> null
+ok   ip bytes "[2001:db8::1]:443" -> null
+ok   ip bytes "fe80::1%eth0" -> null
+ok   ip bytes "2001:db8::\/32" -> null
+ok   ip bytes "unknown" -> null
+ok   ip bytes "" -> null
+ok   ip bytes ", " -> null
+ok   ip bytes "1.2.3.4\/32" -> null
+ok   client address: no trusted proxies: REMOTE_ADDR, X-Forwarded-For ignored
+ok   client address: forged X-Forwarded-For from an untrusted REMOTE_ADDR is ignored
+ok   client address: trusted proxy: its X-Forwarded-For entry is honoured
+ok   client address: trusted proxy: a value the client sent on the left is not taken
+ok   client address: several trusted hops: the first address right to left that is not a listed proxy
+ok   client address: stops the walk: the client sends 1.2.3.4, the trusted proxy appends unknown: no address, no net
+ok   client address: stops the walk: an address with a port (203.0.113.9:443): no net, never an entry further left
+ok   client address: stops the walk: a bracketed IPv6 entry ([2001:db8::1]): no net
+ok   client address: stops the walk: a bracketed IPv6 entry with a port ([2001:db8::1]:443): no net
+ok   client address: stops the walk: an empty entry (trailing comma): no net
+ok   client address: stops the walk: an empty entry after a skipped listed proxy: no net
+ok   client address: stops the walk: junk that is not an address: no net
+ok   client address: stops the walk: an IPv6 zone id (fe80::1%eth0): no net
+ok   client address: stops the walk: listed proxies to the right of unknown are skipped, then unknown stops it
+ok   client address: junk on the left of the client entry is never reached
+ok   client address: from a listed proxy, X-Forwarded-For missing: no address, no net (never the proxy's own network)
+ok   client address: from a listed proxy, X-Forwarded-For empty: no net
+ok   client address: from a listed proxy, X-Forwarded-For only commas: no net
+ok   client address: from a listed proxy, X-Forwarded-For only spaces: no net
+ok   client address: from a listed proxy, every X-Forwarded-For entry a listed proxy: no net
+ok   client address: spaces around entries are trimmed
+ok   client address: IPv6 visitor behind an IPv4 proxy
+ok   client address: IPv4-mapped REMOTE_ADDR matches an IPv4 entry
+ok   client address: IPv4-mapped REMOTE_ADDR ::ffff:10.0.0.5 matches the CIDR proxy 10.0.0.0/8
+ok   client address: IPv4-mapped X-Forwarded-For entry ::ffff:10.0.0.7 inside a CIDR proxy is skipped
+ok   client address: IPv4-mapped client entry ::ffff:1.2.3.4 gives the IPv4 network 1.2.3.0/24
+ok   client address: IPv4-mapped client entry in uppercase ::FFFF:1.2.3.4 gives 1.2.3.0/24
+ok   client address: IPv6 CIDR proxy 2001:db8:ffff::/48: REMOTE_ADDR and an X-Forwarded-For hop inside it are skipped
+ok   client address: IPv4 CIDR /22: last address inside
+ok   client address: IPv4 CIDR /22: first address outside
+ok   client address: IPv4 CIDR /25: bit boundary inside the last byte
+ok   client address: IPv4 CIDR /25: just below the range
+ok   client address: IPv6 CIDR /48: inside
+ok   client address: IPv6 CIDR /48: outside
+ok   client address: IPv6 CIDR /57: bit boundary inside a hextet
+ok   client address: IPv6 CIDR /57: just outside
+ok   client address: IPv6 single address, uppercase in the list
+ok   client address: an IPv4 range never matches an IPv6 REMOTE_ADDR
+ok   client address: bad list entries are dropped, good ones still apply
+ok   client address: a list of only bad entries trusts nothing
+ok   client address: a trusted proxy hop inside X-Forwarded-For given as a CIDR member is skipped
+ok   client address: from a listed proxy, a multi-hop chain where every hop is inside a CIDR proxy (IPv4, IPv6 and mapped): no net
+ok   client address: from a listed proxy, X-Forwarded-For of exactly 4096 bytes is read
+ok   client address: from a listed proxy, X-Forwarded-For over 4096 bytes: no address, no net
+ok   TOLL_TRUSTED_PROXIES unset: REMOTE_ADDR only
+
+PHP 8.3.6: 154 passed, 0 failed
+ok   neither WooCommerce nor CF7 active, both ticked: no woocommerce, wpcf7 or REST hook
+ok   both active, neither ticked: no woocommerce, wpcf7 or REST hook
+ok   both active and ticked: checkout validation, CF7 spam and REST dispatch hooks
+ok   WooCommerce only: no wpcf7 hook
+ok   refusal: 402, payment_required, relayed offers, challenge_url, WWW-Authenticate exposed
+ok   comments still get the same 402 (shared refusal)
+ok   classic, agent, no pass: 402 relayed from the payment server
+ok   classic, agent, no pass: counts pass_absent and offer_shown, no order
+ok   classic, agent, payment server down: 403 work check, turned_away, no order
+ok   classic, agent, Test mode: 403 work check and no call to any server
+ok   classic, agent, WooCommerce field errors: no 402, no server call, only the field error
+ok   classic, agent, valid pass but field errors: nothing spent
+ok   classic, agent, valid one-use pass: order created, exactly one use spent
+ok   classic, human, no pass: the form error as before, no 402, no order
+ok   classic, human, field errors: the toll error is still added (unchanged)
+ok   classic, human, valid pass in the form: order created, one use spent
+ok   classic, agent, no pass, declining gateway: the 402 comes first, no order, the gateway never runs
+ok   classic, agent, paid pass, the gateway declines: the gateway's decline, not a 402
+ok   classic, agent, paid pass, the gateway declines: the pass is spent, exactly one pass_accept
+ok   classic, agent, the same pass retried with a working gateway: 402, pass_reject and offer_shown, no new order
+ok   classic, human, widget pass, the gateway declines: the same decline, exactly one pass_accept
+ok   classic, agent, paid pass, working gateway: payment taken, exactly one pass_accept
+ok   CF7 REST, agent, no pass: 402 instead of the route, WWW-Authenticate exposed, no mail
+ok   CF7 REST, agent, no pass: counts pass_absent and offer_shown
+ok   CF7 REST, agent, payment server down: 403 work check
+ok   CF7 REST, agent, valid one-use pass: route runs, mail sent, exactly one use spent (in wpcf7_spam)
+ok   CF7 REST, agent, valid pass, CF7 validation fails: nothing spent, no mail
+ok   CF7 REST, agent, last use spent by another request after the look: 402 from wpcf7_spam, no mail
+ok   CF7 REST, agent, already spam by another filter: stays spam, nothing spent
+ok   CF7 REST, agent, GET: not gated
+ok   another REST route: not gated
+ok   CF7 REST, human, no pass: route runs, marked spam (unchanged), no mail
+ok   CF7 REST, human, valid pass in the form: mail sent, one use spent
+ok   CF7 non-JS post, agent, no pass: 402 from wpcf7_spam, no mail
+ok   CF7 non-JS post, agent, Test mode: 403 work check, no mail
+ok   CF7 non-JS post, agent, payment server down: 403 work check, no mail
+ok   CF7 non-JS post, agent, valid one-use pass: mail sent, exactly one use spent, one pass_accept
+ok   CF7 non-JS post, human, no pass: spam (unchanged)
+ok   classic: the payment server gets 1.5 s at most (TOLL_GATE_OFFER_TIMEOUT_S)
+ok   classic, agent, cart error notice (e.g. out of stock): no 402, nothing spent, no server call
+ok   classic, agent, valid pass, cart error notice: pass unused
+ok   classic, agent, totals refresh only: pass unused, no 402
+ok   classic: no pass (402), then resubmit with a paid pass: one 402, one offer_shown, one pass_accept
+ok   classic: the same one-use pass submitted twice: one goes through, the second gets one 402; one pass_accept, one pass_reject
+ok   classic: validation fails, then resubmit with the same pass: it works; no 402, exactly one pass_accept
+ok   cf7_rest: no pass (402), then resubmit with a paid pass: one 402, one offer_shown, one pass_accept
+ok   cf7_rest: the same one-use pass submitted twice: one goes through, the second gets one 402; one pass_accept, one pass_reject
+ok   cf7_rest: validation fails, then resubmit with the same pass: it works; no 402, exactly one pass_accept
+ok   cf7_post: no pass (402), then resubmit with a paid pass: one 402, one offer_shown, one pass_accept
+ok   cf7_post: the same one-use pass submitted twice: one goes through, the second gets one 402; one pass_accept, one pass_reject
+ok   cf7_post: validation fails, then resubmit with the same pass: it works; no 402, exactly one pass_accept
+ok   block checkout, declared agent, CF7 on too: order placed as stock; no 402/403, no counter, no server call, nothing spent, no Toll callback acts
+ok   block checkout, declared agent, WooCommerce only: order placed as stock; no 402/403, no counter, no server call, nothing spent, no Toll callback acts
+ok   block checkout, declared agent, WooCommerce only: no Toll callback runs at all
+ok   block checkout, browser buyer, CF7 on too: order placed as stock; no 402/403, no counter, no server call, nothing spent, no Toll callback acts
+ok   block checkout, browser buyer, WooCommerce only: order placed as stock; no 402/403, no counter, no server call, nothing spent, no Toll callback acts
+ok   block checkout, browser buyer, WooCommerce only: no Toll callback runs at all
+ok   block checkout, declared agent with a pass, CF7 on too: order placed as stock; no 402/403, no counter, no server call, nothing spent, no Toll callback acts
+ok   block checkout, declared agent with a pass, WooCommerce only: order placed as stock; no 402/403, no counter, no server call, nothing spent, no Toll callback acts
+ok   block checkout, declared agent with a pass, WooCommerce only: no Toll callback runs at all
+ok   no woocommerce_store_api_* hook is registered
+ok   admin: the WooCommerce help line is the PM's exact words and is shown under the option
+ok   docs: every sentence that names the block checkout says it isn't covered
+ok   classic: two requests race for one pass's last use: exactly one goes through, the other gets the 402
+ok   cf7_rest: two requests race for one pass's last use: exactly one goes through, the other gets the 402
+
+PHP 8.3.6 gate: 65 passed, 0 failed
+ok   transients with fixed names found in the plugin code
+ok   transients with per-key names found (rate limit per IP and minute, admin notice per user)
+ok   no site transients (nothing network-wide to delete on multisite)
+ok   options deleted as before
+ok   counter, use-count and replay rows deleted as before
+ok   the cleanup event is unscheduled as before
+ok   options table: every toll_gate transient and timeout row is gone, expired ones included
+ok   delete_transient('toll_gate_price_cache') is called
+ok   delete_transient('toll_gate_server_down') is called
+ok   delete_transient('toll_gate_site_url_warned') is called
+ok   nothing else is touched (other plugins, look-alike names, WordPress)
+ok   persistent object cache: the fixed-name transients are gone
+ok   persistent object cache: options deleted, nothing else touched
+
+PHP 8.3.6 uninstall: 13 passed, 0 failed

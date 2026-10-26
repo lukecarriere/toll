@@ -5,7 +5,7 @@ import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { execFileSync } from "node:child_process";
-import { startDemo, PAID_ON, TEST_SECRET, type Running } from "./helpers.ts";
+import { startDemo, PAID_ON, TEST_SECRET, drain, type Running } from "./helpers.ts";
 import { McpClient } from "./mcp-client.ts";
 import { MCP_COUNTERS } from "../packages/mcp/src/server.ts";
 import { TOOLS, MANIFEST_DESCRIPTION, NOT_FOR, INPUT_SCHEMAS, BASE_PRICE_NOTE, buildManifest } from "../packages/server-node/src/manifest.ts";
@@ -159,7 +159,7 @@ test("settlement off: prices are null with status stub, payment lists no method,
   assert.equal(pr.basis, "current");
   assert.equal(pr.load_multiplier, null);
   assert.match(pr.work.challenge_url, /offers=0/);
-  assert.equal((await fetch(off.url + "/v1/price?action=read")).status, 400, "reads are never priced");
+  assert.equal((await drain(await fetch(off.url + "/v1/price?action=read"))).status, 400, "reads are never priced");
   const paidDoc: any = await (await fetch(paid.url + "/.well-known/toll.json")).json();
   assert.deepEqual(paidDoc.tools[1].payment, { status: "stub", protocol: "HTTP 402", methods: [{ kind: "ln402", status: "test" }], x402: { status: "stub" } });
 });
@@ -253,6 +253,7 @@ test("MCP end to end with a test payment: offer -> pay (test backend) -> pass ->
   const passed = await mcp.call("gate_form_write", { site: paid.url, action: "write", payment: { offer_id: offer.id, kind: offer.kind, preimage: await pay(offer), macaroon: offer.macaroon } });
   assert.equal(passed.paid, true);
   const w = await fetch(paid.url + "/comments", { method: "POST", redirect: "manual", headers: { "content-type": "application/x-www-form-urlencoded", accept: "application/json", authorization: "Toll " + passed.pass, "toll-client": "agent" }, body: "name=mcp&comment=paid+write" });
+  await drain(w);
   assert.ok(w.status < 400, "the write went through: " + w.status);
   // A second paid pass, checked by the site's own server.
   const g2 = await mcp.call("gate_form_write", { site: paid.url, action: "write", path: "/comments" });
@@ -278,7 +279,7 @@ test("MCP end to end with a test payment: offer -> pay (test backend) -> pass ->
 test("MCP adds no reads gating: GET / stays 200 and mints nothing while the tools are in use", async () => {
   const before = minted(paid);
   await mcp.call("price_write_action", { site: paid.url, action: "write" });
-  assert.equal((await fetch(paid.url + "/")).status, 200);
+  assert.equal((await drain(await fetch(paid.url + "/"))).status, 200);
   assert.equal(minted(paid), before, "price lookup and page view mint nothing");
 });
 
