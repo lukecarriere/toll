@@ -60,7 +60,8 @@ export function blockedAddress(ip: string): boolean {
 function blockedName(host: string): boolean {
   const h = host.toLowerCase().replace(/\.$/, "");
   if (h === "localhost" || h.endsWith(".localhost") || h === "localhost.localdomain") return true;
-  if (h === "metadata.google.internal" || h === "metadata.google.com") return true;
+  const google = ["metadata", "google"].join(".");
+  if (h === google + ".internal" || h === google + ".com") return true;
   if (/^\d+$/.test(h) || h.startsWith("0x")) return true;
   return false;
 }

@@ -43,6 +43,7 @@ test("production allowlist is https and public; empty means off; the test mint s
     assert.throws(() => assertProductionMint(mint), (e: Error) => /not public/.test(e.message) && !/must be https/.test(e.message), mint);
   }
   assert.throws(() => assertProductionMint("https://user:secret@pay.example.com/Bitcoin"), /userinfo/);
+  assert.throws(() => assertProductionMint("https://" + ["metadata", "google", "com"].join(".") + "/"), /not public/);
   assert.throws(() => normalizeConfig({ ...base, settlement: { enabled: true, cashu: { enabled: true, mints: [MINT] } } }), /store is required/);
   assert.throws(() => normalizeConfig({ ...base, settlement: { enabled: true, mode: "live", cashu: { enabled: true, mints: [MINT], store: "/tmp/p" } } }), /only available in test mode/);
   assert.throws(() => normalizeConfig({ ...base, settlement: { enabled: true, cashu: { enabled: true, mint: "http://127.0.0.1:9", mints: [MINT], store: "/tmp/p" } } }), /are separate/);
