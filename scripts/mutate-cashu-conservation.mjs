@@ -28,6 +28,16 @@ const mutants = [
     from: "pending = await store.begin(prepared);",
     to: "pending = prepared;",
   },
+  {
+    name: "treat 5xx/429 as definitive",
+    from: "  if (status === 429 || status < 400 || status >= 500) return { kind: \"unknown\" };",
+    to: "  if (status < 400) return { kind: \"unknown\" };\n  if (status === 429 || status >= 500) return { kind: \"refused\", code: status };",
+  },
+  {
+    name: "treat a 4xx without a parseable code as definitive",
+    from: "  try { code = Number(JSON.parse(text)?.code); } catch { return { kind: \"unknown\" }; }\n  if (!Number.isSafeInteger(code) || code <= 0) return { kind: \"unknown\" };",
+    to: "  try { code = Number(JSON.parse(text)?.code); } catch { return { kind: \"refused\", code: 11000 }; }\n  if (!Number.isSafeInteger(code) || code <= 0) return { kind: \"refused\", code: 11000 };",
+  },
 ];
 
 function runConservation() {

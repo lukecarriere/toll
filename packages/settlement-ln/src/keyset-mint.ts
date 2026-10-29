@@ -122,6 +122,12 @@ export async function startKeysetMint(): Promise<KeysetMint> {
         for (let i = 0; i < outputs.length; i++) signed.set(String(outputs[i].B_), signatures[i]);
         if (fault === "drop-after") { req.socket.destroy(); return; }
         if (fault === "sign-then-400") return json(res, 400, { detail: "refused", code: 11000 });
+        if (fault === "http-500-json") return json(res, 500, { detail: "down", code: 11000 });
+        if (fault === "http-500-text") { res.writeHead(500, { "content-type": "text/plain" }); res.end("down"); return; }
+        if (fault === "http-502") return json(res, 502, { detail: "gateway", code: 11000 });
+        if (fault === "http-503") return json(res, 503, { detail: "unavailable", code: 11000 });
+        if (fault === "http-429") return json(res, 429, { detail: "slow", code: 11000 });
+        if (fault === "http-400-text") { res.writeHead(400, { "content-type": "text/plain" }); res.end("nope"); return; }
         if (fault === "bad-reply") return json(res, 200, { signatures: signatures.map((s) => ({ amount: s.amount, id: s.id })) });
         if (fault === "uppercase") {
           uppercaseSigs = true;

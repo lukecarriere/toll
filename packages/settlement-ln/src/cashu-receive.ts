@@ -42,9 +42,10 @@ type SwapOutcome =
   | { kind: "refused"; code: number }
   | { kind: "unknown" };
 
-/** 11001 means the inputs are already spent. Every other positive code on a 4xx is a refusal. */
+/** 11001 means the inputs are already spent. A parsed 4xx with another positive code is a refusal. 429 and 5xx are not. */
 function refusalFromBody(status: number, text: string): SwapOutcome {
-  if (status < 400 || status >= 500) return { kind: "unknown" };
+  // CASHU_GUARD not-5xx-429: rate limits and server errors are not a definitive refusal.
+  if (status === 429 || status < 400 || status >= 500) return { kind: "unknown" };
   let code = Number.NaN;
   try { code = Number(JSON.parse(text)?.code); } catch { return { kind: "unknown" }; }
   if (!Number.isSafeInteger(code) || code <= 0) return { kind: "unknown" };

@@ -56,6 +56,9 @@ tail -n 40 "$EVID/npm-test.txt" | tee -a "$TRANSCRIPT"
 log "npm test exit $test_status"
 [[ "$test_status" -eq 0 ]]
 
+log "cashu conservation mutants"
+node scripts/mutate-cashu-conservation.mjs | tee -a "$TRANSCRIPT"
+
 log "packages"
 node --input-type=module <<'EOF' | tee -a "$TRANSCRIPT"
 import { VERSION } from "./packages/server-node/dist/index.js";

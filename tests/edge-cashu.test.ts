@@ -394,6 +394,25 @@ test("conservation: inconclusive mint results keep the blinded outputs", async (
     await finish(token, before);
   }
 
+  // After the mint commits, a 5xx, a 429, or a 4xx that does not parse is not a refusal.
+  for (const swap of ["http-500-json", "http-500-text", "http-502", "http-503", "http-429", "http-400-text"] as const) {
+    for (const restore of ["nosig", "empty"] as const) {
+      mint.setFault("/v1/swap", swap);
+      mint.setFault("/v1/restore", restore);
+      mint.setFault("/v1/checkstate", "unspent");
+      const before = await books();
+      const token = await freshToken();
+      const failed = await pay(token);
+      assert.equal(failed.status, 503, failed.text + " " + swap + " " + restore);
+      assert.equal(failed.body.pass, undefined);
+      const mid = await books();
+      holds(mid);
+      assert.equal(mid.pending, before.pending + 10, swap + " " + restore);
+      assert.equal(mid.losses, before.losses);
+      await finish(token, before);
+    }
+  }
+
   // A parsed refusal while checkstate says PENDING. The outputs were signed; PENDING is not UNSPENT.
   {
     mint.setFault("/v1/swap", "sign-then-400");
