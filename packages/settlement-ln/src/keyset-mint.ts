@@ -5,7 +5,7 @@ import type { AddressInfo } from "node:net";
 import { secp256k1 } from "@noble/curves/secp256k1.js";
 import { fromHex, randomBytes, toHex } from "../../protocol/src/bytes.ts";
 import { CASHU_UNIT, encodeTokenV4, stripMint, type CashuProof } from "./cashu.ts";
-import { deriveKeysetIdV2, proofMatches, pubkeyHex, shortKeysetId, signBlind, signSecret, splitAmount } from "./cashu-crypto.ts";
+import { deriveKeysetIdV2, proofMatches, pubkeyHex, secretY, shortKeysetId, signBlind, signSecret, splitAmount } from "./cashu-crypto.ts";
 
 const DENOMS = [1, 2, 4, 8, 16, 32, 64];
 
@@ -21,6 +21,15 @@ export interface KeysetMint {
   /** Drop the spent set so a second swap of the same proofs would succeed without a local record. */
   forgetSpent: () => void;
   setDown: (down: boolean) => void;
+  /**
+   * Fault the next responses for `path` (`/v1/swap`, `/v1/keysets`, `/v1/keys`, `/v1/restore`,
+   * `/v1/checkstate`, `/v1/info`). `null` clears it. Modes: network, 500, empty, malformed,
+   * bad-reply (swap spends, body has no C_), uppercase (swap spends, C_ is uppercase),
+   * drop-after (swap spends, then the socket closes).
+   */
+  setFault: (path: string | null, mode: string | null) => void;
+  /** Signature the mint kept for a blinded output, if the swap was accepted. */
+  signatureFor: (B_: string) => string | undefined;
   /** Issue a cashuB token for `amount` sats. The keyset id in the token is the short form. */
   token: (amount: number) => string;
   close: () => Promise<void>;
@@ -37,11 +46,21 @@ export async function startKeysetMint(): Promise<KeysetMint> {
   const keysetId = deriveKeysetIdV2(pubs, CASHU_UNIT, 0, null);
   const short = shortKeysetId(keysetId);
   const spent = new Set<string>();
+  const signed = new Map<string, { id: string; amount: number; C_: string }>();
   let swaps = 0;
   let requests = 0;
   let down = false;
   let url = "";
   let lastIds: string[] = [];
+  let faultPath: string | null = null;
+  let faultMode: string | null = null;
+  let uppercaseSigs = false;
+
+  function faultFor(path: string): string | null {
+    if (!faultPath || !faultMode) return null;
+    if (path === faultPath || path.startsWith(faultPath + "/")) return faultMode;
+    return null;
+  }
 
   const server: Server = createServer(async (req, res) => {
     if (down) {
@@ -50,6 +69,11 @@ export async function startKeysetMint(): Promise<KeysetMint> {
     }
     requests++;
     const path = new URL(req.url ?? "/", "http://127.0.0.1").pathname;
+    const fault = faultFor(path);
+    if (fault === "network") { req.socket.destroy(); return; }
+    if (fault === "500") return json(res, 500, { detail: "down", code: 0 });
+    if (fault === "empty") { res.writeHead(200); res.end(); return; }
+    if (fault === "malformed") return json(res, 200, { wat: 1 });
     try {
       if (req.method === "GET" && path === "/v1/info") return json(res, 200, { name: "toll-keyset-mint", version: "test", nuts: { "4": { disabled: false } } });
       if (req.method === "GET" && path === "/v1/keysets") return json(res, 200, { keysets: [keysetRow(keysetId)] });
@@ -91,7 +115,32 @@ export async function startKeysetMint(): Promise<KeysetMint> {
         }
         if (inSum !== outSum) return json(res, 400, { detail: "amount", code: 11000 });
         for (const input of inputs) spent.add(input.secret);
+        for (let i = 0; i < outputs.length; i++) signed.set(String(outputs[i].B_), signatures[i]);
+        if (fault === "drop-after") { req.socket.destroy(); return; }
+        if (fault === "bad-reply") return json(res, 200, { signatures: signatures.map((s) => ({ amount: s.amount, id: s.id })) });
+        if (fault === "uppercase") {
+          uppercaseSigs = true;
+          return json(res, 200, { signatures: signatures.map((s) => ({ ...s, C_: s.C_.toUpperCase() })) });
+        }
         return json(res, 200, { signatures });
+      }
+      if (req.method === "POST" && path === "/v1/restore") {
+        const body = await readJson(req);
+        const outputs = Array.isArray(body?.outputs) ? body.outputs : [];
+        const signatures = outputs.map((output: { amount?: number; id?: string; B_?: string }) => {
+          const saved = typeof output?.B_ === "string" ? signed.get(output.B_) : undefined;
+          const c = saved ? (uppercaseSigs ? saved.C_.toUpperCase() : saved.C_) : null;
+          return saved ? { id: saved.id, amount: saved.amount, C_: c } : { id: output?.id ?? "", amount: output?.amount ?? 0, C_: null };
+        });
+        return json(res, 200, { outputs, signatures });
+      }
+      if (req.method === "POST" && path === "/v1/checkstate") {
+        const body = await readJson(req);
+        const Ys = Array.isArray(body?.Ys) ? body.Ys : [];
+        const known = new Map<string, string>();
+        for (const secret of spent) known.set(secretY(secret), "SPENT");
+        const states = Ys.map((Y: unknown) => ({ Y, state: known.get(String(Y)) ?? "UNSPENT" }));
+        return json(res, 200, { states });
       }
       return json(res, 404, { detail: "unknown", code: 404 });
     } catch {
@@ -122,6 +171,8 @@ export async function startKeysetMint(): Promise<KeysetMint> {
     requests: () => requests,
     forgetSpent: () => { spent.clear(); },
     setDown: (v) => { down = v; },
+    setFault: (path, mode) => { faultPath = path; faultMode = mode; },
+    signatureFor: (B_) => signed.get(B_)?.C_,
     token: issue,
     close: () => new Promise<void>((ok) => { server.closeAllConnections?.(); server.close(() => ok()); }),
   };

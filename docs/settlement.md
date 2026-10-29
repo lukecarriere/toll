@@ -256,4 +256,6 @@ The PHP library (`Settlement::relayPayment`, `forwardRedeem`, `presentedCashu`, 
 
 Tests: `tests/settlement-cashu-receive.test.ts` (loopback mint, version-01 keyset, short ids). `tests/php/run-cashu-relay.php`.
 
-Not in this build: Toll does not return change on the 402 (the payer splits first). Swap signatures are not checked with a DLEQ proof. A crash after the mint accepts the swap and before the file is replaced can drop the new proofs. The file lock is per process. Spending the stored proofs onward is not built.
+The site worker (`toll-site`, root `wrangler.toml`) uses the same receive engine. Its allowlist is `CASHU_MINTS`, set to `https://mint.minibits.cash/Bitcoin`. Proofs, spent inputs and in-flight swaps are rows in the existing `TOLL_STORE` Durable Object, so one instance serialises them. Blinded outputs are written before `POST /v1/swap`. A crash after the mint accepts the swap is recovered with `POST /v1/restore` (NUT-09) and `POST /v1/checkstate` (NUT-07) on the next request or the object's alarm. The gate is granted only after those new proofs are stored. `GET /v1/health` reports `settlement: "cashu"`. The manifest's gate tool lists Cashu. Agents get a 402 with `X-Cashu: creqA…`. Everyone else still gets the work check. No payout, no new binding, and no deploy from this tree.
+
+Not in this build: Toll does not return change on the 402 (the payer splits first). Swap signatures are not checked with a DLEQ proof. Spending the stored proofs onward is not built. The Node file store still uses a per-process lock; the edge store does not.

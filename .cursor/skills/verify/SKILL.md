@@ -24,7 +24,7 @@ npx playwright install --with-deps chromium
 npm test
 ```
 
-Expected: each command exits 0. Composer prints `Generating autoload files`. Playwright reports Chromium installed. `npm test` rebuilds, typechecks, and copy-lints, then runs the Node and PHP suites. The Node reporter includes `# fail 0` and `# cancelled 0`. `# skipped` counts WordPress tests when no local WordPress is running. Each PHP runner's last line matches `passed, 0 failed`. No line starts with `FAIL `.
+Expected: each command exits 0. Composer prints `Generating autoload files`. Playwright reports Chromium installed. `npm test` rebuilds, typechecks, and copy-lints, then runs the Node and PHP suites. The Node reporter includes `# fail 0` and `# cancelled 0`. `# skipped` counts WordPress tests when no local WordPress is running. Each PHP runner's last line matches `passed, 0 failed`. No line starts with `FAIL `. `tests/edge-cashu.test.ts` is part of that Node run (miniflare via `wrangler dev --local`): a 402 `creqA` names the allowlisted mint, a payment is stored and the input is spent, a replay is rejected, an unlisted mint is refused, and a crash after the swap still leaves the proofs to be restored.
 
 Build stdout, inside that test, includes `strings: wrote packages/widget/src/strings.gen.ts`, the widget `dist/toll.js`, `dist/toll.worker.js`, and `dist/toll.worker-argon2id.js` lines, `widget: default path total` and `budget 25600 B`, `@lessspam/widget`, `@lessspam/server`, `@lessspam/agent`, and `@lessspam/mcp` package lines, `check-dist:` lines that are not errors, `build-wp-zip: dist-release/toll-gate-` and `build-wp-zip: sha256 `, `edge: dist/worker.js dist/site.js`, and `website: built` with `website/dist/`. It must not contain `widget: over the 25 KB gzip budget`.
 
@@ -192,6 +192,14 @@ EOF
 ```
 
 Expected: `200` and the same headings for each path, `sha256sum` `OK`, `403`, `toll_required`, and `human path ok 403 toll_required 200 200`.
+
+Worker health, after the human path. The allowlist is set, so settlement is `cashu`. `settlement_degraded` is false when the mint answers and true when it does not. Either value is a pass here. A non-agent contact post stays `403` `toll_required`.
+
+```sh
+curl -fsS "$worker/v1/health"; echo
+```
+
+Expected body includes `"settlement":"cashu"` and `"edge":true`.
 
 Phone width is inside `npm test` (`tests/viewport.test.ts`): `/`, `/demo`, the mission pages, the docs pages, `/download`, and the legal pages at 360 and 390. `document.scrollWidth` stays `<= window.innerWidth`.
 

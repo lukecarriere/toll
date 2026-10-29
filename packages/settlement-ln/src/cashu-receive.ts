@@ -1,13 +1,15 @@
 // Production Cashu receive. A cashuB token is swapped at an allowlisted mint into proofs this
 // process keeps. Short version-01 keyset ids are mapped with the mint's keyset list first.
+// Blinded outputs are durable before POST /v1/swap. A crash there is recovered with NUT-09
+// restore and NUT-07 checkstate. The gate is granted only after the new proofs are stored.
 // The test engine (cashu-engine.ts) is unchanged and still talks only to a loopback http mint.
 import {
   type ActionClass, TollError, canonicalJson, fromB64url, fromUtf8, hmacSha256, hmacVerify, randomBytes, randomHex, sha256, toB64url, toHex, utf8,
 } from "../../protocol/src/index.ts";
 import { CASHU_UNIT, decodeTokenV4, encodePaymentRequest, type DecodedToken } from "./cashu.ts";
-import { blindMessage, deriveKeysetIdV2, inputFee, resolveKeysetId, secretMark, splitAmount, unblind } from "./cashu-crypto.ts";
+import { blindMessage, deriveKeysetIdV2, inputFee, resolveKeysetId, secretMark, secretY, splitAmount, unblind } from "./cashu-crypto.ts";
 import { type MintGuard, guardMintUrl, mintFetch, mintKey } from "./cashu-net.ts";
-import { FileProofStore, type StoredProof } from "./cashu-store.ts";
+import { FileProofStore, type PendingOutput, type PendingSwap, type ProofStore, type StoredProof } from "./cashu-store.ts";
 import type { CashuOffer, Paid, PaidClass, PaidProof, SettlementEngine } from "./engine.ts";
 
 const SEAL_PREFIX = "toll-cashu-recv-v1.";
@@ -33,6 +35,12 @@ interface KeysetInfo {
   keys?: Record<string, string>;
 }
 
+type SwapOutcome =
+  | { kind: "sigs"; signatures: { amount: number; C_: string }[] }
+  | { kind: "replay" }
+  | { kind: "bad" }
+  | { kind: "unknown" };
+
 async function seal(secret: string, c: Caveats): Promise<string> {
   const payload = toB64url(utf8(canonicalJson(c)));
   const mac = await hmacSha256(secret, utf8(SEAL_PREFIX + payload));
@@ -51,10 +59,41 @@ async function open(secret: string, credential: string): Promise<Caveats> {
   return c;
 }
 
+function sameMarks(a: string[], b: string[]): boolean {
+  if (a.length !== b.length) return false;
+  const set = new Set(b);
+  return a.every((h) => set.has(h));
+}
+
+function hexR(r: bigint): string {
+  return r.toString(16).padStart(64, "0");
+}
+
+function parseR(h: string): bigint {
+  if (!/^[0-9a-f]{64}$/.test(h)) throw new TollError("store_unavailable");
+  return BigInt("0x" + h);
+}
+
+/** `C_` or `c_`, either hex case. Null when the signature is not usable. */
+function signatureC(sig: unknown, amount: number): string | null {
+  if (!sig || typeof sig !== "object") return null;
+  const row = sig as { amount?: unknown; C_?: unknown; c_?: unknown };
+  const raw = row.C_ ?? row.c_;
+  if (row.amount !== amount || typeof raw !== "string") return null;
+  // CASHU_GUARD c-case
+  const C_ = raw.toLowerCase();
+  if (!/^[0-9a-f]+$/.test(C_) || C_.length % 2 !== 0) return null;
+  return C_;
+}
+
 export interface ReceiveEngineOptions extends MintGuard {
   secret: string;
   mints: string[];
-  store: string | FileProofStore;
+  store: string | ProofStore;
+  /** Runs after the pending swap is durable and before POST /v1/swap. Tests use it to crash there. */
+  beforeSwap?: () => Promise<void> | void;
+  /** Runs after the swap response is in hand and before the proofs are stored. */
+  afterSwap?: () => Promise<void> | void;
 }
 
 export class CashuReceiveEngine implements SettlementEngine {
@@ -62,7 +101,9 @@ export class CashuReceiveEngine implements SettlementEngine {
   private secret: string;
   readonly mints: string[];
   private guard: MintGuard;
-  private store: FileProofStore;
+  private store: ProofStore;
+  private beforeSwap?: () => Promise<void> | void;
+  private afterSwap?: () => Promise<void> | void;
 
   constructor(o: ReceiveEngineOptions) {
     if (!o.secret || o.secret.length < 16) throw new Error("cashu engine: secret too short");
@@ -70,7 +111,13 @@ export class CashuReceiveEngine implements SettlementEngine {
     this.secret = o.secret;
     this.mints = o.mints.map((m) => mintKey(m));
     this.guard = { loopbackHttp: o.loopbackHttp, lookup: o.lookup, fetch: o.fetch };
+    this.beforeSwap = o.beforeSwap;
+    this.afterSwap = o.afterSwap;
     this.store = typeof o.store === "string" ? new FileProofStore(o.store) : o.store;
+  }
+
+  private async useStore(): Promise<ProofStore> {
+    return this.store;
   }
 
   async offer(o: { site: string; cls: PaidClass; amount_msat: number; now: number; ttl_s?: number }): Promise<CashuOffer> {
@@ -110,14 +157,25 @@ export class CashuReceiveEngine implements SettlementEngine {
     const sum = token.proofs.reduce((n, p) => n + p.amount, 0);
     if (!Number.isSafeInteger(sum) || sum < c.amount) throw new TollError("malformed");
     const marks = token.proofs.map((p) => secretMark(p.secret));
-    const received = await this.store.transaction(async (s) => {
-      if (marks.some((h) => s.spent.has(h))) throw new TollError("replay");
-      const proofs = await this.swapIn(mint, token);
-      s.addProofs(proofs);
-      s.addSpent(marks);
-      return proofs;
-    });
-    if (received.reduce((n, p) => n + p.amount, 0) <= 0) throw new TollError("store_unavailable");
+    const store = await this.useStore();
+    // Other in-flight swaps are recovered here. This token's pending swap is finished below, so a
+    // retry still receives the gate once its proofs are stored.
+    await this.recoverSaved(marks);
+    const snap = await store.read();
+    // CASHU_GUARD replay: a spent input is refused from the store, before another swap.
+    if (marks.some((h) => snap.spent.includes(h))) throw new TollError("replay");
+    let pending = snap.pending.find((p) => sameMarks(p.marks, marks) && p.mint === mint);
+    if (!pending) {
+      const prepared = await this.prepare(mint, token, marks);
+      // CASHU_GUARD persist-before-swap: outputs and secrets are durable before the mint is asked to swap.
+      pending = await store.begin(prepared);
+    }
+    if (this.beforeSwap) await this.beforeSwap();
+    const proofs = await this.complete(pending);
+    // CASHU_GUARD grant-only-stored: the pass is minted only after this returns and the read-back matches.
+    await store.commit({ id: pending.id, proofs, marks: pending.marks });
+    if (!(await this.proofsDurable(proofs))) throw new TollError("store_unavailable");
+    if (proofs.reduce((n, p) => n + p.amount, 0) <= 0) throw new TollError("store_unavailable");
     const ttl = Math.max(1, c.exp - o.now + 60);
     if (!(await o.firstUse("offer:" + c.offer_id, ttl))) throw new TollError("replay");
     const ref = toHex(await sha256(utf8(marks.slice().sort().join("\n"))));
@@ -127,6 +185,34 @@ export class CashuReceiveEngine implements SettlementEngine {
 
   async healthy(): Promise<boolean> {
     return (await this.liveMints()).length > 0;
+  }
+
+  /**
+   * NUT-09 then NUT-07 for swaps that were saved and not finished. Stores proofs. Does not grant a gate.
+   * `skip` leaves that input set for the request in progress, which grants the gate itself.
+   */
+  async recoverSaved(skip?: string[]): Promise<void> {
+    const store = await this.useStore();
+    const snap = await store.read();
+    for (const pending of snap.pending) {
+      if (skip && sameMarks(pending.marks, skip)) continue;
+      const restored = await this.tryRestore(pending);
+      if (restored.proofs) {
+        await store.commit({ id: pending.id, proofs: restored.proofs, marks: pending.marks });
+        continue;
+      }
+      if (!restored.answered) continue;
+      const state = await this.tryCheck(pending);
+      if (state === "spent") await store.lose({ id: pending.id, marks: pending.marks });
+    }
+  }
+
+  private async proofsDurable(proofs: StoredProof[]): Promise<boolean> {
+    const store = await this.useStore();
+    const snap = await store.read();
+    const want = proofs.reduce((n, p) => n + p.amount, 0);
+    const got = snap.proofs.filter((p) => proofs.some((q) => q.secret === p.secret)).reduce((n, p) => n + p.amount, 0);
+    return got === want && want > 0;
   }
 
   private async liveMints(): Promise<string[]> {
@@ -142,7 +228,7 @@ export class CashuReceiveEngine implements SettlementEngine {
     return out;
   }
 
-  private async swapIn(mint: string, token: DecodedToken): Promise<StoredProof[]> {
+  private async prepare(mint: string, token: DecodedToken, marks: string[]): Promise<PendingSwap> {
     const listed = await this.keysets(mint);
     const known = listed.map((k) => k.id);
     let proofs: { amount: number; secret: string; id: string; C: string }[];
@@ -155,35 +241,146 @@ export class CashuReceiveEngine implements SettlementEngine {
     const fees = inputFee(proofs.map((p) => byId.get(p.id)?.input_fee_ppk ?? 0));
     const outAmount = proofs.reduce((n, p) => n + p.amount, 0) - fees;
     const active = listed.find((k) => k.active && k.unit === CASHU_UNIT);
-    if (!active) throw new TollError("store_unavailable");
+    if (!active || outAmount <= 0) throw new TollError("store_unavailable");
     const keys = await this.keys(mint, active.id);
     const derived = deriveKeysetIdV2(keys, active.unit, active.input_fee_ppk, active.final_expiry);
     if (derived !== active.id.toLowerCase()) throw new TollError("bad_solution");
     const denoms = Object.keys(keys).map(Number);
     const amounts = splitAmount(outAmount, denoms);
     if (!amounts) throw new TollError("bad_solution");
-    const blinded = amounts.map((amount) => ({ amount, ...blindMessage(toHex(randomBytes(32))) }));
-    const body = {
-      inputs: proofs.map((p) => ({ amount: p.amount, id: p.id, secret: p.secret, C: p.C })),
-      outputs: blinded.map((b) => ({ amount: b.amount, id: active.id, B_: b.B_ })),
+    const outputs: PendingOutput[] = amounts.map((amount) => {
+      const blinded = blindMessage(toHex(randomBytes(32)));
+      return { amount, id: active.id.toLowerCase(), secret: blinded.secret, r: hexR(blinded.r), B_: blinded.B_ };
+    });
+    return {
+      id: "pend_" + randomHex(8),
+      mint,
+      unit: "sat",
+      inSats: proofs.reduce((n, p) => n + p.amount, 0),
+      outSats: outputs.reduce((n, p) => n + p.amount, 0),
+      marks,
+      inputs: proofs,
+      outputs,
     };
-    const r = await mintFetch(mint, "/v1/swap", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }, this.guard, this.mints);
+  }
+
+  private async complete(pending: PendingSwap): Promise<StoredProof[]> {
+    const outcome = await this.postSwap(pending);
+    if (this.afterSwap) await this.afterSwap();
+    if (outcome.kind === "sigs") {
+      const proofs = await this.unblindOutputs(pending, outcome.signatures);
+      if (proofs) return proofs;
+    }
+    const restored = await this.tryRestore(pending);
+    if (restored.proofs) return restored.proofs;
+    const state = await this.tryCheck(pending);
+    if (outcome.kind === "bad" && state === "unspent") {
+      await (await this.useStore()).abort(pending.id);
+      throw new TollError("bad_solution");
+    }
+    if (outcome.kind === "replay" && !restored.proofs) {
+      await (await this.useStore()).abort(pending.id);
+      throw new TollError("replay");
+    }
+    if (outcome.kind === "unknown" && restored.answered && state === "spent") {
+      await (await this.useStore()).lose({ id: pending.id, marks: pending.marks });
+      throw new TollError("store_unavailable");
+    }
+    throw new TollError("store_unavailable");
+  }
+
+  private async postSwap(pending: PendingSwap): Promise<SwapOutcome> {
+    const body = {
+      inputs: pending.inputs.map((p) => ({ amount: p.amount, id: p.id, secret: p.secret, C: p.C })),
+      outputs: pending.outputs.map((b) => ({ amount: b.amount, id: b.id, B_: b.B_ })),
+    };
+    let r: { status: number; text: string };
+    try {
+      r = await mintFetch(pending.mint, "/v1/swap", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }, this.guard, this.mints);
+    } catch {
+      return { kind: "unknown" };
+    }
     if (r.status !== 200) {
       let code = 0;
       try { code = Number(JSON.parse(r.text).code); } catch { /* not JSON */ }
-      if (code === 11001) throw new TollError("replay");
-      if (r.status >= 500 || code === 0) throw new TollError("store_unavailable");
-      throw new TollError("bad_solution");
+      if (code === 11001) return { kind: "replay" };
+      if (r.status >= 500 || code === 0) return { kind: "unknown" };
+      return { kind: "bad" };
     }
-    let signatures: { amount?: number; C_?: string }[];
-    try { signatures = JSON.parse(r.text).signatures; } catch { throw new TollError("store_unavailable"); }
-    if (!Array.isArray(signatures) || signatures.length !== blinded.length) throw new TollError("store_unavailable");
-    return blinded.map((b, i) => {
-      const sig = signatures[i];
-      if (!sig || sig.amount !== b.amount || typeof sig.C_ !== "string") throw new TollError("store_unavailable");
-      const C = unblind(sig.C_, b.r, keys[String(b.amount)]);
-      return { mint, unit: "sat" as const, amount: b.amount, id: active.id.toLowerCase(), secret: b.secret, C };
-    });
+    let rows: unknown;
+    try { rows = JSON.parse(r.text).signatures; } catch { return { kind: "unknown" }; }
+    if (!Array.isArray(rows) || rows.length !== pending.outputs.length) return { kind: "unknown" };
+    const signatures: { amount: number; C_: string }[] = [];
+    for (let i = 0; i < pending.outputs.length; i++) {
+      const C_ = signatureC(rows[i], pending.outputs[i].amount);
+      if (!C_) return { kind: "unknown" };
+      signatures.push({ amount: pending.outputs[i].amount, C_ });
+    }
+    return { kind: "sigs", signatures };
+  }
+
+  private async tryRestore(pending: PendingSwap): Promise<{ answered: boolean; proofs: StoredProof[] | null }> {
+    let r: { status: number; text: string };
+    try {
+      const body = { outputs: pending.outputs.map((b) => ({ amount: b.amount, id: b.id, B_: b.B_ })) };
+      r = await mintFetch(pending.mint, "/v1/restore", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }, this.guard, this.mints);
+    } catch {
+      return { answered: false, proofs: null };
+    }
+    if (r.status !== 200) return { answered: false, proofs: null };
+    let rows: unknown;
+    try { rows = JSON.parse(r.text).signatures; } catch { return { answered: false, proofs: null }; }
+    if (!Array.isArray(rows) || rows.length !== pending.outputs.length) return { answered: true, proofs: null };
+    const signatures: { amount: number; C_: string }[] = [];
+    for (let i = 0; i < pending.outputs.length; i++) {
+      const C_ = signatureC(rows[i], pending.outputs[i].amount);
+      if (!C_) return { answered: true, proofs: null };
+      signatures.push({ amount: pending.outputs[i].amount, C_ });
+    }
+    const proofs = await this.unblindOutputs(pending, signatures);
+    return { answered: true, proofs };
+  }
+
+  private async tryCheck(pending: PendingSwap): Promise<"spent" | "unspent" | "unknown"> {
+    let r: { status: number; text: string };
+    try {
+      const body = { Ys: pending.inputs.map((p) => secretY(p.secret)) };
+      r = await mintFetch(pending.mint, "/v1/checkstate", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }, this.guard, this.mints);
+    } catch {
+      return "unknown";
+    }
+    if (r.status !== 200) return "unknown";
+    let states: unknown;
+    try { states = JSON.parse(r.text).states; } catch { return "unknown"; }
+    if (!Array.isArray(states) || states.length !== pending.inputs.length) return "unknown";
+    let spent = 0;
+    let unspent = 0;
+    for (const row of states) {
+      const state = row && typeof row === "object" ? (row as { state?: unknown }).state : undefined;
+      if (state === "SPENT") spent++;
+      else if (state === "UNSPENT") unspent++;
+    }
+    if (spent === pending.inputs.length) return "spent";
+    if (unspent === pending.inputs.length) return "unspent";
+    return "unknown";
+  }
+
+  private async unblindOutputs(pending: PendingSwap, signatures: { amount: number; C_: string }[]): Promise<StoredProof[] | null> {
+    const id = pending.outputs[0]?.id;
+    if (!id) return null;
+    let keys: Record<string, string>;
+    try { keys = await this.keys(pending.mint, id); } catch { return null; }
+    try {
+      return pending.outputs.map((b, i) => {
+        const sig = signatures[i];
+        const pub = keys[String(b.amount)];
+        if (!sig || !pub) throw new Error("sig");
+        const C = unblind(sig.C_, parseR(b.r), pub);
+        return { mint: pending.mint, unit: "sat" as const, amount: b.amount, id: b.id, secret: b.secret, C };
+      });
+    } catch {
+      return null;
+    }
   }
 
   private async keysets(mint: string): Promise<KeysetInfo[]> {

@@ -7,14 +7,21 @@
 //   /v1/challenge, /v1/redeem, /v1/siteverify, /v1/status, /v1/health -> the Toll facade
 //   /toll/v1/toll.js and its worker -> the widget, served same-origin
 // The store is pluggable (KV, memory, or a Durable Object). Never logs bodies, cookies or
-// Authorization values. Work-only at the edge: standard mode, no paid offers (see README).
+// Authorization values. Work stays available. Cashu receive is on when CASHU_MINTS is set and a
+// proof store is bound (the site worker's TOLL_STORE). The local edge worker leaves both unset.
 import { TollError, isActionClass, timingSafeEqual, utf8, siteUrl, ipBytes, type ActionClass } from "../../protocol/src/index.ts";
 import { createToll } from "../../server-node/src/toll.ts";
 import { normalizeConfig } from "../../server-node/src/config.ts";
 import { Metrics } from "../../server-node/src/metrics.ts";
 import type { TollStore } from "../../server-node/src/stores.ts";
 import { buildManifest, agentsPointer, priceBody, PAID_CLASSES } from "../../server-node/src/manifest.ts";
+import { offerAmountMsat } from "../../settlement-ln/src/stub-engine.ts";
+import { CashuReceiveEngine } from "../../settlement-ln/src/cashu-receive.ts";
+import { parseCashuMints } from "../../settlement-ln/src/cashu-net.ts";
+import { paymentRequired, presentedCashu, stubEngineSecret } from "../../settlement-ln/src/index.ts";
+import type { ProofStore } from "../../settlement-ln/src/cashu-store.ts";
 import type { KVLike } from "./kv-store.ts";
+import { cashuFaultSlot, cashuFetch, mintFetches } from "./cashu-edge.ts";
 // Widget files, bundled as text by build.mjs.
 import TOLL_JS from "../../widget/dist/toll.js";
 import TOLL_WORKER_JS from "../../widget/dist/toll.worker.js";
@@ -31,6 +38,12 @@ export interface EdgeEnv {
   /** Toll's public site root for the manifest's `docs` (packages/protocol site-url.ts). Unset by default: docs is null. */
   TOLL_SITE_URL?: string;
   TOLL_KV?: KVLike;
+  /** JSON array of https mint URLs. Unset: work only, settlement "off". */
+  CASHU_MINTS?: string;
+  /** Test-only. Unset in wrangler.toml. Enables the cashu fault header and the loopback fetch proxy. */
+  TOLL_TEST_HOOKS?: string;
+  /** Test-only fetch stand-in for the allowlisted mint. Ignored unless TOLL_TEST_HOOKS is "1". */
+  CASHU_FETCH_PROXY?: string;
 }
 
 /** Store methods the Durable Object adds. Memory and KV leave them unset. */
@@ -55,6 +68,8 @@ export interface EdgeOptions<E extends EdgeEnv> {
    * reused on a later request. Memory and KV keep the default (one store for the isolate).
    */
   freshStore?: boolean;
+  /** Durable proof store. Required before CASHU_MINTS turns receive on. */
+  proofStore?(env: E): ProofStore;
 }
 
 const PASS_COOKIE = "toll_pass";
@@ -146,7 +161,8 @@ export function createEdgeHandler<E extends EdgeEnv>(options: EdgeOptions<E>) {
 
   async function getToll(env: E) {
     const routesFromKv = env.TOLL_KV ? await env.TOLL_KV.get("toll_routes").catch(() => null) : null;
-    const key = [env.SITE_ID, env.SITE_SECRET?.length, env.WRITE_PATHS, env.SEARCH_PATHS, env.ACCOUNT_PATHS, env.FREE_PATHS, routesFromKv].join("|");
+    const mints = cashuMints(env, options.proofStore);
+    const key = [env.SITE_ID, env.SITE_SECRET?.length, env.WRITE_PATHS, env.SEARCH_PATHS, env.ACCOUNT_PATHS, env.FREE_PATHS, routesFromKv, mints.join(",")].join("|");
     if (!options.freshStore && cached && cached.key === key) return cached;
     let routes: { prefix: string; class: ActionClass }[];
     try { routes = routesFromKv ? JSON.parse(routesFromKv) : []; } catch { routes = []; }
@@ -169,11 +185,24 @@ export function createEdgeHandler<E extends EdgeEnv>(options: EdgeOptions<E>) {
       // Standard engine only: Argon2id needs runtime WASM compilation, which Workers do not allow
       // (README "Limits"). Escalation is therefore off at the edge.
       work: { mode: "standard", escalate: { at_velocity: Number.MAX_SAFE_INTEGER, classes: [] } },
+      ...(mints.length ? { settlement: { enabled: true, backend: "stub", fee_bps: 1000, pass_uses: 1, pass_ttl_s: 60, fx: { source: "none" } } } : {}),
     }, {});
+    if (mints.length) config.settlement.cashu = { enabled: true, mints, store: "durable-object" };
     const store = options.store(env);
+    const proof = mints.length && options.proofStore ? options.proofStore(env) : undefined;
+    const engine = proof ? new CashuReceiveEngine({
+      secret: await stubEngineSecret(env.SITE_SECRET),
+      mints,
+      store: proof,
+      lookup: env.TOLL_TEST_HOOKS === "1" ? async () => ["1.1.1.1"] : undefined,
+      fetch: cashuFetch(env, mints),
+      beforeSwap: () => { if (cashuFaultSlot.getStore() === "crash-before-swap") throw new TollError("store_unavailable"); },
+      afterSwap: () => { if (cashuFaultSlot.getStore() === "crash-after-swap") throw new TollError("store_unavailable"); },
+    }) : undefined;
     const toll = createToll(config, {
       store,
       metrics: new Metrics((l) => console.log(l)),
+      ...(engine ? { settlement: { engine } } : {}),
     });
     const built = { key, toll, free: list(env.FREE_PATHS, ["/", "/blog"]), store };
     if (!options.freshStore) cached = built;
@@ -196,14 +225,41 @@ export function createEdgeHandler<E extends EdgeEnv>(options: EdgeOptions<E>) {
     await store.note(kind);
   }
 
+  function isAgent(url: URL, req: Request): boolean {
+    return url.searchParams.get("client") === "agent" || (req.headers.get("toll-client") ?? "").trim().toLowerCase() === "agent";
+  }
+
+  async function cashuPresented(req: Request, toll: ReturnType<typeof createToll>, action: ActionClass, agent: boolean): Promise<Response | null> {
+    if (!agent || !toll.config.settlement.cashu?.enabled) return null;
+    const presented = presentedCashu(req.headers.get("x-cashu"));
+    if (!presented) return null;
+    if (presented.kind === "a") return json({ error: "malformed" }, 400);
+    try {
+      const r = await toll.redeemPresentedToken(presented.token, { action, ip: ip(req) });
+      return json({ pass: r.pass, exp: r.exp, cls: r.cls, rail: r.rail });
+    } catch (e) {
+      const code = e instanceof TollError ? e.code : "internal";
+      return json({ error: code }, code === "store_unavailable" ? 503 : code === "malformed" || code === "unsupported" ? 400 : 401);
+    }
+  }
+
   async function fetch(req: Request, env: E): Promise<Response> {
+    const fault = env.TOLL_TEST_HOOKS === "1" ? (req.headers.get("x-toll-cashu-fault") ?? "") : "";
+    return cashuFaultSlot.run(fault, () => dispatch(req, env));
+  }
+
+  async function dispatch(req: Request, env: E): Promise<Response> {
     const url = new URL(req.url);
     const path = url.pathname;
     const method = req.method.toUpperCase();
-    // Agent discovery (Amendment 3): free, served before any config or store is touched. The edge
-    // is work-only, so prices are null with status "stub". `docs` is TOLL_SITE_URL, or null when unset.
+    // Agent discovery (Amendment 3): free, served before any config or store is touched.
+    // With CASHU_MINTS, the gate tool lists Cashu. Otherwise prices are null and status is "stub".
     if ((path === "/.well-known/toll.json" || path === "/.well-known/agents.json") && (method === "GET" || method === "HEAD")) {
-      const doc = path === "/.well-known/toll.json" ? buildManifest({ api: url.origin + "/v1", docs: siteUrl(env.TOLL_SITE_URL), status: "stub", prices: null }) : agentsPointer(url.origin + "/.well-known/toll.json");
+      const mints = cashuMints(env, options.proofStore);
+      const prices = mints.length ? Object.fromEntries(PAID_CLASSES.map((c) => [c, { amount_msat: offerAmountMsat(c), usd: undefined }])) : null;
+      const doc = path === "/.well-known/toll.json"
+        ? buildManifest({ api: url.origin + "/v1", docs: siteUrl(env.TOLL_SITE_URL), status: mints.length ? "cashu" : "stub", prices, method: mints.length ? "cashu" : "ln402" })
+        : agentsPointer(url.origin + "/.well-known/toll.json");
       discoveryMetrics.discovery(path === "/.well-known/toll.json" ? "manifest" : "agents_json");
       return json(doc, 200, { "access-control-allow-origin": "*", "cache-control": "public, max-age=60" });
     }
@@ -221,6 +277,7 @@ export function createEdgeHandler<E extends EdgeEnv>(options: EdgeOptions<E>) {
       if (action === "read") return forward(req, env, url);
 
       const token = passFrom(req);
+      const agent = isAgent(url, req);
       if (token) {
         try {
           await toll.verifyPass(token, { action });
@@ -233,11 +290,25 @@ export function createEdgeHandler<E extends EdgeEnv>(options: EdgeOptions<E>) {
       } else {
         toll.metrics.passAbsent({ action, status: 403 });
       }
+      const presented = await cashuPresented(req, toll, action, agent);
+      if (presented) return presented;
+      if ((req.headers.get("accept") ?? "").includes("text/html") && !(req.headers.get("accept") ?? "").includes("application/json")) {
+        toll.metrics.turnedAway();
+        await note(store, "rejected");
+        return interstitial(req, url, action, preserveFields);
+      }
+      if (!(await allow(toll, store, req))) return json({ error: "toll_required" }, 403);
+      if (agent && toll.config.settlement.cashu?.enabled) {
+        const offers = await toll.offersFor({ action, path, client: "agent", userAgent: req.headers.get("user-agent"), ip: ip(req), source: "middleware" }).catch(() => []);
+        if (offers.length > 0) {
+          toll.metrics.offerShown({ cls: action, amount_msat: offers[0].amount_msat, offers: offers.length });
+          const pr = paymentRequired(toll.config.site_id, action, path, offers);
+          return json(pr.body, pr.status, pr.headers);
+        }
+      }
       toll.metrics.turnedAway();
       await note(store, "rejected");
-      if ((req.headers.get("accept") ?? "").includes("text/html") && !(req.headers.get("accept") ?? "").includes("application/json")) return interstitial(req, url, action, preserveFields);
-      if (!(await allow(toll, store, req))) return json({ error: "toll_required" }, 403);
-      const challenge = await toll.issueChallenge({ action, path, client: "widget", userAgent: req.headers.get("user-agent"), ip: ip(req), source: "middleware" });
+      const challenge = await toll.issueChallenge({ action, path, client: agent ? "agent" : "widget", userAgent: req.headers.get("user-agent"), ip: ip(req), source: "middleware" });
       return json({ error: "toll_required", challenge }, 403);
     } catch (e) {
       if (e instanceof TollError) return json({ error: e.code }, e.code === "store_unavailable" ? 503 : 400);
@@ -248,24 +319,59 @@ export function createEdgeHandler<E extends EdgeEnv>(options: EdgeOptions<E>) {
 
   async function facade(req: Request, env: E, url: URL, toll: ReturnType<typeof createToll>, store: EdgeStore): Promise<Response> {
     const path = url.pathname;
-    if (path === "/v1/health") return json({ ok: true, v: "1.0.0", settlement: "off", edge: true });
+    if (env.TOLL_TEST_HOOKS === "1" && path === "/v1/test/cashu-books" && req.method === "GET") {
+      const proof = options.proofStore?.(env);
+      if (!proof) return json({ error: "not_found" }, 404);
+      return json(await proof.books());
+    }
+    if (env.TOLL_TEST_HOOKS === "1" && path === "/v1/test/mint-fetches" && req.method === "GET") {
+      const urls = mintFetches.slice();
+      mintFetches.length = 0;
+      return json({ urls });
+    }
+    const cashuOn = !!toll.config.settlement.cashu?.enabled;
+    if (path === "/v1/health") {
+      if (!cashuOn || !toll.paid) return json({ ok: true, v: "1.0.0", settlement: "off", edge: true });
+      try {
+        const st = await toll.paid.status();
+        return json({ ok: true, v: "1.0.0", settlement: "cashu", settlement_degraded: !st.healthy || !st.collecting, usd_rate: st.usd, edge: true });
+      } catch {
+        return json({ ok: true, v: "1.0.0", settlement: "cashu", settlement_degraded: true, usd_rate: "unavailable", edge: true });
+      }
+    }
     if (path === "/v1/price" && req.method === "GET") {
       const action = url.searchParams.get("action") ?? "write";
       if (!(PAID_CLASSES as readonly string[]).includes(action)) return json({ error: "bad_action" }, 400);
       const cls = action as (typeof PAID_CLASSES)[number];
-      return json(priceBody({ action: cls, status: "stub", p: null, challenge_url: toll.challengeUrl(cls, url.searchParams.get("path") ?? "/") }));
+      const p = cashuOn ? toll.currentPrice({ action: cls, path: url.searchParams.get("path") ?? "/", client: "widget", ip: ip(req) }) : null;
+      return json(priceBody({ action: cls, status: p ? "cashu" : "stub", p, challenge_url: toll.challengeUrl(cls, url.searchParams.get("path") ?? "/") }));
     }
     if (path === "/v1/challenge" && req.method === "GET") {
       const action = url.searchParams.get("action") ?? "write";
       if (!isActionClass(action) || action === "read") return json({ error: "bad_action" }, 400);
       if (!(await allow(toll, store, req))) return json({ error: "rate_limited" }, 429, { "retry-after": "60" });
       const client = url.searchParams.get("client") === "agent" || req.headers.get("toll-client") === "agent" ? "agent" : "widget";
-      const challenge = await toll.issueChallenge({ site: url.searchParams.get("site") ?? undefined, action, path: url.searchParams.get("path") ?? undefined, client, userAgent: req.headers.get("user-agent"), ip: ip(req), source: "challenge_endpoint" });
-      return json({ challenge, offers: [] });
+      const input = { site: url.searchParams.get("site") ?? undefined, action, path: url.searchParams.get("path") ?? undefined, client: client as "agent" | "widget", userAgent: req.headers.get("user-agent"), ip: ip(req), source: "challenge_endpoint" as const };
+      if (url.searchParams.get("offers") === "0" || !cashuOn) {
+        const challenge = await toll.issueChallenge(input);
+        return json({ challenge, offers: [] });
+      }
+      const { challenge, offers } = await toll.issueWithOffers(input);
+      return json({ challenge, offers });
     }
     if (path === "/v1/redeem" && req.method === "POST") {
       const b = await body(req);
-      if (b.offer_id !== undefined) return json({ error: "unsupported", detail: "paid redeem is not enabled at the edge" }, 400);
+      if (b.offer_id !== undefined) {
+        if (!cashuOn) return json({ error: "unsupported", detail: "paid redeem is not enabled at the edge" }, 400);
+        if (b.kind !== "cashu") return json({ error: "unsupported" }, 400);
+        try {
+          const r = await toll.redeemPaid(b, { ip: ip(req) });
+          return json({ pass: r.pass, exp: r.exp, cls: r.cls, rail: r.rail });
+        } catch (e) {
+          const code = e instanceof TollError ? e.code : "internal";
+          return json({ error: code }, code === "store_unavailable" ? 503 : code === "malformed" || code === "unsupported" ? 400 : 401);
+        }
+      }
       if (typeof b.challenge_id !== "string" || typeof b.solution !== "object" || b.solution === null) return json({ error: "malformed" }, 400);
       const ch = b.challenge ?? toll.findIssued(b.challenge_id);
       if (!ch) return json({ error: "unknown_challenge" }, 401);
@@ -316,4 +422,9 @@ export function createEdgeHandler<E extends EdgeEnv>(options: EdgeOptions<E>) {
   }
 
   return { fetch };
+}
+
+function cashuMints<E extends EdgeEnv>(env: E, proofStore: EdgeOptions<E>["proofStore"]): string[] {
+  if (!proofStore) return [];
+  return parseCashuMints(env.CASHU_MINTS, env.TOLL_TEST_HOOKS === "1");
 }

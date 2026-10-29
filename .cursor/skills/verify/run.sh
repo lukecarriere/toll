@@ -194,6 +194,7 @@ const okBody = await ok.json();
 if (ok.status !== 200 || okBody.ok !== true) throw new Error("write " + ok.status);
 console.log("human path ok", denied.status, deniedBody.error, redeem.status, ok.status);
 EOF
+curl -fsS "$worker/v1/health" | php -r '$j=json_decode(stream_get_contents(STDIN)); if (!$j || $j->settlement !== "cashu" || $j->edge !== true) { fwrite(STDERR, "worker health\n"); exit(1); } echo "worker health ", $j->settlement, " ", !empty($j->settlement_degraded) ? "degraded" : "up", "\n";' | tee -a "$TRANSCRIPT"
 
 if curl -fsS -o /dev/null --max-time 2 http://127.0.0.1:8888/ 2>/dev/null; then
   log "wordpress live: port 8888 answered; this run does not drive the admin UI"

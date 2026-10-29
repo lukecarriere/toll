@@ -67,9 +67,28 @@ function blockedName(host: string): boolean {
 }
 
 /**
- * Sync check for a configured production mint. No DNS. https only, path kept, private hosts refused.
- * Returns the normalized mint key.
+ * Allowlist from a Worker var (a JSON array of mint URLs). Invalid entries are dropped.
+ * `allowLoopback` is the test hook: a loopback http mint is kept so the suite can use a stub.
+ * Production leaves it false, so only https public mints remain.
  */
+export function parseCashuMints(raw: string | undefined, allowLoopback: boolean): string[] {
+  if (!raw) return [];
+  let parsed: unknown;
+  try { parsed = JSON.parse(raw); } catch { return []; }
+  if (!Array.isArray(parsed)) return [];
+  const out: string[] = [];
+  for (const entry of parsed) {
+    if (typeof entry !== "string" || entry.trim() === "") continue;
+    try {
+      out.push(allowLoopback ? mintKey(entry) : assertProductionMint(entry));
+    } catch {
+      /* a bad entry does not open the others, and it is not fetched */
+    }
+  }
+  return out;
+}
+
+/** Sync check for a configured production mint. No DNS. https only, path kept, private hosts refused. */
 export function assertProductionMint(raw: string): string {
   let u: URL;
   try { u = new URL(raw.trim()); } catch { throw new Error("must be an https URL"); }
@@ -99,10 +118,12 @@ export async function guardMintUrl(raw: string, allowlist: string[], opts: MintG
   if (u.search !== "" || u.hash !== "") throw new Error("mint url must not include a query or fragment");
   const host = bareHost(u.hostname);
   const loopbackOk = opts.loopbackHttp === true && isLoopbackHost(host) && u.protocol === "http:";
+  // CASHU_GUARD public-host: http and private or loopback addresses are refused before DNS.
   if (u.protocol !== "https:" && !loopbackOk) throw new Error("mint url must be https");
   if (!loopbackOk && (blockedName(host) || (isIP(host) !== 0 && blockedAddress(host)) || isLoopbackHost(host))) throw new Error("mint url host is not public");
   const key = mintKey(raw);
   const allowed = new Set(allowlist.map((m) => { try { return mintKey(m); } catch { return ""; } }));
+  // CASHU_GUARD allowlist: a mint that is not listed is not fetched.
   if (!allowed.has(key)) throw new Error("mint url is not on the allowlist");
   if (isIP(host) === 0 && !loopbackOk) {
     const look = opts.lookup ?? defaultLookup;
@@ -120,6 +141,7 @@ export async function mintFetch(base: string, path: string, init: RequestInit, o
   const f = opts.fetch ?? fetch;
   let r: Response;
   try {
+    // CASHU_GUARD redirect: never follow. A 3xx below is refused before the body is trusted.
     r = await f(key + path, { ...init, redirect: "manual", signal: AbortSignal.timeout(TIMEOUT_MS) });
   } catch {
     throw new TollError("store_unavailable");

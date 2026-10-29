@@ -91,8 +91,14 @@ export function blindMessage(secret: string): Blinded {
   return { secret, r, B_: toHex(B_.toBytes(true)) };
 }
 
+/** Compressed hash-to-curve of a proof secret. NUT-07 calls this `Y`. */
+export function secretY(secret: string): string {
+  return toHex(hashToCurve(utf8(secret)).toBytes(true));
+}
+
 export function unblind(C_: string, r: bigint, mintPub: string): string {
-  const C = Point.fromBytes(fromHex(C_)).subtract(Point.fromBytes(fromHex(mintPub)).multiply(r));
+  // CASHU_GUARD c-case: mint replies use either hex case. fromHex accepts lowercase only.
+  const C = Point.fromBytes(fromHex(C_.toLowerCase())).subtract(Point.fromBytes(fromHex(mintPub.toLowerCase())).multiply(r));
   return toHex(C.toBytes(true));
 }
 
