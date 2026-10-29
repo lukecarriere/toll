@@ -25,9 +25,15 @@ export interface KeysetMint {
    * Fault the next responses for `path` (`/v1/swap`, `/v1/keysets`, `/v1/keys`, `/v1/restore`,
    * `/v1/checkstate`, `/v1/info`). `null` clears it. Modes: network, 500, empty, malformed,
    * bad-reply (swap spends, body has no C_), uppercase (swap spends, C_ is uppercase),
-   * drop-after (swap spends, then the socket closes).
+   * drop-after (swap spends, then the socket closes), pending, unspent, spent, unknown
+   * (checkstate). A signed reply set with `setSignedReply` replaces the 200 after the mint signs.
    */
   setFault: (path: string | null, mode: string | null) => void;
+  /**
+   * After a swap is signed, answer with this status and body instead of the signatures.
+   * `null` restores the normal signed reply. Cleared by `setFault(null, null)`.
+   */
+  setSignedReply: (reply: { status: number; body: string; type: string } | null) => void;
   /** Signature the mint kept for a blinded output, if the swap was accepted. */
   signatureFor: (B_: string) => string | undefined;
   /** Sum of output amounts this mint has signed. */
@@ -56,6 +62,7 @@ export async function startKeysetMint(): Promise<KeysetMint> {
   let lastIds: string[] = [];
   const faults = new Map<string, string>();
   let uppercaseSigs = false;
+  let signedReply: { status: number; body: string; type: string } | null = null;
 
   function faultFor(path: string): string | null {
     if (faults.has(path)) return faults.get(path) ?? null;
@@ -120,6 +127,12 @@ export async function startKeysetMint(): Promise<KeysetMint> {
         if (inSum !== outSum) return json(res, 400, { detail: "amount", code: 11000 });
         for (const input of inputs) spent.add(input.secret);
         for (let i = 0; i < outputs.length; i++) signed.set(String(outputs[i].B_), signatures[i]);
+        if (signedReply) {
+          const raw = signedReply.body;
+          res.writeHead(signedReply.status, { "content-type": signedReply.type, "content-length": Buffer.byteLength(raw) });
+          res.end(raw);
+          return;
+        }
         if (fault === "drop-after") { req.socket.destroy(); return; }
         if (fault === "sign-then-400") return json(res, 400, { detail: "refused", code: 11000 });
         if (fault === "http-500-json") return json(res, 500, { detail: "down", code: 11000 });
@@ -154,7 +167,8 @@ export async function startKeysetMint(): Promise<KeysetMint> {
         const Ys = Array.isArray(body?.Ys) ? body.Ys : [];
         const known = new Map<string, string>();
         for (const secret of spent) known.set(secretY(secret), "SPENT");
-        const forced = fault === "pending" ? "PENDING" : fault === "unspent" ? "UNSPENT" : null;
+        if (fault === "unknown") return json(res, 200, {});
+        const forced = fault === "pending" ? "PENDING" : fault === "unspent" ? "UNSPENT" : fault === "spent" ? "SPENT" : null;
         const states = Ys.map((Y: unknown) => ({ Y, state: forced ?? known.get(String(Y)) ?? "UNSPENT" }));
         return json(res, 200, { states });
       }
@@ -188,10 +202,11 @@ export async function startKeysetMint(): Promise<KeysetMint> {
     forgetSpent: () => { spent.clear(); },
     setDown: (v) => { down = v; },
     setFault: (path, mode) => {
-      if (path === null) { faults.clear(); return; }
+      if (path === null) { faults.clear(); signedReply = null; return; }
       if (mode === null) { faults.delete(path); return; }
       faults.set(path, mode);
     },
+    setSignedReply: (reply) => { signedReply = reply; },
     signatureFor: (B_) => signed.get(B_)?.C_,
     signedSats: () => [...signed.values()].reduce((n, s) => n + s.amount, 0),
     token: issue,

@@ -38,6 +38,21 @@ const mutants = [
     from: "  try { code = Number(JSON.parse(text)?.code); } catch { return { kind: \"unknown\" }; }\n  if (!Number.isSafeInteger(code) || code <= 0) return { kind: \"unknown\" };",
     to: "  try { code = Number(JSON.parse(text)?.code); } catch { return { kind: \"refused\", code: 11000 }; }\n  if (!Number.isSafeInteger(code) || code <= 0) return { kind: \"refused\", code: 11000 };",
   },
+  {
+    name: "parsed JSON 4xx with a missing or non-positive code counted as refused",
+    from: "  if (!Number.isSafeInteger(code) || code <= 0) return { kind: \"unknown\" };",
+    to: "  if (!Number.isSafeInteger(code) || code <= 0) return { kind: \"refused\", code: 11000 };",
+  },
+  {
+    name: "any 4xx refused",
+    from: "  if (status === 429 || status < 400 || status >= 500) return { kind: \"unknown\" };",
+    to: "  if (status >= 400 && status < 500) return { kind: \"refused\", code: status };\n  if (status < 400 || status >= 500) return { kind: \"unknown\" };",
+  },
+  {
+    name: "checkstate ignored",
+    from: "    if (outcome.kind === \"refused\" && state === \"unspent\") {",
+    to: "    if (outcome.kind === \"refused\") {",
+  },
 ];
 
 function runConservation() {

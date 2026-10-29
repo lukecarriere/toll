@@ -454,6 +454,172 @@ test("conservation: inconclusive mint results keep the blinded outputs", async (
   }
 });
 
+/**
+ * Abort only these HTTP status and mint-code pairs, and only when every input is UNSPENT.
+ * 11001 is not in the list. 429 and 5xx are not. A missing, zero, negative, or fractional code is not.
+ * A numeric string such as "11002" parses as 11002, which is listed.
+ */
+const DEFINITIVE_REFUSALS: ReadonlyArray<readonly [number, number]> = [
+  [400, 11000], [400, 11002],
+  [401, 11000], [401, 11002],
+  [404, 11000], [404, 11002],
+  [409, 11000], [409, 11002],
+  [422, 11000], [422, 11002],
+];
+
+const RESPONSE_STATUSES = ["transport", "timeout", 200, 400, 401, 404, 409, 422, 429, 500, 502, 503] as const;
+
+const RESPONSE_BODIES: ReadonlyArray<{ name: string; raw: string; type: string; code: number | null }> = [
+  { name: "plain", raw: "nope", type: "text/plain", code: null },
+  { name: "empty", raw: "", type: "text/plain", code: null },
+  { name: "invalid", raw: "{", type: "application/json", code: null },
+  { name: "object", raw: "{}", type: "application/json", code: null },
+  { name: "null", raw: "{\"code\":null}", type: "application/json", code: null },
+  { name: "zero", raw: "{\"code\":0}", type: "application/json", code: null },
+  { name: "negative", raw: "{\"code\":-1}", type: "application/json", code: null },
+  { name: "string", raw: "{\"code\":\"11002\"}", type: "application/json", code: 11002 },
+  { name: "fraction", raw: "{\"code\":1.5}", type: "application/json", code: null },
+  { name: "11000", raw: "{\"code\":11000}", type: "application/json", code: 11000 },
+  { name: "11002", raw: "{\"code\":11002}", type: "application/json", code: 11002 },
+  { name: "11001", raw: "{\"detail\":\"already spent\",\"code\":11001}", type: "application/json", code: null },
+];
+
+const RESPONSE_CHECKS = ["UNSPENT", "PENDING", "SPENT", "unknown"] as const;
+
+function expectsAbort(status: (typeof RESPONSE_STATUSES)[number], code: number | null, check: (typeof RESPONSE_CHECKS)[number]): boolean {
+  if (typeof status !== "number" || code === null || check !== "UNSPENT") return false;
+  return DEFINITIVE_REFUSALS.some(([s, c]) => s === status && c === code);
+}
+
+test("conservation: mint response matrix aborts only a listed refusal", async () => {
+  const local = await startKeysetMint();
+  const store = matrixStore();
+  let swapThrow: "timeout" | null = null;
+  const engine = new CashuReceiveEngine({
+    secret: "cashu-receive-test-secret",
+    mints: [local.url],
+    store,
+    loopbackHttp: true,
+    fetch: async (input, init) => {
+      const res = await fetch(input, init);
+      const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+      if (swapThrow && url.includes("/v1/swap")) {
+        await res.body?.cancel();
+        throw new DOMException("The operation was aborted due to timeout", "TimeoutError");
+      }
+      return res;
+    },
+  });
+  const now = Math.floor(Date.now() / 1000);
+  const firstUse = async () => true;
+  let cells = 0;
+  let aborts = 0;
+  let dropped = 0;
+  try {
+    const offer = await engine.offer({ site: "s", cls: "write", amount_msat: 10000, now });
+    for (const status of RESPONSE_STATUSES) {
+      for (const body of RESPONSE_BODIES) {
+        for (const check of RESPONSE_CHECKS) {
+          const label = status + " " + body.name + " " + check;
+          const abort = expectsAbort(status, body.code, check);
+          local.setFault(null, null);
+          swapThrow = null;
+          local.setFault("/v1/restore", "nosig");
+          local.setFault("/v1/checkstate", check === "UNSPENT" ? "unspent" : check === "PENDING" ? "pending" : check === "SPENT" ? "spent" : "unknown");
+          if (status === "transport") local.setFault("/v1/swap", "drop-after");
+          else if (status === "timeout") swapThrow = "timeout";
+          else local.setSignedReply({ status, body: body.raw, type: body.type });
+          const before = await store.books();
+          const signedBefore = local.signedSats();
+          const abortsBefore = store.aborts();
+          const token = local.token(10);
+          const proof = { kind: "cashu" as const, offer_id: offer.id, credential: offer.credential, token };
+          let error: unknown = null;
+          try {
+            await engine.verifyPaid({ site: "s", now, firstUse, proof });
+          } catch (e) {
+            error = e;
+          }
+          cells++;
+          if (!(error instanceof TollError)) assert.fail(label + " " + String(error));
+          const after = await store.books();
+          const signed = local.signedSats() - signedBefore;
+          assert.equal(signed, 10, label);
+          if (abort) {
+            aborts++;
+            dropped += 10;
+            assert.equal(store.aborts(), abortsBefore + 1, label);
+            assert.equal(error.code, "bad_solution", label);
+            assert.equal(after.pending, before.pending, label);
+          } else {
+            assert.equal(store.aborts(), abortsBefore, label);
+            assert.equal(error.code, "store_unavailable", label);
+            assert.equal(after.pending, before.pending + 10, label);
+          }
+          assert.equal(after.losses, before.losses, label);
+          assert.equal(after.stored + after.pending + after.losses + dropped, local.signedSats(), label);
+          if (!abort) {
+            local.setFault(null, null);
+            swapThrow = null;
+            await engine.recoverSaved();
+            const done = await store.books();
+            assert.equal(done.pending, before.pending, label);
+            assert.equal(done.stored, before.stored + 10, label);
+            assert.equal(done.stored + done.pending + done.losses + dropped, local.signedSats(), label);
+          }
+        }
+      }
+    }
+    assert.equal(cells, RESPONSE_STATUSES.length * RESPONSE_BODIES.length * RESPONSE_CHECKS.length);
+    assert.equal(aborts, 15);
+    const end = await store.books();
+    assert.equal(end.pending, 0);
+    assert.equal(end.stored + end.pending + end.losses + dropped, local.signedSats());
+  } finally {
+    await local.close();
+  }
+});
+
+function matrixStore(): ProofStore & { aborts: () => number } {
+  let proofs: StoredProof[] = [];
+  let spent: string[] = [];
+  let pending: PendingSwap[] = [];
+  let losses = 0;
+  let aborts = 0;
+  return {
+    aborts: () => aborts,
+    async read() { return { proofs: proofs.slice(), spent: spent.slice(), pending: pending.slice(), losses }; },
+    async books() {
+      const stored = proofs.reduce((n, p) => n + p.amount, 0);
+      const pendingSats = pending.reduce((n, p) => n + p.outSats, 0);
+      return { stored, pending: pendingSats, losses, spent: spent.length, inSats: stored + pendingSats + losses };
+    },
+    async begin(p) {
+      if (p.marks.some((h) => spent.includes(h))) throw new TollError("replay");
+      const existing = pending.find((x) => x.marks.some((h) => p.marks.includes(h)));
+      if (existing) return existing;
+      pending.push(p);
+      losses += p.inSats - p.outSats;
+      return p;
+    },
+    async commit(o) {
+      if (!pending.some((x) => x.id === o.id)) throw new TollError("store_unavailable");
+      proofs = proofs.concat(o.proofs);
+      for (const h of o.marks) if (!spent.includes(h)) spent.push(h);
+      pending = pending.filter((x) => x.id !== o.id);
+    },
+    async abort(id) {
+      aborts++;
+      const row = pending.find((x) => x.id === id);
+      if (!row) return;
+      losses -= row.inSats - row.outSats;
+      if (losses < 0) losses = 0;
+      pending = pending.filter((x) => x.id !== id);
+    },
+    async lose() { throw new Error("lose"); },
+  };
+}
+
 function looseStore(): ProofStore & { begins: () => number } {
   let proofs: StoredProof[] = [];
   let spent: string[] = [];
