@@ -26,7 +26,8 @@ export interface KeysetMint {
    * `/v1/checkstate`, `/v1/info`). `null` clears it. Modes: network, 500, empty, malformed,
    * bad-reply (swap spends, body has no C_), uppercase (swap spends, C_ is uppercase),
    * drop-after (swap spends, then the socket closes), pending, unspent, spent, unknown
-   * (checkstate). A signed reply set with `setSignedReply` replaces the 200 after the mint signs.
+   * (checkstate), zero (restore returns an empty signature list). A signed reply set with
+   * `setSignedReply` replaces the 200 after the mint signs.
    */
   setFault: (path: string | null, mode: string | null) => void;
   /**
@@ -151,16 +152,23 @@ export async function startKeysetMint(): Promise<KeysetMint> {
       if (req.method === "POST" && path === "/v1/restore") {
         const body = await readJson(req);
         const outputs = Array.isArray(body?.outputs) ? body.outputs : [];
-        const signatures = outputs.map((output: { amount?: number; id?: string; B_?: string }) => {
+        const found: { output: { amount?: number; id?: string; B_?: string }; sig: { id: string; amount: number; C_: string } }[] = [];
+        for (const output of outputs as { amount?: number; id?: string; B_?: string }[]) {
           const saved = typeof output?.B_ === "string" ? signed.get(output.B_) : undefined;
-          const c = saved ? (uppercaseSigs ? saved.C_.toUpperCase() : saved.C_) : null;
-          return saved ? { id: saved.id, amount: saved.amount, C_: c } : { id: output?.id ?? "", amount: output?.amount ?? 0, C_: null };
-        });
+          if (!saved) continue;
+          found.push({ output, sig: { id: saved.id, amount: saved.amount, C_: uppercaseSigs ? saved.C_.toUpperCase() : saved.C_ } });
+        }
         if (fault === "nosig") return json(res, 200, { signatures: outputs.map((output: { amount?: number; id?: string }) => ({ id: output?.id ?? "", amount: output?.amount ?? 0, C_: null })) });
         if (fault === "partial") {
-          return json(res, 200, { signatures: signatures.map((sig: { id: string; amount: number; C_: string | null }, i: number) => i === 0 ? sig : { id: sig.id, amount: sig.amount, C_: null }) });
+          const signatures = outputs.map((output: { amount?: number; id?: string; B_?: string }, i: number) => {
+            const saved = typeof output?.B_ === "string" ? signed.get(output.B_) : undefined;
+            const c = saved && i === 0 ? (uppercaseSigs ? saved.C_.toUpperCase() : saved.C_) : null;
+            return saved && c ? { id: saved.id, amount: saved.amount, C_: c } : { id: output?.id ?? "", amount: output?.amount ?? 0, C_: null };
+          });
+          return json(res, 200, { signatures });
         }
-        return json(res, 200, { outputs, signatures });
+        if (fault === "zero") return json(res, 200, { outputs: [], signatures: [] });
+        return json(res, 200, { outputs: found.map((f) => f.output), signatures: found.map((f) => f.sig) });
       }
       if (req.method === "POST" && path === "/v1/checkstate") {
         const body = await readJson(req);

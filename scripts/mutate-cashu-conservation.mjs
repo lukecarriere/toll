@@ -17,11 +17,11 @@ const mutants = [
     to: 'else if (state === "PENDING") unspent++;',
   },
   {
-    name: "dropped connection treated as mint 4xx",
-    from: `      // CASHU_GUARD transport-not-4xx: a dropped connection is not a mint 4xx.
-      return { kind: "unknown" };`,
-    to: `      // CASHU_GUARD transport-not-4xx: a dropped connection is not a mint 4xx.
-      return { kind: "refused", code: 11000 };`,
+    name: "dropped connection treated as an empty restore",
+    from: `      // CASHU_GUARD transport-not-4xx: a dropped connection is not a conclusive empty restore.
+      return { kind: "inconclusive" };`,
+    to: `      // CASHU_GUARD transport-not-4xx: a dropped connection is not a conclusive empty restore.
+      return { kind: "none" };`,
   },
   {
     name: "store.begin skipped",
@@ -29,29 +29,24 @@ const mutants = [
     to: "pending = prepared;",
   },
   {
-    name: "treat 5xx/429 as definitive",
-    from: "  if (status === 429 || status < 400 || status >= 500) return { kind: \"unknown\" };",
-    to: "  if (status < 400) return { kind: \"unknown\" };\n  if (status === 429 || status >= 500) return { kind: \"refused\", code: status };",
+    name: "abort on any listed code without restore",
+    from: "    if (empty && !unclear && state === \"unspent\") {",
+    to: "    if ((empty && !unclear && state === \"unspent\") || notice === \"bad_solution\") {",
   },
   {
-    name: "treat a 4xx without a parseable code as definitive",
-    from: "  try { code = Number(JSON.parse(text)?.code); } catch { return { kind: \"unknown\" }; }\n  if (!Number.isSafeInteger(code) || code <= 0) return { kind: \"unknown\" };",
-    to: "  try { code = Number(JSON.parse(text)?.code); } catch { return { kind: \"refused\", code: 11000 }; }\n  if (!Number.isSafeInteger(code) || code <= 0) return { kind: \"refused\", code: 11000 };",
+    name: "the dropped bucket counts as conserved",
+    from: "      await (await this.useStore()).abort(pending.id);",
+    to: "      await (await this.useStore()).lose({ id: pending.id, marks: pending.marks });",
   },
   {
-    name: "parsed JSON 4xx with a missing or non-positive code counted as refused",
-    from: "  if (!Number.isSafeInteger(code) || code <= 0) return { kind: \"unknown\" };",
-    to: "  if (!Number.isSafeInteger(code) || code <= 0) return { kind: \"refused\", code: 11000 };",
-  },
-  {
-    name: "any 4xx refused",
-    from: "  if (status === 429 || status < 400 || status >= 500) return { kind: \"unknown\" };",
-    to: "  if (status >= 400 && status < 500) return { kind: \"refused\", code: status };\n  if (status < 400 || status >= 500) return { kind: \"unknown\" };",
+    name: "abort when restore is inconclusive",
+    from: "    if (empty && !unclear && state === \"unspent\") {",
+    to: "    if ((empty || unclear) && state === \"unspent\") {",
   },
   {
     name: "checkstate ignored",
-    from: "    if (outcome.kind === \"refused\" && state === \"unspent\") {",
-    to: "    if (outcome.kind === \"refused\") {",
+    from: "    if (empty && !unclear && state === \"unspent\") {",
+    to: "    if (empty && !unclear) {",
   },
 ];
 

@@ -37,20 +37,26 @@ interface KeysetInfo {
 
 type SwapOutcome =
   | { kind: "sigs"; signatures: { amount: number; C_: string }[] }
-  | { kind: "replay" }
-  /** A parsed 4xx from the mint with a definitive error code. Never a transport failure. */
-  | { kind: "refused"; code: number }
+  | { kind: "http"; status: number; text: string }
   | { kind: "unknown" };
 
-/** 11001 means the inputs are already spent. A parsed 4xx with another positive code is a refusal. 429 and 5xx are not. */
-function refusalFromBody(status: number, text: string): SwapOutcome {
-  // CASHU_GUARD not-5xx-429: rate limits and server errors are not a definitive refusal.
-  if (status === 429 || status < 400 || status >= 500) return { kind: "unknown" };
+type RestoreOutcome =
+  | { kind: "proofs"; proofs: StoredProof[] }
+  | { kind: "none" }
+  | { kind: "inconclusive" };
+
+/**
+ * A mint error code is a label for the caller after the outputs are already resolved.
+ * 11000 is not a NUT code. 11002, 11003, and 11004 mean a swap may already be signed.
+ */
+function messageFor(outcome: SwapOutcome): "bad_solution" | "replay" | "store_unavailable" {
+  if (outcome.kind !== "http") return "store_unavailable";
+  if (outcome.status === 429 || outcome.status < 400 || outcome.status >= 500) return "store_unavailable";
   let code = Number.NaN;
-  try { code = Number(JSON.parse(text)?.code); } catch { return { kind: "unknown" }; }
-  if (!Number.isSafeInteger(code) || code <= 0) return { kind: "unknown" };
-  if (code === 11001) return { kind: "replay" };
-  return { kind: "refused", code };
+  try { code = Number(JSON.parse(outcome.text)?.code); } catch { return "store_unavailable"; }
+  if (!Number.isSafeInteger(code) || code <= 0) return "store_unavailable";
+  if (code === 11001) return "replay";
+  return "bad_solution";
 }
 
 async function seal(secret: string, c: Caveats): Promise<string> {
@@ -209,7 +215,7 @@ export class CashuReceiveEngine implements SettlementEngine {
     for (const pending of snap.pending) {
       if (skip && sameMarks(pending.marks, skip)) continue;
       const restored = await this.tryRestore(pending);
-      if (restored) await store.commit({ id: pending.id, proofs: restored, marks: pending.marks });
+      if (restored.kind === "proofs") await store.commit({ id: pending.id, proofs: restored.proofs, marks: pending.marks });
       // A restore that did not return our signatures is inconclusive. Leave the row.
     }
   }
@@ -278,24 +284,25 @@ export class CashuReceiveEngine implements SettlementEngine {
       const proofs = await this.unblindOutputs(pending, outcome.signatures);
       if (proofs) return proofs;
     }
-    const restored = await this.tryRestore(pending);
-    if (restored) return restored;
-    // The response was lost. Post the same blinded outputs once more, then ask for the signatures again.
-    if (outcome.kind === "unknown") {
-      const again = await this.postSwap(pending);
-      if (again.kind === "sigs") {
-        const proofs = await this.unblindOutputs(pending, again.signatures);
-        if (proofs) return proofs;
-      }
-      const restoredAgain = await this.tryRestore(pending);
-      if (restoredAgain) return restoredAgain;
+    const first = await this.tryRestore(pending);
+    if (first.kind === "proofs") return first.proofs;
+    // The swap did not return signatures. Post the same blinded outputs once more, then restore again.
+    const again = await this.postSwap(pending);
+    if (again.kind === "sigs") {
+      const proofs = await this.unblindOutputs(pending, again.signatures);
+      if (proofs) return proofs;
     }
+    const second = await this.tryRestore(pending);
+    if (second.kind === "proofs") return second.proofs;
+    const empty = first.kind === "none" || second.kind === "none";
+    const unclear = first.kind === "inconclusive" || second.kind === "inconclusive";
     const state = await this.tryCheck(pending);
-    // CASHU_GUARD keep-committed: abort only for a parsed mint refusal while every input is UNSPENT.
-    // A dropped connection, a timeout, or an unparseable body is `unknown` and can only be resolved by restore.
-    if (outcome.kind === "refused" && state === "unspent") {
+    const notice = messageFor(outcome.kind === "http" ? outcome : again);
+    // CASHU_GUARD abort-only-empty-restore: a mint code never deletes the outputs.
+    // Abort only when restore returned zero signatures and every input is UNSPENT.
+    if (empty && !unclear && state === "unspent") {
       await (await this.useStore()).abort(pending.id);
-      throw new TollError("bad_solution");
+      throw new TollError(notice);
     }
     throw new TollError("store_unavailable");
   }
@@ -312,7 +319,7 @@ export class CashuReceiveEngine implements SettlementEngine {
       // CASHU_GUARD transport-not-4xx: a dropped connection is not a mint 4xx.
       return { kind: "unknown" };
     }
-    if (r.status !== 200) return refusalFromBody(r.status, r.text);
+    if (r.status !== 200) return { kind: "http", status: r.status, text: r.text };
     let rows: unknown;
     try { rows = JSON.parse(r.text).signatures; } catch { return { kind: "unknown" }; }
     if (!Array.isArray(rows) || rows.length !== pending.outputs.length) return { kind: "unknown" };
@@ -325,27 +332,46 @@ export class CashuReceiveEngine implements SettlementEngine {
     return { kind: "sigs", signatures };
   }
 
-  /** Proofs only when every output has a usable signature. Anything else is inconclusive, not a loss. */
-  private async tryRestore(pending: PendingSwap): Promise<StoredProof[] | null> {
+  /**
+   * NUT-09. Proofs when every blinded output has a signature. `none` only for a 200 whose
+   * outputs and signatures are both empty. A null signature, a partial list, or a transport
+   * failure is inconclusive and must not delete the row.
+   */
+  private async tryRestore(pending: PendingSwap): Promise<RestoreOutcome> {
     let r: { status: number; text: string };
     try {
       const body = { outputs: pending.outputs.map((b) => ({ amount: b.amount, id: b.id, B_: b.B_ })) };
       r = await mintFetch(pending.mint, "/v1/restore", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }, this.guard, this.mints);
     } catch {
-      return null;
+      // CASHU_GUARD transport-not-4xx: a dropped connection is not a conclusive empty restore.
+      return { kind: "inconclusive" };
     }
-    if (r.status !== 200) return null;
-    let rows: unknown;
-    try { rows = JSON.parse(r.text).signatures; } catch { return null; }
-    // CASHU_GUARD inconclusive-restore: a parsed 200 with no usable signature is not proof the outputs are gone.
-    if (!Array.isArray(rows) || rows.length !== pending.outputs.length) return null;
-    const signatures: { amount: number; C_: string }[] = [];
-    for (let i = 0; i < pending.outputs.length; i++) {
-      const C_ = signatureC(rows[i], pending.outputs[i].amount);
-      if (!C_) return null;
-      signatures.push({ amount: pending.outputs[i].amount, C_ });
+    if (r.status !== 200) return { kind: "inconclusive" };
+    let parsed: unknown;
+    try { parsed = JSON.parse(r.text); } catch { return { kind: "inconclusive" }; }
+    const outputs = parsed && typeof parsed === "object" ? (parsed as { outputs?: unknown; signatures?: unknown }).outputs : undefined;
+    const rows = parsed && typeof parsed === "object" ? (parsed as { signatures?: unknown }).signatures : undefined;
+    // CASHU_GUARD inconclusive-restore: only paired arrays are an answer. Empty arrays mean zero signatures.
+    if (!Array.isArray(outputs) || !Array.isArray(rows) || outputs.length !== rows.length) return { kind: "inconclusive" };
+    if (outputs.length === 0) return { kind: "none" };
+    const got: ({ amount: number; C_: string } | undefined)[] = new Array(pending.outputs.length);
+    let usable = 0;
+    for (let i = 0; i < rows.length; i++) {
+      const out = outputs[i] as { amount?: unknown; B_?: unknown };
+      const B_ = typeof out?.B_ === "string" ? out.B_ : "";
+      const amount = typeof out?.amount === "number" ? out.amount : Number.NaN;
+      const C_ = signatureC(rows[i], amount);
+      if (!C_ || !B_) continue;
+      const idx = pending.outputs.findIndex((b) => b.B_ === B_ && b.amount === amount);
+      if (idx < 0 || got[idx]) continue;
+      got[idx] = { amount, C_ };
+      usable++;
     }
-    return this.unblindOutputs(pending, signatures);
+    if (usable === 0) return { kind: "inconclusive" };
+    if (usable !== pending.outputs.length || got.some((g) => !g)) return { kind: "inconclusive" };
+    const proofs = await this.unblindOutputs(pending, got as { amount: number; C_: string }[]);
+    if (!proofs) return { kind: "inconclusive" };
+    return { kind: "proofs", proofs };
   }
 
   private async tryCheck(pending: PendingSwap): Promise<"spent" | "unspent" | "pending" | "unknown"> {

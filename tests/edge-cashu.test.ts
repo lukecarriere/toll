@@ -413,16 +413,65 @@ test("conservation: inconclusive mint results keep the blinded outputs", async (
     }
   }
 
-  // A parsed refusal while checkstate says PENDING. The outputs were signed; PENDING is not UNSPENT.
-  {
-    mint.setFault("/v1/swap", "sign-then-400");
+  // The mint signed, then returned 11000, 11002, 11003, or 11004. Those codes do not abort.
+  for (const code of [11000, 11002, 11003, 11004]) {
+    mint.setSignedReply({ status: 400, body: JSON.stringify({ detail: "mint", code }), type: "application/json" });
     mint.setFault("/v1/restore", "nosig");
+    mint.setFault("/v1/checkstate", "unspent");
+    const before = await books();
+    const token = await freshToken();
+    const failed = await pay(token);
+    assert.equal(failed.status, 503, failed.text + " " + code);
+    assert.notEqual(failed.body.error, "bad_solution");
+    const mid = await books();
+    holds(mid);
+    assert.equal(mid.pending, before.pending + 10, String(code));
+    assert.equal(mid.losses, before.losses);
+    await finish(token, before);
+  }
+
+  // Conclusive empty restore, but checkstate is PENDING and the mint has signed. Do not abort.
+  {
+    mint.setSignedReply({ status: 400, body: JSON.stringify({ code: 11002 }), type: "application/json" });
+    mint.setFault("/v1/restore", "zero");
     mint.setFault("/v1/checkstate", "pending");
     const before = await books();
     const token = await freshToken();
     const failed = await pay(token);
     assert.equal(failed.status, 503, failed.text);
-    assert.notEqual(failed.body.error, "bad_solution");
+    const mid = await books();
+    holds(mid);
+    assert.equal(mid.pending, before.pending + 10);
+    await finish(token, before);
+  }
+
+  // The mint never signed. An empty signature list and all-UNSPENT inputs are the only abort.
+  {
+    mint.setFault("/v1/swap", "refuse");
+    mint.setFault("/v1/checkstate", "unspent");
+    const before = await books();
+    const signed = mint.signedSats();
+    const token = await freshToken();
+    const failed = await pay(token);
+    assert.equal(failed.status, 401, failed.text);
+    assert.equal(failed.body.error, "bad_solution");
+    const mid = await books();
+    holds(mid);
+    assert.equal(mid.pending, before.pending);
+    assert.equal(mid.losses, before.losses);
+    assert.equal(mint.signedSats(), signed);
+    await finish(token, before);
+  }
+
+  // A dropped restore is not an empty signature list.
+  {
+    mint.setFault("/v1/swap", "drop-after");
+    mint.setFault("/v1/restore", "network");
+    mint.setFault("/v1/checkstate", "unspent");
+    const before = await books();
+    const token = await freshToken();
+    const failed = await pay(token);
+    assert.equal(failed.status, 503, failed.text);
     const mid = await books();
     holds(mid);
     assert.equal(mid.pending, before.pending + 10);
@@ -454,44 +503,32 @@ test("conservation: inconclusive mint results keep the blinded outputs", async (
   }
 });
 
-/**
- * Abort only these HTTP status and mint-code pairs, and only when every input is UNSPENT.
- * 11001 is not in the list. 429 and 5xx are not. A missing, zero, negative, or fractional code is not.
- * A numeric string such as "11002" parses as 11002, which is listed.
- */
-const DEFINITIVE_REFUSALS: ReadonlyArray<readonly [number, number]> = [
-  [400, 11000], [400, 11002],
-  [401, 11000], [401, 11002],
-  [404, 11000], [404, 11002],
-  [409, 11000], [409, 11002],
-  [422, 11000], [422, 11002],
-];
-
 const RESPONSE_STATUSES = ["transport", "timeout", 200, 400, 401, 404, 409, 422, 429, 500, 502, 503] as const;
 
-const RESPONSE_BODIES: ReadonlyArray<{ name: string; raw: string; type: string; code: number | null }> = [
-  { name: "plain", raw: "nope", type: "text/plain", code: null },
-  { name: "empty", raw: "", type: "text/plain", code: null },
-  { name: "invalid", raw: "{", type: "application/json", code: null },
-  { name: "object", raw: "{}", type: "application/json", code: null },
-  { name: "null", raw: "{\"code\":null}", type: "application/json", code: null },
-  { name: "zero", raw: "{\"code\":0}", type: "application/json", code: null },
-  { name: "negative", raw: "{\"code\":-1}", type: "application/json", code: null },
-  { name: "string", raw: "{\"code\":\"11002\"}", type: "application/json", code: 11002 },
-  { name: "fraction", raw: "{\"code\":1.5}", type: "application/json", code: null },
-  { name: "11000", raw: "{\"code\":11000}", type: "application/json", code: 11000 },
-  { name: "11002", raw: "{\"code\":11002}", type: "application/json", code: 11002 },
-  { name: "11001", raw: "{\"detail\":\"already spent\",\"code\":11001}", type: "application/json", code: null },
+const RESPONSE_BODIES: ReadonlyArray<{ name: string; raw: string; type: string }> = [
+  { name: "plain", raw: "nope", type: "text/plain" },
+  { name: "empty", raw: "", type: "text/plain" },
+  { name: "invalid", raw: "{", type: "application/json" },
+  { name: "object", raw: "{}", type: "application/json" },
+  { name: "null", raw: "{\"code\":null}", type: "application/json" },
+  { name: "zero", raw: "{\"code\":0}", type: "application/json" },
+  { name: "negative", raw: "{\"code\":-1}", type: "application/json" },
+  { name: "string", raw: "{\"code\":\"11002\"}", type: "application/json" },
+  { name: "fraction", raw: "{\"code\":1.5}", type: "application/json" },
+  { name: "detail", raw: "{\"detail\":\"nope\"}", type: "application/json" },
+  { name: "11000", raw: "{\"code\":11000}", type: "application/json" },
+  { name: "11002", raw: "{\"code\":11002}", type: "application/json" },
+  { name: "11003", raw: "{\"code\":11003}", type: "application/json" },
+  { name: "11004", raw: "{\"code\":11004}", type: "application/json" },
+  { name: "11005", raw: "{\"code\":11005}", type: "application/json" },
+  { name: "10002", raw: "{\"code\":10002}", type: "application/json" },
+  { name: "20001", raw: "{\"code\":20001}", type: "application/json" },
+  { name: "11001", raw: "{\"detail\":\"already spent\",\"code\":11001}", type: "application/json" },
 ];
 
 const RESPONSE_CHECKS = ["UNSPENT", "PENDING", "SPENT", "unknown"] as const;
 
-function expectsAbort(status: (typeof RESPONSE_STATUSES)[number], code: number | null, check: (typeof RESPONSE_CHECKS)[number]): boolean {
-  if (typeof status !== "number" || code === null || check !== "UNSPENT") return false;
-  return DEFINITIVE_REFUSALS.some(([s, c]) => s === status && c === code);
-}
-
-test("conservation: mint response matrix aborts only a listed refusal", async () => {
+test("conservation: mint response matrix keeps every signed output", async () => {
   const local = await startKeysetMint();
   const store = matrixStore();
   let swapThrow: "timeout" | null = null;
@@ -513,15 +550,12 @@ test("conservation: mint response matrix aborts only a listed refusal", async ()
   const now = Math.floor(Date.now() / 1000);
   const firstUse = async () => true;
   let cells = 0;
-  let aborts = 0;
-  let dropped = 0;
   try {
     const offer = await engine.offer({ site: "s", cls: "write", amount_msat: 10000, now });
     for (const status of RESPONSE_STATUSES) {
       for (const body of RESPONSE_BODIES) {
         for (const check of RESPONSE_CHECKS) {
           const label = status + " " + body.name + " " + check;
-          const abort = expectsAbort(status, body.code, check);
           local.setFault(null, null);
           swapThrow = null;
           local.setFault("/v1/restore", "nosig");
@@ -543,38 +577,28 @@ test("conservation: mint response matrix aborts only a listed refusal", async ()
           cells++;
           if (!(error instanceof TollError)) assert.fail(label + " " + String(error));
           const after = await store.books();
-          const signed = local.signedSats() - signedBefore;
-          assert.equal(signed, 10, label);
-          if (abort) {
-            aborts++;
-            dropped += 10;
-            assert.equal(store.aborts(), abortsBefore + 1, label);
-            assert.equal(error.code, "bad_solution", label);
-            assert.equal(after.pending, before.pending, label);
-          } else {
-            assert.equal(store.aborts(), abortsBefore, label);
-            assert.equal(error.code, "store_unavailable", label);
-            assert.equal(after.pending, before.pending + 10, label);
-          }
+          assert.equal(local.signedSats() - signedBefore, 10, label);
+          assert.equal(store.aborts(), abortsBefore, label);
+          assert.equal(error.code, "store_unavailable", label);
+          assert.equal(after.pending, before.pending + 10, label);
           assert.equal(after.losses, before.losses, label);
-          assert.equal(after.stored + after.pending + after.losses + dropped, local.signedSats(), label);
-          if (!abort) {
-            local.setFault(null, null);
-            swapThrow = null;
-            await engine.recoverSaved();
-            const done = await store.books();
-            assert.equal(done.pending, before.pending, label);
-            assert.equal(done.stored, before.stored + 10, label);
-            assert.equal(done.stored + done.pending + done.losses + dropped, local.signedSats(), label);
-          }
+          assert.equal(after.stored + after.pending + after.losses, local.signedSats(), label);
+          local.setFault(null, null);
+          swapThrow = null;
+          await engine.recoverSaved();
+          const done = await store.books();
+          assert.equal(done.pending, before.pending, label);
+          assert.equal(done.stored, before.stored + 10, label);
+          assert.equal(done.losses, before.losses, label);
+          assert.equal(done.stored + done.pending + done.losses, local.signedSats(), label);
         }
       }
     }
     assert.equal(cells, RESPONSE_STATUSES.length * RESPONSE_BODIES.length * RESPONSE_CHECKS.length);
-    assert.equal(aborts, 15);
     const end = await store.books();
     assert.equal(end.pending, 0);
-    assert.equal(end.stored + end.pending + end.losses + dropped, local.signedSats());
+    assert.equal(store.aborts(), 0);
+    assert.equal(end.stored + end.pending + end.losses, local.signedSats());
   } finally {
     await local.close();
   }
