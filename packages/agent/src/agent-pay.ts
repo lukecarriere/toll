@@ -134,7 +134,7 @@ export async function agentPay(o: AgentPayOptions): Promise<AgentPayReport> {
   const stats = (b: string) => fetchStats(b);
   const before = await stats(statsBase);
   const writes: AgentPayWrite[] = [];
-  let lastPaid: { offer: AgentOffer; preimage: string; pass: string } | null = null;
+  let lastPaid: { offer: AgentOffer; proof: string; pass: string } | null = null;
   let paidTotal = 0;
   for (let i = 1; i <= o.writes; i++) {
     try {
@@ -151,12 +151,12 @@ export async function agentPay(o: AgentPayOptions): Promise<AgentPayReport> {
         row.pass_n = claims.n;
         row.pass_ttl_s = claims.exp - claims.iat;
       }
-      if (r.offer && r.preimage && r.pass) {
+      if (r.offer && r.pass && (r.preimage || r.token)) {
         row.offer_id = r.offer.id;
         row.amount_msat = r.offer.amount_msat;
         row.usd = r.offer.display?.usd ?? null;
         if (r.response.status === 200) paidTotal += r.offer.amount_msat;
-        lastPaid = { offer: r.offer, preimage: r.preimage, pass: r.pass };
+        lastPaid = { offer: r.offer, proof: (r.preimage ?? r.token) as string, pass: r.pass };
       }
       writes.push(row);
       const t = row.timings;
@@ -172,8 +172,11 @@ export async function agentPay(o: AgentPayOptions): Promise<AgentPayReport> {
   let replay: AgentPayReport["replay"] = null;
   let reuse: AgentPayReport["pass_reuse"] = null;
   if (lastPaid) {
-    // Same offer + preimage again: one payment buys one pass.
-    const r = await fetch(issuer + "/v1/redeem", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ offer_id: lastPaid.offer.id, kind: lastPaid.offer.kind, preimage: lastPaid.preimage, macaroon: lastPaid.offer.macaroon }) });
+    // Same proof again: one payment buys one pass.
+    const replayBody = lastPaid.offer.kind === "cashu"
+      ? { offer_id: lastPaid.offer.id, kind: "cashu", token: lastPaid.proof, credential: lastPaid.offer.credential }
+      : { offer_id: lastPaid.offer.id, kind: lastPaid.offer.kind, preimage: lastPaid.proof, macaroon: lastPaid.offer.macaroon };
+    const r = await fetch(issuer + "/v1/redeem", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(replayBody) });
     const j: any = await r.json().catch(() => ({}));
     replay = { status: r.status, error: j.error, rejected: r.status === 401 && j.error === "replay" };
     log(`replayed payment (offer ${lastPaid.offer.id}): ${r.status} ${j.error ?? ""} -> ${replay.rejected ? "rejected" : "NOT rejected"}`);

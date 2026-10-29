@@ -6,7 +6,7 @@
 // Proof of payment is checked by the settlement engine (stub here; the L402 proxy later). This file
 // holds no macaroon or invoice logic of its own.
 import { TollError, hmacSha256, toHex, utf8, type ActionClass } from "../../protocol/src/index.ts";
-import type { Offer, Paid, PaidClass, SettlementEngine } from "./engine.ts";
+import type { Offer, Paid, PaidClass, PaidProof, SettlementEngine } from "./engine.ts";
 import { type FxSource, fresh, offerUsd } from "./fx.ts";
 import { type Balance, MemoryLedger, usdDisplay } from "./ledger.ts";
 import { offerAmountMsat } from "./stub-engine.ts";
@@ -93,16 +93,42 @@ export function createSettlementRail(o: RailOptions) {
   }
 
   /**
-   * Verify a paid redeem body `{ offer_id, kind: "ln402", preimage, macaroon }` and book it.
-   * Order: shape -> engine (credential, offer binding, site, expiry, preimage) -> single use -> ledger.
-   * Verification needs no node round trip, so it keeps working while new offers are paused.
+   * Seal an offer at the current price without the health short-circuit. The header retry uses this
+   * so the amount is bound before the mint is asked to spend the token. Throws if the engine cannot
+   * seal one. Does not mark the rail degraded: a later health check does that.
+   */
+  async function bindOffer(cls: PaidClass, mults: { velocity?: number; suspicion?: number } = {}): Promise<Offer> {
+    const now = o.now();
+    const { amount_msat, usd } = price(cls, mults);
+    const offer = await o.engine.offer({ site: o.site, cls, amount_msat, now, ttl_s: o.offer_ttl_s });
+    const out: Offer = { ...offer };
+    if (usd) out.display = { usd, label: "per request" };
+    else delete out.display;
+    return out;
+  }
+
+  /**
+   * Verify a paid redeem and book it.
+   * Lightning: `{ offer_id, kind: "ln402", preimage, macaroon }`. The stub engine checks the preimage
+   * locally, so a payment made before an outage still redeems during it.
+   * Cashu: `{ offer_id, kind: "cashu", token, credential }`. The engine must call the mint; a mint
+   * outage throws `store_unavailable` and no pass is minted.
    */
   async function redeemPaid(body: any): Promise<Paid & { fee_msat: number; net_msat: number }> {
-    if (!body || body.kind !== "ln402" || typeof body.offer_id !== "string" || typeof body.preimage !== "string" || typeof body.macaroon !== "string") throw new TollError("malformed");
+    if (!body || typeof body.offer_id !== "string" || (body.kind !== "ln402" && body.kind !== "cashu")) throw new TollError("malformed");
     const now = o.now();
+    let proof: PaidProof;
+    if (body.kind === "cashu") {
+      if (typeof body.token !== "string" || typeof body.credential !== "string" || !body.token.startsWith("cashuB")) throw new TollError("malformed");
+      proof = { kind: "cashu", offer_id: body.offer_id, credential: body.credential, token: body.token };
+    } else if (typeof body.preimage !== "string" || typeof body.macaroon !== "string") {
+      throw new TollError("malformed");
+    } else {
+      proof = { kind: "ln402", offer_id: body.offer_id, credential: body.macaroon, preimage: body.preimage.toLowerCase() };
+    }
     let paid: Paid;
     try {
-      paid = await o.engine.verifyPaid({ site: o.site, proof: { offer_id: body.offer_id, credential: body.macaroon, preimage: body.preimage.toLowerCase() }, now, firstUse: o.firstUse });
+      paid = await o.engine.verifyPaid({ site: o.site, proof, now, firstUse: o.firstUse });
     } catch (e) {
       if (e instanceof TollError && e.code === "replay") replayRejected++;
       throw e;
@@ -148,7 +174,7 @@ export function createSettlementRail(o: RailOptions) {
     return usdDisplay(msat, o.fx.quote(now), now);
   }
 
-  return { price, quote: () => o.fx.quote(o.now()), offers, redeemPaid, status, balance, usd, setCollecting, isCollecting: () => collecting, replayRejected: () => replayRejected, ledger, recent: () => [...recent], isDegraded: () => degraded, fee_bps: o.fee_bps };
+  return { price, quote: () => o.fx.quote(o.now()), offers, bindOffer, redeemPaid, status, balance, usd, setCollecting, isCollecting: () => collecting, replayRejected: () => replayRejected, ledger, recent: () => [...recent], isDegraded: () => degraded, fee_bps: o.fee_bps };
 }
 
 export type SettlementRail = ReturnType<typeof createSettlementRail>;

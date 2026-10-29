@@ -217,6 +217,7 @@ test("SDK calls that omit ip behave exactly like null: no network, base price, n
   const payRedeem = async (ip?: string | null) => {
     const input = ip === undefined ? { action: "write" as const, client: "agent" as const } : { action: "write" as const, client: "agent" as const, ip };
     const offer = (await toll.offersFor(input))[0];
+    if (offer.kind !== "ln402") throw new Error("expected ln402");
     const pre = (await (await fetch(s.url + "/demo/stub-pay", { method: "POST", headers: json, body: JSON.stringify({ invoice: offer.invoice }) })).json() as any).preimage;
     await (ip === undefined ? toll.redeemPaid({ offer_id: offer.id, kind: "ln402", preimage: pre, macaroon: offer.macaroon }) : toll.redeemPaid({ offer_id: offer.id, kind: "ln402", preimage: pre, macaroon: offer.macaroon }, { ip }));
     return offer.amount_msat as number;
