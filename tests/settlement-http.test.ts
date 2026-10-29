@@ -223,7 +223,9 @@ test("Q5 + Q6 at the SDK level: fee rounds down (1234 bps), settle pass expires 
   const toll = createToll(config, { now: () => t, store: new MemoryStore(() => t), metrics: new Metrics(() => {}), settlement: { settler: s2, ledger } });
   const { offers } = await toll.issueWithOffers({ action: "search", client: "agent" });
   assert.equal(offers[0].amount_msat, 2000);
-  const r = await toll.redeemPaid({ offer_id: offers[0].id, kind: "ln402", preimage: s2.pay(offers[0].invoice), macaroon: offers[0].macaroon });
+  const priced = offers[0];
+  if (priced.kind !== "ln402") throw new Error("expected ln402");
+  const r = await toll.redeemPaid({ offer_id: priced.id, kind: "ln402", preimage: s2.pay(priced.invoice), macaroon: priced.macaroon });
   assert.equal(r.fee_msat, 246); // floor(2000 * 1234 / 10000) = floor(246.8)
   assert.equal(r.net_msat, 1754);
   assert.deepEqual(toll.paid!.balance().msat, { gross_msat: 2000, fee_held_msat: 246, net_credited_msat: 1754, withdrawn_msat: 0, available_msat: 1754 });
@@ -234,6 +236,7 @@ test("Q5 + Q6 at the SDK level: fee rounds down (1234 bps), settle pass expires 
   await assert.rejects(toll.verifyPass(r.pass, { action: "search" }), /expired/);
   // An offer redeemed after its exp is refused, even with the right preimage.
   const late = (await toll.issueWithOffers({ action: "write", client: "agent" })).offers[0];
+  if (late.kind !== "ln402") throw new Error("expected ln402");
   t = late.exp + 1;
   await assert.rejects(toll.redeemPaid({ offer_id: late.id, kind: "ln402", preimage: s2.pay(late.invoice), macaroon: late.macaroon }), /expired/);
   // Widget clients never get offers, even from the SDK.

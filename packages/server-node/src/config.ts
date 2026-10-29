@@ -73,6 +73,11 @@ export interface SettlementConfig {
    * WordPress site with "Payment server" uses for its balance and withdrawals. Unset: owner API off.
    */
   owner_key?: string;
+  /**
+   * Test-only ecash option. Present only when turned on. The mint must be a loopback http URL.
+   * Refused outside test mode (backend stub, and mode unset or "test").
+   */
+  cashu?: { enabled: true; mint: string };
 }
 
 // Policy defaults. Calibration and the measured runs behind them: docs/policy.md.
@@ -158,9 +163,49 @@ export function normalizeConfig(raw: Record<string, any>, env: NodeJS.ProcessEnv
   };
 }
 
+function cashuAsked(raw: unknown): boolean {
+  if (raw === true) return true;
+  return !!raw && typeof raw === "object" && (raw as { enabled?: unknown }).enabled === true;
+}
+
+/** Loopback http origin, no path, no userinfo. Refuses any other mint so this build cannot point at a real one. */
+function mintError(why: string): never {
+  throw new Error("toll config: settlement.cashu.mint " + why);
+}
+
+function parseMintUrl(mintUrl: string): URL {
+  try { return new URL(mintUrl); } catch { return mintError("must be a loopback http URL"); }
+}
+
+function loopbackMint(raw: unknown): string {
+  if (typeof raw !== "string") mintError("must be a loopback http URL");
+  const mintUrl = raw.trim();
+  if (mintUrl === "") mintError("must be a loopback http URL");
+  const u = parseMintUrl(mintUrl);
+  if (u.protocol !== "http:") mintError("must be http");
+  if (u.username !== "" || u.password !== "" || u.search !== "" || u.hash !== "") mintError("must be a loopback http URL");
+  // A path is a different refusal from a non-loopback host, so a test can lock each rule on its own.
+  if (u.pathname !== "/" && u.pathname !== "") mintError("must not include a path");
+  const host = u.hostname;
+  const loop = host === "127.0.0.1" || host === "localhost" || host === "::1";
+  if (!loop) mintError("host must be loopback");
+  return u.origin;
+}
+
 function normalizeSettlement(s: Record<string, any>, env: NodeJS.ProcessEnv): SettlementConfig {
   const enabled = Boolean(s.enabled ?? false);
   const backend = String(s.backend ?? "stub");
+  const mode = s.mode === undefined || s.mode === null ? "test" : String(s.mode);
+  let cashu: SettlementConfig["cashu"];
+  if (cashuAsked(s.cashu)) {
+    // Test mode is the stub backend with no live mode flag. Anything else refuses, before the
+    // generic backend check, so the error names this option.
+    const testMode = backend === "stub" && (mode === "test" || mode === "stub");
+    if (!testMode) throw new Error("toll config: the Cashu option is only available in test mode");
+    if (!enabled) throw new Error("toll config: the Cashu option requires settlement.enabled in test mode");
+    const mint = loopbackMint(s.cashu === true ? undefined : s.cashu.mint);
+    cashu = { enabled: true, mint };
+  }
   if (enabled && backend !== "stub") throw new Error(`toll config: settlement.backend "${backend}" is not available in this build (only "stub", the local test backend)`);
   const fee_bps = Number(s.fee_bps ?? 1000);
   if (!(Number.isInteger(fee_bps) && fee_bps >= 0 && fee_bps <= 10000)) throw new Error("toll config: settlement.fee_bps must be an integer 0..10000");
@@ -183,7 +228,7 @@ function normalizeSettlement(s: Record<string, any>, env: NodeJS.ProcessEnv): Se
   const ok = resolveEnv(s.owner_key, env);
   if (ok !== undefined && ok !== null && (typeof ok !== "string" || ok.length < 16)) throw new Error("toll config: settlement.owner_key must be at least 16 characters (or env:NAME)");
   const owner_key = typeof ok === "string" ? ok : undefined;
-  return { enabled, backend: "stub", fee_bps, pass_uses, pass_ttl_s, offer_ttl_s, fx: { source, usd_per_btc }, ...(owner_key ? { owner_key } : {}) };
+  return { enabled, backend: "stub", fee_bps, pass_uses, pass_ttl_s, offer_ttl_s, fx: { source, usd_per_btc }, ...(owner_key ? { owner_key } : {}), ...(cashu ? { cashu } : {}) };
 }
 
 export function loadConfig(path: string, env: NodeJS.ProcessEnv = process.env): TollConfig {

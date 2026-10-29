@@ -79,6 +79,7 @@ test("engine interface: the stub engine and the proxy client (stub mode) pay and
   for (const engine of [stub, new ProxySettlementEngine({ mode: "stub", stub })]) {
     const { amount_msat } = priceForPath({ cls: "write" });
     const offer = await engine.offer({ site: "s", cls: "write", amount_msat, now });
+    if (offer.kind !== "ln402") throw new Error("expected ln402");
     assert.match(l402Challenge(offer), /^L402 macaroon="[^"]+", invoice="lnstub1/);
     const auth = `L402 ${offer.macaroon}:${stub.settler.pay(offer.invoice)}`;
     const proof = parseL402Authorization(auth, offer.id)!;

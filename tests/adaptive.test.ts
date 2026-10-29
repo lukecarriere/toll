@@ -46,6 +46,7 @@ test("issuer: one coarse key's paid redeems raise the next challenge's work AND 
   const pay = async (n: number) => {
     for (let i = 0; i < n; i++) {
       const o = (await toll.issueWithOffers({ action: "write", client: "agent", ip })).offers[0];
+      if (o.kind !== "ln402") throw new Error("expected ln402");
       await toll.redeemPaid({ offer_id: o.id, kind: "ln402", preimage: settler.pay(o.invoice), macaroon: o.macaroon }, { ip });
     }
   };
@@ -91,6 +92,7 @@ test("settle pass is single-use (n = 1) and lives at most 60 s; config refuses a
   const config = testConfig({ settlement: { enabled: true } });
   const toll = createToll(config, { now: () => t, store: new MemoryStore(() => t), metrics: new Metrics(() => {}), settlement: { settler, ledger: new MemoryLedger() } });
   const o = (await toll.issueWithOffers({ action: "write", client: "agent" })).offers[0];
+  if (o.kind !== "ln402") throw new Error("expected ln402");
   const r = await toll.redeemPaid({ offer_id: o.id, kind: "ln402", preimage: settler.pay(o.invoice), macaroon: o.macaroon });
   assert.deepEqual([r.claims.n, r.claims.exp - r.claims.iat], [1, 60]);
   await toll.verifyPass(r.pass, { action: "write" });

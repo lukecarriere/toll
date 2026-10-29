@@ -12,24 +12,54 @@ import type { ActionClass } from "../../protocol/src/index.ts";
 
 export type PaidClass = Exclude<ActionClass, "read">;
 
-/** What a client is offered on 402 (spec §8.6 offer object). `credential` is opaque to Toll. */
-export interface Offer {
+interface OfferBase {
   id: string;
-  kind: "ln402";
   amount_msat: number;
   display?: { usd: string; label: string };
-  invoice: string;
-  /** Engine-issued credential (a real macaroon only ever comes from the engine). Opaque. */
-  macaroon: string;
   exp: number;
 }
 
-/** Proof of payment presented on retry: `Authorization: L402 <credential>:<preimage>`. */
-export interface PaidProof {
+/** Lightning offer (spec §8.6). The credential is opaque to Toll. */
+export interface LnOffer extends OfferBase {
+  kind: "ln402";
+  invoice: string;
+  /** Engine-issued credential (a real macaroon only ever comes from the engine). Opaque. */
+  macaroon: string;
+}
+
+/**
+ * Test-only Cashu offer (NUT-24). `request` is the `creqA` payment request carried in `X-Cashu`.
+ * `credential` is the opaque seal the client returns with the `cashuB` token.
+ */
+export interface CashuOffer extends OfferBase {
+  kind: "cashu";
+  request: string;
+  credential: string;
+  mint: string;
+  unit: "sat";
+  amount: number;
+}
+
+/** What a client is offered on 402. */
+export type Offer = LnOffer | CashuOffer;
+
+/** Lightning proof: `Authorization: L402 <credential>:<preimage>`. */
+export interface LnPaidProof {
+  kind?: "ln402";
   offer_id: string;
   credential: string;
   preimage: string;
 }
+
+/** Cashu proof: a `cashuB` token plus the offer seal. Accepted only after a mint call. */
+export interface CashuPaidProof {
+  kind: "cashu";
+  offer_id: string;
+  credential: string;
+  token: string;
+}
+
+export type PaidProof = LnPaidProof | CashuPaidProof;
 
 export interface Paid {
   cls: ActionClass;
@@ -39,7 +69,7 @@ export interface Paid {
 }
 
 export interface SettlementEngine {
-  readonly kind: "stub" | "proxy";
+  readonly kind: "stub" | "proxy" | "cashu";
   /** Mint an offer for a class at a price Toll chose (Toll is the price source). */
   offer(o: { site: string; cls: PaidClass; amount_msat: number; now: number; ttl_s?: number }): Promise<Offer>;
   /** Verify a paid retry. One payment -> one pass: replays are rejected. */
@@ -54,8 +84,9 @@ export function parseL402Authorization(header: string | undefined, offer_id: str
   return m ? { offer_id, credential: m[1], preimage: m[2].toLowerCase() } : null;
 }
 
-/** `WWW-Authenticate` value for a 402 to agents (settlement.md Q2). */
+/** `WWW-Authenticate` value for a Lightning 402 to agents (settlement.md Q2). */
 export function l402Challenge(offer: Offer): string {
+  if (offer.kind !== "ln402") throw new Error("L402 challenge requires an ln402 offer");
   return `L402 macaroon="${offer.macaroon}", invoice="${offer.invoice}"`;
 }
 
@@ -73,9 +104,14 @@ export function workChallengeUrl(site: string, action: string, path: string): st
  */
 export function paymentRequired(site: string, action: string, path: string, offers: Offer[]): { status: 402; headers: Record<string, string>; body: { error: "payment_required"; challenge_url: string; offers: Offer[] } } {
   if (offers.length === 0) throw new Error("a 402 needs at least one offer");
+  const first = offers[0];
+  // Cashu uses the NUT-24 header. Lightning keeps WWW-Authenticate. A 402 is one rail, not both.
+  const headers: Record<string, string> = first.kind === "cashu"
+    ? { "x-cashu": first.request, "access-control-expose-headers": "x-cashu" }
+    : { "www-authenticate": l402Challenge(first), "access-control-expose-headers": "www-authenticate" };
   return {
     status: 402,
-    headers: { "www-authenticate": l402Challenge(offers[0]), "access-control-expose-headers": "www-authenticate" },
+    headers,
     body: { error: "payment_required", challenge_url: workChallengeUrl(site, action, path), offers },
   };
 }

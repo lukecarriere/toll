@@ -216,3 +216,17 @@ Decision log, 2026-09-30 (CT). Amendment 1 (in force 7:55 PM CT) changes how thi
 ### Deferred (waits for real traffic)
 
 - **D1.** With the current rules a client over the work cap still gets the work option, so it never has to pay. Should a high-velocity, over-cap client ever be offered payment only? It touches spec §9.5 ("never hard-block humans") and needs real traffic data first. See `docs/policy.md` §5.
+
+## 16. Test-only Cashu option (2026-10-29)
+
+Luke approved this on 2026-10-28. It is off unless `settlement.cashu.enabled` is true. Config accepts it only in test mode: `settlement.enabled` and `backend: stub`, with `mode` unset or `test`. Any other backend or `mode: live` fails at startup with "only available in test mode". `settlement.cashu.mint` must be a loopback `http` origin with no path. A host that is not loopback fails with "host must be loopback"; a path on an otherwise valid URL fails with "must not include a path". There is no real mint and no live payout.
+
+When it is on, the issuer uses `CashuTestEngine` instead of the Lightning stub for new offers. An agent request gets **402** with `X-Cashu: creqA…` (NUT-18 payment request, no transport, so the payment is in-band per NUT-24) and the same JSON body as §4 (`error`, `challenge_url`, `offers`). The offer `kind` is `cashu`. `offers[0].request` is that header value. Browsers still get the 403 work check.
+
+A retry that sends `X-Cashu: cashuB…` (NUT-00 V4) is not a local hash check. The engine parses the token, then `POST {mint}/v1/swap` on the configured test mint. The in-repo fake mint (`startTestMint`) records proofs it issued at `POST /test/mint` and spends them on that swap. Success mints the same settle pass as Lightning: **one use, at most 60 seconds**. The same token again is **401 `replay`** because the mint reports the proofs already spent. A second issuer, with an empty replay store, gets the same `401 replay` for that token: the refusal comes from the mint, not from the first issuer's local single-use record. A token the mint did not issue is `bad_solution`. A `cashuA` token is `400 malformed` (not accepted).
+
+If the mint does not answer `/v1/info`, the rail is unhealthy: `offers` is empty, the agent gets **403** with the work challenge, and a solved challenge still redeems. A presented token while the mint is down does not mint a pass (fail closed).
+
+`@lessspam/agent` exports `testMintPayer(mint)`, which asks `POST /test/mint` for a `cashuB` token and redeems it at `POST /v1/redeem` with `{ offer_id, kind: "cashu", token, credential }`. The MCP schema is unchanged. The PHP library and the WordPress relay still require the Lightning offer shape (`invoice`, `macaroon`, `WWW-Authenticate`) and do not forward `X-Cashu`; that parity is a follow-up, not a vector this build shares.
+
+Tests: `tests/settlement-cashu.test.ts`.

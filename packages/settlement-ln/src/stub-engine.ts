@@ -8,7 +8,7 @@ import {
   type ActionClass, TollError, canonicalJson, fromB64url, fromHex, fromUtf8, hmacSha256, hmacVerify, randomHex, sha256, timingSafeEqual, toB64url, utf8,
 } from "../../protocol/src/index.ts";
 import { StubSettler, type Settler } from "./stub-settler.ts";
-import type { Offer, Paid, PaidClass, PaidProof, SettlementEngine } from "./engine.ts";
+import type { LnOffer, Offer, Paid, PaidClass, PaidProof, SettlementEngine } from "./engine.ts";
 
 export const BASE_MSAT: Record<Exclude<ActionClass, "read">, number> = { search: 2000, write: 10000, account: 25000, admin: 100000 };
 export const MAX_OFFER_TTL_S = 120;
@@ -33,7 +33,7 @@ async function sealCaveats(secret: string, c: Caveats): Promise<string> {
   return payload + "." + toB64url(mac);
 }
 
-export async function mintOffer(o: { secret: string; site: string; cls: Exclude<ActionClass, "read">; amount_msat: number; settler: Settler; now: number; ttl_s?: number; fixed?: { id?: string } }): Promise<Offer> {
+export async function mintOffer(o: { secret: string; site: string; cls: Exclude<ActionClass, "read">; amount_msat: number; settler: Settler; now: number; ttl_s?: number; fixed?: { id?: string } }): Promise<LnOffer> {
   if (!Number.isSafeInteger(o.amount_msat) || o.amount_msat <= 0 || o.amount_msat % 1000 !== 0) throw new Error("offer amount must be a positive whole number of 1,000 msat (Q3)");
   const ttl = Math.min(o.ttl_s ?? MAX_OFFER_TTL_S, MAX_OFFER_TTL_S);
   const id = o.fixed?.id ?? "off_" + randomHex(12);
@@ -86,6 +86,7 @@ export class StubEngine implements SettlementEngine {
   }
 
   async verifyPaid(o: { site: string; proof: PaidProof; now: number; firstUse: (key: string, ttl_s: number) => Promise<boolean> }): Promise<Paid> {
+    if (o.proof.kind === "cashu") throw new TollError("unsupported");
     const r = await verifyPaidRedeem({ secret: this.secret, site: o.site, offer_id: o.proof.offer_id, preimage: o.proof.preimage, macaroon: o.proof.credential, now: o.now, firstUse: o.firstUse });
     return { cls: r.cls, amount_msat: r.amount_msat, payment_ref: r.payment_hash };
   }

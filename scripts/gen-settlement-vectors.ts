@@ -8,7 +8,7 @@
 import { writeFileSync } from "node:fs";
 import { type PassClaims, sha256, fromHex, toHex, signPass } from "../packages/protocol/src/index.ts";
 import {
-  StubSettler, mintOffer, verifyPaidRedeem, offerAmountMsat, priceMsat, splitFee, usdDisplay, offerUsd, stubEngineSecret, feePercent, paymentRequired, type Offer,
+  StubSettler, mintOffer, verifyPaidRedeem, offerAmountMsat, priceMsat, splitFee, usdDisplay, offerUsd, stubEngineSecret, feePercent, paymentRequired, type LnOffer,
 } from "../packages/settlement-ln/src/index.ts";
 
 const SECRET = "toll-test-vector-secret-do-not-use";
@@ -43,7 +43,7 @@ const usd_cases = usdRows.map(([msat, usd_per_btc, age_s]) => {
   return { msat, usd_per_btc, fetched_at: fx?.fetched_at ?? null, now: NOW, owner: usdDisplay(msat, fx, NOW), offer: offerUsd(msat, fx, NOW) ?? null };
 });
 
-async function offer(cls: "search" | "write" | "account" | "admin", id: string, now = NOW, site = SITE): Promise<Offer> {
+async function offer(cls: "search" | "write" | "account" | "admin", id: string, now = NOW, site = SITE): Promise<LnOffer> {
   return mintOffer({ secret: engine_secret, site, cls, amount_msat: offerAmountMsat(cls), settler, now, ttl_s: 120, fixed: { id } });
 }
 const payment_hash = toHex(await sha256(fromHex(PREIMAGE)));

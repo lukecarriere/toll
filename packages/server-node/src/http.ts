@@ -6,7 +6,7 @@ import { readFileSync, existsSync, statSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { type ActionClass, TollError, isActionClass, timingSafeEqual, utf8, verifyPassToken, classCovers, clientIp as resolveClientIp } from "../../protocol/src/index.ts";
-import { l402Challenge, paymentRequired, StubSettler } from "../../settlement-ln/src/index.ts";
+import { l402Challenge, paymentRequired, presentedCashu, StubSettler } from "../../settlement-ln/src/index.ts";
 import type { Toll } from "./toll.ts";
 import { buildManifest, agentsPointer, priceBody, PAID_CLASSES } from "./manifest.ts";
 
@@ -186,7 +186,7 @@ export function tollRouter(toll: Toll) {
       applyCors(toll, req, res);
       if (req.method === "OPTIONS") {
         res.setHeader("access-control-allow-methods", "GET, POST, OPTIONS");
-        res.setHeader("access-control-allow-headers", "content-type, authorization, toll-client");
+        res.setHeader("access-control-allow-headers", "content-type, authorization, toll-client, x-cashu");
         res.setHeader("access-control-max-age", "600");
         res.statusCode = 204;
         return res.end();
@@ -327,7 +327,9 @@ export function tollRouter(toll: Toll) {
           const action = body?.action;
           if (!isActionClass(action) || action === "read") return send(res, 400, { error: "malformed" });
           const offers = await toll.offersForNet(action, body?.net).catch(() => []);
-          return send(res, 200, offers.length ? { offers, www_authenticate: l402Challenge(offers[0]) } : { offers: [] });
+          if (!offers.length) return send(res, 200, { offers: [] });
+          const first = offers[0];
+          return send(res, 200, first.kind === "cashu" ? { offers, x_cashu: first.request } : { offers, www_authenticate: l402Challenge(first) });
         }
         // The price that applies now for the site's visitor network (WordPress GET /wp-json/toll/v1/price,
         // basis "current"): the amount a relayed offer would carry, its load multiplier, and the rate for
@@ -437,7 +439,13 @@ export function protect(toll: Toll, o: ProtectOptions = {}) {
       return send(res, 400, { error: "malformed" });
     }
     const token = extractPass(req, body);
-    if (!token) return reject(toll, req, res, action, o.noJsMessage, true); // first contact: absent, not rejected
+    const from = clientOf(toll, req);
+    const agent = isAgentRequest(new URL(req.url ?? "/", "http://x").searchParams, req.headers["toll-client"] as string | undefined);
+    if (!token) {
+      const paid = await cashuPassResponse(toll, req.headers["x-cashu"], agent, action, from.ip);
+      if (paid) return send(res, paid.status, paid.body);
+      return reject(toll, req, res, action, o.noJsMessage, true); // first contact: absent, not rejected
+    }
     try {
       const claims = await toll.verifyPass(token, { action });
       (req as any).toll = claims;
@@ -445,6 +453,8 @@ export function protect(toll: Toll, o: ProtectOptions = {}) {
       return next();
     } catch (e) {
       if (e instanceof TollError && e.code === "store_unavailable") return send(res, 503, { error: "unavailable" });
+      const paid = await cashuPassResponse(toll, req.headers["x-cashu"], agent, action, from.ip);
+      if (paid) return send(res, paid.status, paid.body);
       return reject(toll, req, res, action, o.noJsMessage, false);
     }
   };
@@ -468,6 +478,25 @@ async function reject(toll: Toll, req: Req, res: ServerResponse, action: ActionC
   const r = await gateResponse(toll, { action, path: new URL(req.url ?? "/", "http://x").pathname, agent, userAgent: req.headers["user-agent"] as string | undefined, ip: from.ip, limit: from.limit });
   gateLog(toll, action, absent, r.status);
   return send(res, r.status, r.body, r.headers);
+}
+
+/**
+ * Agent retry with a test-mint token in `X-Cashu` (NUT-24). Returns the pass response, or null when
+ * this request is not that retry. Older `cashuA` tokens are refused. The work challenge is unchanged
+ * when no token is presented.
+ */
+async function cashuPassResponse(toll: Toll, header: string | string[] | undefined, agent: boolean, action: ActionClass, ip: string | null): Promise<{ status: number; body: unknown } | null> {
+  if (!agent || !toll.config.settlement.cashu?.enabled) return null;
+  const presented = presentedCashu(header);
+  if (!presented) return null;
+  if (presented.kind === "a") return { status: 400, body: { error: "malformed" } };
+  try {
+    const r = await toll.redeemPresentedToken(presented.token, { action, ip });
+    return { status: 200, body: { pass: r.pass, exp: r.exp, cls: r.cls, rail: r.rail } };
+  } catch (e) {
+    if (e instanceof TollError && e.code === "store_unavailable") return { status: 503, body: { error: "unavailable" } };
+    return { status: statusFor(e), body: { error: e instanceof TollError ? e.code : "internal" } };
+  }
 }
 
 function gateLog(toll: Toll, action: ActionClass, absent: boolean, status: number) {
@@ -524,6 +553,18 @@ export function guardFetch(
     const auth = request.headers.get("authorization") ?? "";
     const m = /^(?:Toll|Bearer)\s+(\S+)$/i.exec(auth);
     const token = m?.[1] ?? parseCookies(request.headers.get("cookie") ?? undefined)[PASS_COOKIE];
+    const agent = isAgentRequest(url.searchParams, request.headers.get("toll-client"));
+    const peerOf = () => {
+      const peer = o.remoteAddr ? o.remoteAddr(request, info) : info?.remoteAddr;
+      if (typeof peer !== "string" || peer.trim() === "") warnNoPeer();
+      return requestClient(toll, peer, request.headers.get("x-forwarded-for"));
+    };
+    const cashu = async () => {
+      if (!toll.config.settlement.cashu?.enabled) return null;
+      const header = request.headers.get("x-cashu") ?? undefined;
+      if (!presentedCashu(header)) return null;
+      return cashuPassResponse(toll, header, agent, action, peerOf().ip);
+    };
     const refuse = async (absent: boolean) => {
       const peer = o.remoteAddr ? o.remoteAddr(request, info) : info?.remoteAddr;
       if (typeof peer !== "string" || peer.trim() === "") warnNoPeer();
@@ -533,12 +574,18 @@ export function guardFetch(
       gateLog(toll, action, absent, r.status);
       return Response.json(r.body, { status: r.status, headers: r.headers });
     };
-    if (!token) return refuse(true);
+    if (!token) {
+      const paid = await cashu();
+      if (paid) return Response.json(paid.body, { status: paid.status });
+      return refuse(true);
+    }
     try {
       const claims = await toll.verifyPass(token, { action });
       return handler(request, claims);
     } catch (e) {
       if (e instanceof TollError && e.code === "store_unavailable") return Response.json({ error: "unavailable" }, { status: 503 });
+      const paid = await cashu();
+      if (paid) return Response.json(paid.body, { status: paid.status });
       return refuse(false);
     }
   };

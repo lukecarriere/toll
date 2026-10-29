@@ -4,25 +4,40 @@
 //   const r = await agent.fetch("/contact", { method: "POST", body: ... });
 //
 // Every request carries `Toll-Client: agent`. On 402 the agent pays `offers[0]` through the caller's
-// `pay` function (a payment app or, in the demo, the local test backend), redeems the preimage at
-// `POST /v1/redeem` for a short pass (one use, 60 s by default) and retries once with
+// `pay` function (a payment app, the demo's local test backend, or `testMintPayer`), redeems the
+// proof at `POST /v1/redeem` for a short pass (one use, 60 s by default) and retries once with
 // `Authorization: Toll <pass>`; the paid path never fetches a work challenge. When it cannot pay
 // (no `pay`, payment declined, offer over `maxAmountMsat`) and `work` is on, it fetches the 402's
 // `challenge_url` on demand and does the work with the engine's Node solver. On a 403 with an inline
 // work challenge (paid requests off or paused) it does the work directly.
-// The agent never parses invoices or macaroons: both are opaque strings from the issuer.
+// The agent never parses invoices, macaroons, or payment requests: those strings stay opaque.
 import { solveWork } from "../../work-adapter/src/index.ts";
 export { solveWork };
 
-export interface AgentOffer {
+interface AgentOfferBase {
   id: string;
-  kind: "ln402";
   amount_msat: number;
   display?: { usd: string; label: string };
-  invoice: string;
-  macaroon: string;
   exp: number;
 }
+
+export interface AgentLnOffer extends AgentOfferBase {
+  kind: "ln402";
+  invoice: string;
+  macaroon: string;
+}
+
+/** Test-mint offer. `request` is the NUT-24 header value. `amount` is the integer the mint issues. */
+export interface AgentCashuOffer extends AgentOfferBase {
+  kind: "cashu";
+  request: string;
+  credential: string;
+  mint: string;
+  unit: string;
+  amount: number;
+}
+
+export type AgentOffer = AgentLnOffer | AgentCashuOffer;
 
 export interface AgentOptions {
   /** Site origin for protected paths, e.g. http://localhost:8787 */
@@ -32,7 +47,10 @@ export interface AgentOptions {
    * WordPress plugin: `<site>/wp-json/toll`. A 402's `challenge_url` is resolved against it.
    */
   issuer?: string;
-  /** Pay an offer's invoice and return the 64-hex preimage. Throw to decline. */
+  /**
+   * Pay an offer and return the proof string. For `ln402`, the 64-hex preimage. For `cashu`, the
+   * `cashuB` token from the test mint (`testMintPayer`). Throw to decline.
+   */
   pay?: (offer: AgentOffer) => Promise<string>;
   /** Fall back to doing the work when it cannot pay (or no offer is available). Default true. */
   work?: boolean;
@@ -46,7 +64,10 @@ export interface AgentResult {
   /** How the pass for this request was obtained. "none": the first response was final. */
   via: "none" | "paid" | "work";
   offer?: AgentOffer;
+  /** Set when the offer was `ln402`. */
   preimage?: string;
+  /** Set when the offer was `cashu`: the `cashuB` token that was redeemed. */
+  token?: string;
   pass?: string;
   /** Status of the gate response before the retry (402 or 403), when there was one. */
   gate?: number;
@@ -81,8 +102,11 @@ export function createAgent(o: AgentOptions) {
     return { ...init, headers: h };
   }
 
-  async function redeemPaid(offer: AgentOffer, preimage: string): Promise<{ pass: string; exp: number; cls: string; rail: string }> {
-    const r = await f(iurl("/v1/redeem"), { method: "POST", headers: { "content-type": "application/json", "toll-client": "agent" }, body: JSON.stringify({ offer_id: offer.id, kind: offer.kind, preimage, macaroon: offer.macaroon }) });
+  async function redeemPaid(offer: AgentOffer, proof: string): Promise<{ pass: string; exp: number; cls: string; rail: string }> {
+    const body = offer.kind === "cashu"
+      ? { offer_id: offer.id, kind: "cashu", token: proof, credential: offer.credential }
+      : { offer_id: offer.id, kind: offer.kind, preimage: proof, macaroon: offer.macaroon };
+    const r = await f(iurl("/v1/redeem"), { method: "POST", headers: { "content-type": "application/json", "toll-client": "agent" }, body: JSON.stringify(body) });
     const j: any = await r.json().catch(() => ({}));
     if (r.status !== 200 || typeof j.pass !== "string") throw new AgentError("redeem", j.error ?? "rejected", r.status);
     return j;
@@ -114,18 +138,21 @@ export function createAgent(o: AgentOptions) {
       if (overLimit && !(canWork && gate.challenge_url)) throw new AgentError("offer", `amount ${offer.amount_msat} msat is over the limit`);
       if (!overLimit) {
         const tp = performance.now();
-        let preimage: string | undefined;
+        let proof: string | undefined;
         try {
-          preimage = (await o.pay(offer)).toLowerCase();
+          const raw = await o.pay(offer);
+          // A cashuB token is case-sensitive. Only a 64-hex preimage is lowercased.
+          proof = offer.kind === "cashu" ? raw.trim() : raw.toLowerCase();
         } catch (e) {
           if (!(canWork && gate.challenge_url)) throw e; // declined, and no way to do the work instead
         }
-        if (preimage !== undefined) {
+        if (proof !== undefined) {
           const tr = performance.now();
-          const r = await redeemPaid(offer, preimage);
+          const r = await redeemPaid(offer, proof);
           const redeem_ms = performance.now() - tr;
           const response = await f(url(path), withHeaders(init, { authorization: "Toll " + r.pass }));
-          return { response, via: "paid", offer, preimage, pass: r.pass, gate: 402, redeemed: { rail: r.rail, cls: r.cls, exp: r.exp }, timings: { pay_ms: ms(tr - tp), redeem_ms: ms(redeem_ms), total_ms: ms(performance.now() - t0) } };
+          const paid = offer.kind === "cashu" ? { token: proof } : { preimage: proof };
+          return { response, via: "paid", offer, ...paid, pass: r.pass, gate: 402, redeemed: { rail: r.rail, cls: r.cls, exp: r.exp }, timings: { pay_ms: ms(tr - tp), redeem_ms: ms(redeem_ms), total_ms: ms(performance.now() - t0) } };
         }
       }
     }
@@ -167,9 +194,26 @@ export function testBackendPayer(base: string, f: typeof fetch = fetch) {
   const b = base.replace(/\/$/, "");
   const payUrl = /\/demo\/stub-pay$/.test(b) ? b : b + "/demo/stub-pay";
   return async (offer: AgentOffer): Promise<string> => {
+    if (offer.kind !== "ln402") throw new AgentError("pay", "not a test-backend offer");
     const r = await f(payUrl, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ invoice: offer.invoice }) });
     const j: any = await r.json().catch(() => ({}));
     if (r.status !== 200 || typeof j.preimage !== "string") throw new AgentError("pay", j.error ?? "test payment failed", r.status);
     return j.preimage;
+  };
+}
+
+/**
+ * Payer for a local test mint (`POST /test/mint`). `mint` is the mint origin from the offer.
+ * Returns a `cashuB` token. Test only: the mint is the in-repo fake, and no money moves.
+ */
+export function testMintPayer(mint: string, f: typeof fetch = fetch) {
+  const base = mint.replace(/\/$/, "");
+  return async (offer: AgentOffer): Promise<string> => {
+    if (offer.kind !== "cashu") throw new AgentError("pay", "not a test-mint offer");
+    if (!Number.isSafeInteger(offer.amount) || offer.amount <= 0) throw new AgentError("pay", "offer has no amount");
+    const r = await f(base + "/test/mint", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ amount: offer.amount }) });
+    const j: any = await r.json().catch(() => ({}));
+    if (r.status !== 200 || typeof j.token !== "string" || !j.token.startsWith("cashuB")) throw new AgentError("pay", typeof j.error === "string" ? j.error : "test mint failed", r.status);
+    return j.token;
   };
 }
