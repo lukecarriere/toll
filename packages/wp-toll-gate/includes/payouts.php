@@ -101,9 +101,9 @@ function toll_gate_with_net(array $body): array
 
 /**
  * Offers for an agent request, minted by the owner's payment server (POST /v1/owner/offers).
- * Returns ['offers' => list, 'www_authenticate' => header value] to relay as they are, or null:
- * not configured, no offers, or the server is down, slow or answers wrongly. On a failure, agents
- * skip the server for TOLL_GATE_DOWN_CACHE_S. This site never builds or reads an offer itself.
+ * Returns the offers plus the header to copy (`header` / `value`), or null: not configured, no
+ * offers, or the server is down, slow or answers wrongly. On a failure, agents skip the server
+ * for TOLL_GATE_DOWN_CACHE_S. This site never builds or reads an offer itself.
  */
 function toll_gate_relay_offers(string $action): ?array
 {
@@ -113,22 +113,10 @@ function toll_gate_relay_offers(string $action): ?array
         set_transient('toll_gate_server_down', 1, TOLL_GATE_DOWN_CACHE_S);
         return null;
     }
-    $offers = is_array($r['body']['offers'] ?? null) ? array_values(array_filter($r['body']['offers'], 'toll_gate_offer_shape_ok')) : [];
-    $www = $r['body']['www_authenticate'] ?? null;
-    // One header line of printable ASCII, so nothing can be smuggled into the response headers.
-    if ($offers === [] || !is_string($www) || !preg_match('/^[\x20-\x7e]{1,4096}$/', $www)) return null;
-    return ['offers' => array_slice($offers, 0, 4), 'www_authenticate' => $www];
-}
-
-/** Shape check before relaying (types and sizes only; the payment server checks the payment). */
-function toll_gate_offer_shape_ok(mixed $o): bool
-{
-    if (!is_array($o)) return false;
-    foreach (['id', 'kind', 'invoice', 'macaroon'] as $k) {
-        if (!is_string($o[$k] ?? null) || $o[$k] === '' || strlen($o[$k]) > 4096) return false;
-    }
-    return is_int($o['amount_msat'] ?? null) && $o['amount_msat'] > 0 && is_int($o['exp'] ?? null)
-        && (!isset($o['display']) || is_array($o['display']));
+    $relay = \Toll\Settlement::relayPayment(is_array($r['body'] ?? null) ? $r['body'] : []);
+    if ($relay === null) return null;
+    if ($relay['header'] === 'WWW-Authenticate') $relay['www_authenticate'] = $relay['value'];
+    return $relay;
 }
 
 /**
@@ -140,11 +128,8 @@ function toll_gate_offer_shape_ok(mixed $o): bool
 function toll_gate_relay_redeem(array $b): array
 {
     if (!toll_gate_server_configured()) return [400, ['error' => 'unsupported', 'detail' => 'paid redeem is not enabled on this issuer']];
-    $fwd = [];
-    foreach (['offer_id', 'kind', 'preimage', 'macaroon'] as $k) {
-        if (!is_string($b[$k] ?? null) || $b[$k] === '' || strlen($b[$k]) > 4096) return [400, ['error' => 'malformed']];
-        $fwd[$k] = $b[$k];
-    }
+    $fwd = \Toll\Settlement::forwardRedeem($b);
+    if ($fwd === null) return [400, ['error' => 'malformed']];
     $fwd = toll_gate_with_net($fwd);
     $r = toll_gate_server_call('POST', '/v1/owner/redeem', $fwd);
     if ($r === null || $r['status'] === 503) return [503, ['error' => 'unavailable']];
@@ -176,4 +161,26 @@ function toll_gate_withdraw(string $invoice): array
     if ($r === null || $r['status'] === 503) return ['ok' => false, 'error' => 'down'];
     if ($r['status'] === 200 && !empty($r['body']['ok'])) return ['ok' => true, 'usd' => (string) ($r['body']['amount_usd'] ?? '')];
     return ['ok' => false, 'error' => ($r['body']['error'] ?? '') === 'too_much' ? 'too_much' : 'failed'];
+}
+
+/**
+ * Forward an X-Cashu retry to the payment server (POST /v1/owner/cashu). Returns [status, body].
+ * The body on success is the server's class only; this site mints the pass.
+ */
+function toll_gate_relay_presented(string $token, string $action): array
+{
+    if (!toll_gate_server_configured()) return [400, ['error' => 'unsupported']];
+    $fwd = \Toll\Settlement::forwardPresented($token, $action);
+    if ($fwd === null) return [400, ['error' => 'malformed']];
+    $r = toll_gate_server_call('POST', '/v1/owner/cashu', toll_gate_with_net($fwd));
+    if ($r === null || $r['status'] === 503) return [503, ['error' => 'unavailable']];
+    $body = $r['body'];
+    if ($r['status'] === 200) {
+        $cls = $body['cls'] ?? null;
+        if (!empty($body['ok']) && is_string($cls) && $cls !== 'read' && isset(\Toll\Protocol::CLASS_MULT[$cls])) return [200, ['cls' => $cls]];
+        return [503, ['error' => 'unavailable']];
+    }
+    $err = is_string($body['error'] ?? null) && preg_match('/^[a-z_]{1,32}$/', $body['error']) ? $body['error'] : 'malformed';
+    if ($r['status'] === 401 && $err === 'unauthorized') return [503, ['error' => 'unavailable']];
+    return [in_array($r['status'], [400, 401, 402, 404, 409, 410], true) ? $r['status'] : 400, ['error' => $err]];
 }

@@ -27,6 +27,7 @@ import {
   FixedTestRate,
   NoRate,
   CashuTestEngine,
+  CashuReceiveEngine,
   StubEngine,
   StubSettler,
   createSettlementRail,
@@ -114,7 +115,12 @@ export function createToll(config: TollConfig, opts: TollOptions = {}) {
   function createPaidRail(): { rail: SettlementRail; settler: StubSettler | undefined } {
     const so = opts.settlement ?? {};
     const settler = so.engine ? so.settler : (so.settler ?? new StubSettler());
-    const ready: Promise<SettlementEngine> = so.engine ? Promise.resolve(so.engine) : stubEngineSecret(config.secret).then((k) => config.settlement.cashu?.enabled ? new CashuTestEngine({ secret: k, mint: config.settlement.cashu.mint }) : new StubEngine({ secret: k, settler }));
+    const ready: Promise<SettlementEngine> = so.engine ? Promise.resolve(so.engine) : stubEngineSecret(config.secret).then((k) => {
+      const cashu = config.settlement.cashu;
+      if (cashu && "mints" in cashu) return new CashuReceiveEngine({ secret: k, mints: cashu.mints, store: cashu.store });
+      if (cashu && "mint" in cashu) return new CashuTestEngine({ secret: k, mint: cashu.mint });
+      return new StubEngine({ secret: k, settler });
+    });
     const lazy: SettlementEngine = {
       kind: "stub",
       offer: async (o) => (await ready).offer(o),
@@ -299,6 +305,20 @@ export function createToll(config: TollConfig, opts: TollOptions = {}) {
   }
 
   /**
+   * A site forwarded an X-Cashu retry. Same check as redeemPresentedToken, but the site mints the
+   * pass: this only books the payment and returns the class.
+   */
+  async function bookPresentedCashu(token: string, action: ActionClass, net: unknown) {
+    if (!paid || !config.settlement.cashu?.enabled || !paid.rail.isCollecting()) throw new TollError("unsupported");
+    if (action === "read") throw new TollError("malformed");
+    const cls = action as Exclude<ActionClass, "read">;
+    const { wp } = policyFor({ action: cls, ip: isCoarseNet(net) ? net : null, client: "agent" });
+    const offer = await paid.rail.bindOffer(cls, { velocity: wp.mults.velocity, suspicion: 1 });
+    if (offer.kind !== "cashu") throw new TollError("unsupported");
+    return redeemRelayed({ offer_id: offer.id, kind: "cashu", token, credential: offer.credential }, net);
+  }
+
+  /**
    * Paid redeem (settlement.md §6): the settlement engine checks the proof, the rail books it in the
    * msat ledger, then a short settle pass is minted (Q6 default: one use, 60 s).
    */
@@ -378,6 +398,7 @@ export function createToll(config: TollConfig, opts: TollOptions = {}) {
     challengeUrl,
     redeemPaid,
     redeemPresentedToken,
+    bookPresentedCashu,
     /** Paid-request rail, when enabled (status, owner balance, recent payments). */
     paid: paid?.rail,
     /** Test-only stub backend handle (the demo's test payment endpoint uses it). */

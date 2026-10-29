@@ -2,6 +2,7 @@
 import { readFileSync } from "node:fs";
 import { parse } from "yaml";
 import { type ActionClass, type WorkPolicy, type ProxyRange, DEFAULT_ESCALATE, isActionClass, siteUrl, trustedProxies } from "../../protocol/src/index.ts";
+import { assertProductionMint } from "../../settlement-ln/src/cashu-net.ts";
 
 /**
  * One route rule. A rule's class applies to writes (POST, PUT, PATCH, DELETE) under the prefix.
@@ -74,10 +75,13 @@ export interface SettlementConfig {
    */
   owner_key?: string;
   /**
-   * Test-only ecash option. Present only when turned on. The mint must be a loopback http URL.
-   * Refused outside test mode (backend stub, and mode unset or "test").
+   * Ecash option. Two shapes, never both:
+   * `mint` is the loopback test mint (http, no path).
+   * `mints` is the production allowlist of https mint URLs. Empty means that path is off.
+   * `store` is the proof file, required when `mints` is non-empty.
+   * Refused when the settlement backend is not the stub, or when mode is live.
    */
-  cashu?: { enabled: true; mint: string };
+  cashu?: { enabled: true; mint: string } | { enabled: true; mints: string[]; store: string };
 }
 
 // Policy defaults. Calibration and the measured runs behind them: docs/policy.md.
@@ -198,13 +202,27 @@ function normalizeSettlement(s: Record<string, any>, env: NodeJS.ProcessEnv): Se
   const mode = s.mode === undefined || s.mode === null ? "test" : String(s.mode);
   let cashu: SettlementConfig["cashu"];
   if (cashuAsked(s.cashu)) {
-    // Test mode is the stub backend with no live mode flag. Anything else refuses, before the
-    // generic backend check, so the error names this option.
+    // The stub backend with no live mode flag. Anything else refuses, before the generic
+    // backend check, so the error names this option. Live mode still throws.
     const testMode = backend === "stub" && (mode === "test" || mode === "stub");
     if (!testMode) throw new Error("toll config: the Cashu option is only available in test mode");
     if (!enabled) throw new Error("toll config: the Cashu option requires settlement.enabled in test mode");
-    const mint = loopbackMint(s.cashu === true ? undefined : s.cashu.mint);
-    cashu = { enabled: true, mint };
+    const raw = s.cashu === true || s.cashu == null ? {} : s.cashu;
+    const listed = Array.isArray(raw.mints) ? raw.mints as unknown[] : undefined;
+    const hasTestMint = typeof raw.mint === "string" && raw.mint.trim() !== "";
+    if (listed && listed.length > 0 && hasTestMint) throw new Error("toll config: settlement.cashu.mint and settlement.cashu.mints are separate");
+    if (listed && listed.length > 0) {
+      const mints = listed.map((entry) => {
+        if (typeof entry !== "string") throw new Error("toll config: settlement.cashu.mints must be https URLs");
+        try { return assertProductionMint(entry); } catch (e) { throw new Error("toll config: settlement.cashu.mints " + (e instanceof Error ? e.message : "rejected")); }
+      });
+      const storeRaw = resolveEnv(raw.store, env);
+      if (typeof storeRaw !== "string" || storeRaw.trim() === "" || storeRaw.includes("://")) throw new Error("toll config: settlement.cashu.store is required");
+      cashu = { enabled: true, mints, store: storeRaw.trim() };
+    } else if (!(listed && listed.length === 0 && !hasTestMint)) {
+      const mint = loopbackMint(s.cashu === true ? undefined : s.cashu.mint);
+      cashu = { enabled: true, mint };
+    }
   }
   if (enabled && backend !== "stub") throw new Error(`toll config: settlement.backend "${backend}" is not available in this build (only "stub", the local test backend)`);
   const fee_bps = Number(s.fee_bps ?? 1000);

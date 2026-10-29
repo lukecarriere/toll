@@ -47,6 +47,7 @@ function gate_child(string $plugin, string $name, array $o): void
     $_SERVER = ['REMOTE_ADDR' => '203.0.113.7', 'REQUEST_METHOD' => 'POST', 'REQUEST_URI' => $o['uri'] ?? '/', 'HTTP_USER_AGENT' => 'gate-test'];
     $_GET = $_POST = $_COOKIE = [];
     if (!empty($o['agent'])) $_SERVER['HTTP_TOLL_CLIENT'] = 'agent';
+    if (isset($o['x_cashu'])) $_SERVER['HTTP_X_CASHU'] = $o['x_cashu'];
     foreach (['lib', 'strings', 'options', 'counters', 'issuer', 'network', 'gate', 'payouts'] as $f) require $plugin . '/includes/' . $f . '.php';
     if (isset($o['pass'])) {
         $claims = \Toll\Protocol::newPassClaims('site_gate', 'write', (int) $o['pass']['n'], 900, (int) $o['pass']['iat']);
@@ -225,6 +226,13 @@ function gate_stubs(): void
         $GLOBALS['gate']['calls'][] = ['url' => $url, 'method' => $args['method'], 'timeout' => $args['timeout'], 'body' => isset($args['body']) ? json_decode($args['body'], true) : null];
         $s = $GLOBALS['gate']['server'];
         if ($s === 'down') return new WP_Error('http_request_failed', 'down');
+        if (str_contains($url, '/v1/owner/cashu')) {
+            return ['code' => 200, 'body' => json_encode(['ok' => true, 'cls' => 'write', 'amount_msat' => 10000, 'fee_msat' => 1000, 'net_msat' => 9000])];
+        }
+        if ($s === 'cashu') {
+            $offer = ['id' => 'off_1', 'kind' => 'cashu', 'amount_msat' => 10000, 'request' => 'creqAtest', 'credential' => 'cred', 'mint' => 'http://127.0.0.1:9', 'amount' => 10, 'unit' => 'sat', 'exp' => time() + 120];
+            return ['code' => 200, 'body' => json_encode(['offers' => [$offer], 'x_cashu' => 'creqAtest'])];
+        }
         $offer = ['id' => 'off_1', 'kind' => 'ln402', 'amount_msat' => 10000, 'invoice' => 'lnstub1test', 'macaroon' => 'mac', 'exp' => time() + 120, 'display' => ['usd' => '0.0100']];
         return ['code' => 200, 'body' => json_encode(['offers' => [$offer], 'www_authenticate' => 'L402 macaroon="mac", invoice="lnstub1test"'])];
     }
@@ -306,6 +314,14 @@ check('WooCommerce only: no wpcf7 hook', !array_filter($r['hooks'], fn ($h) => s
 $r = run_case('refusal', $both + ['agent' => 1]);
 [$st, $body, $hdr] = $r['result'];
 check('refusal: 402, payment_required, relayed offers, challenge_url, WWW-Authenticate exposed', $is402(['status' => $st, 'body' => $body]) && $hdr === ['WWW-Authenticate' => 'L402 macaroon="mac", invoice="lnstub1test"', 'Access-Control-Expose-Headers' => 'WWW-Authenticate'], $r['result']);
+$r = run_case('refusal', $both + ['agent' => 1, 'server' => 'cashu']);
+[$st, $body, $hdr] = $r['result'];
+check('refusal: cashu offer is relayed as X-Cashu, not WWW-Authenticate', $st === 402 && $body['error'] === 'payment_required' && $body['offers'][0]['kind'] === 'cashu' && $body['offers'][0]['request'] === 'creqAtest' && $hdr === ['X-Cashu' => 'creqAtest', 'Access-Control-Expose-Headers' => 'X-Cashu'], $r['result']);
+$r = run_case('refusal', $both + ['agent' => 1, 'x_cashu' => 'cashuBexampletoken']);
+[$st, $body] = $r['result'];
+check('refusal: an X-Cashu retry is forwarded and comes back as a settle pass', $st === 200 && $body['rail'] === 'settle' && $body['cls'] === 'write' && is_string($body['pass']) && $body['pass'] !== '' && ($r['calls'][0]['url'] ?? '') === 'http://127.0.0.1:9/v1/owner/cashu' && ($r['calls'][0]['body']['token'] ?? '') === 'cashuBexampletoken' && ($r['calls'][0]['body']['action'] ?? '') === 'write', ['status' => $st, 'rail' => $body['rail'] ?? null, 'url' => $r['calls'][0]['url'] ?? null]);
+$r = run_case('refusal', $both + ['agent' => 1, 'x_cashu' => 'cashuAexample']);
+check('refusal: an older cashuA string is malformed and is not forwarded', $r['result'][0] === 400 && $r['result'][1]['error'] === 'malformed' && $r['calls'] === [], $r['result']);
 $r = run_case('comment', $both + ['agent' => 1, 'uri' => '/wp-comments-post.php']);
 check('comments still get the same 402 (shared refusal)', $r['sent'] !== null && $is402($r['sent']) && str_contains($r['sent']['body']['challenge_url'], 'path=%2Fwp-comments-post.php'), $r['sent']);
 

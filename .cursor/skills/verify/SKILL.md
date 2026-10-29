@@ -65,22 +65,24 @@ Packages, after the build inside `npm test`:
 ```sh
 node --input-type=module <<'EOF'
 import { VERSION } from "./packages/server-node/dist/index.js";
-import { createAgent } from "./packages/agent/dist/index.js";
+import { createAgent, cashuPayer } from "./packages/agent/dist/index.js";
 import { tollJs } from "./packages/widget/dist/index.js";
 import { toolList } from "./packages/mcp/dist/index.js";
 import { statSync } from "node:fs";
 const tools = toolList().map((t) => t.name).join(",");
 if (VERSION !== "1.0.0") throw new Error("server " + VERSION);
 if (typeof createAgent !== "function") throw new Error("agent");
+if (typeof cashuPayer !== "function") throw new Error("cashu payer");
 if (!String(tollJs).endsWith("/toll.js")) throw new Error("widget " + tollJs);
 if (statSync(new URL(tollJs)).size < 100) throw new Error("toll.js");
 if (tools !== "price_write_action,gate_form_write,verify_write_pass") throw new Error("mcp " + tools);
 console.log("packages ok", VERSION, tools);
+console.log("cashu payer ok");
 EOF
 php -r 'require "packages/server-php/vendor/autoload.php"; $ok = class_exists("Toll\\Protocol") && class_exists("Toll\\Settlement"); echo $ok ? "php ok\n" : "php missing\n"; exit($ok ? 0 : 1);'
 ```
 
-Expected: `packages ok 1.0.0 price_write_action,gate_form_write,verify_write_pass` and `php ok`.
+Expected: `packages ok 1.0.0 price_write_action,gate_form_write,verify_write_pass`, then `cashu payer ok`, and `php ok`.
 
 Demo form, with the demo listening:
 

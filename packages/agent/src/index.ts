@@ -14,6 +14,8 @@
 import { solveWork } from "../../work-adapter/src/index.ts";
 export { solveWork };
 
+export { cashuPayer, type CashuPaySource, type CashuPayerOptions } from "./cashu-payer.ts";
+
 interface AgentOfferBase {
   id: string;
   amount_msat: number;
