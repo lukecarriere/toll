@@ -121,6 +121,7 @@ export async function startKeysetMint(): Promise<KeysetMint> {
         for (const input of inputs) spent.add(input.secret);
         for (let i = 0; i < outputs.length; i++) signed.set(String(outputs[i].B_), signatures[i]);
         if (fault === "drop-after") { req.socket.destroy(); return; }
+        if (fault === "sign-then-400") return json(res, 400, { detail: "refused", code: 11000 });
         if (fault === "bad-reply") return json(res, 200, { signatures: signatures.map((s) => ({ amount: s.amount, id: s.id })) });
         if (fault === "uppercase") {
           uppercaseSigs = true;
@@ -147,7 +148,7 @@ export async function startKeysetMint(): Promise<KeysetMint> {
         const Ys = Array.isArray(body?.Ys) ? body.Ys : [];
         const known = new Map<string, string>();
         for (const secret of spent) known.set(secretY(secret), "SPENT");
-        const forced = fault === "pending" ? "PENDING" : null;
+        const forced = fault === "pending" ? "PENDING" : fault === "unspent" ? "UNSPENT" : null;
         const states = Ys.map((Y: unknown) => ({ Y, state: forced ?? known.get(String(Y)) ?? "UNSPENT" }));
         return json(res, 200, { states });
       }

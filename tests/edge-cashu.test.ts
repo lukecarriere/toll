@@ -13,8 +13,11 @@ import { fileURLToPath } from "node:url";
 import { fromB64url } from "../packages/protocol/src/bytes.ts";
 import { cborDecode } from "../packages/settlement-ln/src/cbor.ts";
 import { decodePaymentRequest, decodeTokenV4, encodeTokenV4 } from "../packages/settlement-ln/src/cashu.ts";
+import { CashuReceiveEngine } from "../packages/settlement-ln/src/cashu-receive.ts";
 import { startKeysetMint } from "../packages/settlement-ln/src/keyset-mint.ts";
 import { guardMintUrl } from "../packages/settlement-ln/src/cashu-net.ts";
+import type { PendingSwap, ProofStore, StoredProof } from "../packages/settlement-ln/src/cashu-store.ts";
+import { TollError } from "../packages/protocol/src/errors.ts";
 import { solveWork } from "../packages/work-adapter/src/index.ts";
 
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
@@ -250,12 +253,9 @@ async function books(): Promise<{ stored: number; pending: number; losses: numbe
   return r.body;
 }
 
-/** stored + pending covers every sat the mint has signed, and this scenario booked no loss. */
-function holds(before: { stored: number; pending: number; losses: number }, after: { stored: number; pending: number; losses: number }, signedBefore: number) {
-  const signed = mint.signedSats() - signedBefore;
-  const kept = (after.stored - before.stored) + (after.pending - before.pending);
-  assert.equal(kept, signed, "stored + pending must equal the sats the mint signed");
-  assert.equal(after.losses, before.losses);
+/** Sats the mint has signed equal stored proofs plus pending outputs plus recorded losses. */
+function holds(after: { stored: number; pending: number; losses: number }) {
+  assert.equal(after.stored + after.pending + after.losses, mint.signedSats(), "signed sats must equal stored + pending + losses");
 }
 
 async function freshToken(): Promise<string> {
@@ -303,7 +303,7 @@ test("conservation: inconclusive mint results keep the blinded outputs", async (
     assert.equal(failed.status, 503, failed.text);
     assert.equal(failed.body.pass, undefined);
     const mid = await books();
-    holds(before, mid, signed);
+    holds(mid);
     assert.equal(mid.pending, before.pending + 10);
     assert.equal(mid.spent, before.spent);
     await finish(token, before);
@@ -319,7 +319,7 @@ test("conservation: inconclusive mint results keep the blinded outputs", async (
     const failed = await pay(token);
     assert.equal(failed.status, 503, failed.text + " " + mode);
     const mid = await books();
-    holds(before, mid, signed);
+    holds(mid);
     assert.equal(mid.pending, before.pending + 10);
     await finish(token, before);
   }
@@ -332,14 +332,14 @@ test("conservation: inconclusive mint results keep the blinded outputs", async (
     const crashed = await pay(token, "crash-after-swap");
     assert.equal(crashed.status, 503, crashed.text);
     const mid = await books();
-    holds(before, mid, signed);
+    holds(mid);
     mint.setFault("/v1/restore", "nosig");
     mint.setFault("/v1/checkstate", "pending");
     const retry = await pay(token);
     assert.equal(retry.status, 503, retry.text);
     assert.notEqual(retry.body.error, "replay");
     const still = await books();
-    holds(before, still, signed);
+    holds(still);
     assert.equal(still.pending, before.pending + 10);
     assert.equal(still.spent, before.spent);
     await finish(token, before);
@@ -356,7 +356,7 @@ test("conservation: inconclusive mint results keep the blinded outputs", async (
     const down = await pay(token);
     assert.equal(down.status, 503, down.text);
     const mid = await books();
-    holds(before, mid, signed);
+    holds(mid);
     assert.equal(mid.pending, before.pending + 10);
     await finish(token, before);
   }
@@ -370,12 +370,95 @@ test("conservation: inconclusive mint results keep the blinded outputs", async (
     assert.equal(dropped.status, 503, dropped.text);
     assert.equal(dropped.body.pass, undefined);
     const mid = await books();
-    holds(before, mid, signed);
+    holds(mid);
     assert.equal(mid.pending, before.pending + 10);
     assert.equal(mid.losses, before.losses);
     await finish(token, before);
   }
+
+  // The mint committed, then the connection dropped. checkstate is forced UNSPENT.
+  // nosig, empty, and partial restores are not a reason to abort.
+  for (const mode of ["nosig", "empty", "partial"] as const) {
+    mint.setFault("/v1/swap", "drop-after");
+    mint.setFault("/v1/restore", mode);
+    mint.setFault("/v1/checkstate", "unspent");
+    const before = await books();
+    const token = await freshToken();
+    const failed = await pay(token);
+    assert.equal(failed.status, 503, failed.text + " " + mode);
+    assert.equal(failed.body.pass, undefined);
+    const mid = await books();
+    holds(mid);
+    assert.equal(mid.pending, before.pending + 10);
+    assert.equal(mid.losses, before.losses);
+    await finish(token, before);
+  }
+
+  // A parsed refusal while checkstate says PENDING. The outputs were signed; PENDING is not UNSPENT.
+  {
+    mint.setFault("/v1/swap", "sign-then-400");
+    mint.setFault("/v1/restore", "nosig");
+    mint.setFault("/v1/checkstate", "pending");
+    const before = await books();
+    const token = await freshToken();
+    const failed = await pay(token);
+    assert.equal(failed.status, 503, failed.text);
+    assert.notEqual(failed.body.error, "bad_solution");
+    const mid = await books();
+    holds(mid);
+    assert.equal(mid.pending, before.pending + 10);
+    await finish(token, before);
+  }
+
+  // The store would begin a second swap. verifyPaid's replay check is what stops it.
+  {
+    const local = await startKeysetMint();
+    const store = looseStore();
+    const engine = new CashuReceiveEngine({ secret: "cashu-receive-test-secret", mints: [local.url], store, loopbackHttp: true });
+    const now = Math.floor(Date.now() / 1000);
+    const firstUse = async () => true;
+    try {
+      const offer = await engine.offer({ site: "s", cls: "write", amount_msat: 10000, now });
+      const token = local.token(10);
+      await engine.verifyPaid({ site: "s", now, firstUse, proof: { kind: "cashu", offer_id: offer.id, credential: offer.credential, token } });
+      const begins = store.begins();
+      await assert.rejects(
+        () => engine.verifyPaid({ site: "s", now, firstUse, proof: { kind: "cashu", offer_id: offer.id, credential: offer.credential, token } }),
+        (e: unknown) => e instanceof TollError && e.code === "replay",
+      );
+      assert.equal(store.begins(), begins);
+      const books = await store.books();
+      assert.equal(books.stored + books.pending + books.losses, local.signedSats());
+    } finally {
+      await local.close();
+    }
+  }
 });
+
+function looseStore(): ProofStore & { begins: () => number } {
+  let proofs: StoredProof[] = [];
+  let spent: string[] = [];
+  let pending: PendingSwap[] = [];
+  let losses = 0;
+  let begins = 0;
+  return {
+    begins: () => begins,
+    async read() { return { proofs: proofs.slice(), spent: spent.slice(), pending: pending.slice(), losses }; },
+    async books() {
+      const stored = proofs.reduce((n, p) => n + p.amount, 0);
+      const pendingSats = pending.reduce((n, p) => n + p.outSats, 0);
+      return { stored, pending: pendingSats, losses, spent: spent.length, inSats: stored + pendingSats + losses };
+    },
+    async begin(p) { begins++; pending.push(p); losses += p.inSats - p.outSats; return p; },
+    async commit(o) {
+      proofs = proofs.concat(o.proofs);
+      for (const h of o.marks) if (!spent.includes(h)) spent.push(h);
+      pending = pending.filter((p) => p.id !== o.id);
+    },
+    async abort(id) { pending = pending.filter((p) => p.id !== id); },
+    async lose(_o: { id: string; marks: string[] }) { throw new Error("lose"); },
+  };
+}
 
 test("a visitor without a payment still clears the work check", async () => {
   const denied = await call("/demo/contact", {

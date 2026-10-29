@@ -38,8 +38,19 @@ interface KeysetInfo {
 type SwapOutcome =
   | { kind: "sigs"; signatures: { amount: number; C_: string }[] }
   | { kind: "replay" }
-  | { kind: "bad" }
+  /** A parsed 4xx from the mint with a definitive error code. Never a transport failure. */
+  | { kind: "refused"; code: number }
   | { kind: "unknown" };
+
+/** 11001 means the inputs are already spent. Every other positive code on a 4xx is a refusal. */
+function refusalFromBody(status: number, text: string): SwapOutcome {
+  if (status < 400 || status >= 500) return { kind: "unknown" };
+  let code = Number.NaN;
+  try { code = Number(JSON.parse(text)?.code); } catch { return { kind: "unknown" }; }
+  if (!Number.isSafeInteger(code) || code <= 0) return { kind: "unknown" };
+  if (code === 11001) return { kind: "replay" };
+  return { kind: "refused", code };
+}
 
 async function seal(secret: string, c: Caveats): Promise<string> {
   const payload = toB64url(utf8(canonicalJson(c)));
@@ -279,9 +290,9 @@ export class CashuReceiveEngine implements SettlementEngine {
       if (restoredAgain) return restoredAgain;
     }
     const state = await this.tryCheck(pending);
-    // CASHU_GUARD keep-committed: drop pending outputs only when every input is UNSPENT and the mint refused the swap.
-    // 11001, PENDING, SPENT, or a restore without our signatures is inconclusive. The row stays.
-    if (outcome.kind === "bad" && state === "unspent") {
+    // CASHU_GUARD keep-committed: abort only for a parsed mint refusal while every input is UNSPENT.
+    // A dropped connection, a timeout, or an unparseable body is `unknown` and can only be resolved by restore.
+    if (outcome.kind === "refused" && state === "unspent") {
       await (await this.useStore()).abort(pending.id);
       throw new TollError("bad_solution");
     }
@@ -297,15 +308,10 @@ export class CashuReceiveEngine implements SettlementEngine {
     try {
       r = await mintFetch(pending.mint, "/v1/swap", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }, this.guard, this.mints);
     } catch {
+      // CASHU_GUARD transport-not-4xx: a dropped connection is not a mint 4xx.
       return { kind: "unknown" };
     }
-    if (r.status !== 200) {
-      let code = 0;
-      try { code = Number(JSON.parse(r.text).code); } catch { /* not JSON */ }
-      if (code === 11001) return { kind: "replay" };
-      if (r.status >= 500 || code === 0) return { kind: "unknown" };
-      return { kind: "bad" };
-    }
+    if (r.status !== 200) return refusalFromBody(r.status, r.text);
     let rows: unknown;
     try { rows = JSON.parse(r.text).signatures; } catch { return { kind: "unknown" }; }
     if (!Array.isArray(rows) || rows.length !== pending.outputs.length) return { kind: "unknown" };

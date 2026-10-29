@@ -46,3 +46,6 @@ jobs:
 
       - name: Test
         run: npm test
+
+      - name: Cashu conservation mutants
+        run: node scripts/mutate-cashu-conservation.mjs
