@@ -244,6 +244,139 @@ test("a crash after the swap and before the save loses no proofs", async () => {
   assert.equal(after.body.losses, before.body.losses);
 });
 
+async function books(): Promise<{ stored: number; pending: number; losses: number; inSats: number; spent: number }> {
+  const r = await call("/v1/test/cashu-books");
+  assert.equal(r.status, 200, r.text);
+  return r.body;
+}
+
+/** stored + pending covers every sat the mint has signed, and this scenario booked no loss. */
+function holds(before: { stored: number; pending: number; losses: number }, after: { stored: number; pending: number; losses: number }, signedBefore: number) {
+  const signed = mint.signedSats() - signedBefore;
+  const kept = (after.stored - before.stored) + (after.pending - before.pending);
+  assert.equal(kept, signed, "stored + pending must equal the sats the mint signed");
+  assert.equal(after.losses, before.losses);
+}
+
+async function freshToken(): Promise<string> {
+  const denied = await call("/demo/contact", {
+    method: "POST",
+    headers: { accept: "application/json", "content-type": "application/json", "toll-client": "agent" },
+    body: "{}",
+  });
+  assert.equal(denied.status, 402, denied.text);
+  return retarget(mint.token(10), MINT);
+}
+
+function pay(token: string, fault?: string) {
+  const headers: Record<string, string> = {
+    accept: "application/json",
+    "content-type": "application/json",
+    "toll-client": "agent",
+    "x-cashu": token,
+  };
+  if (fault) headers["x-toll-cashu-fault"] = fault;
+  return call("/demo/contact", { method: "POST", headers, body: "{}" });
+}
+
+test("conservation: inconclusive mint results keep the blinded outputs", async () => {
+  async function finish(token: string, before: { stored: number; pending: number }) {
+    mint.setFault(null, null);
+    mint.setDown(false);
+    const done = await pay(token);
+    assert.equal(done.status, 200, done.text);
+    const after = await books();
+    assert.equal(after.stored, before.stored + 10);
+    assert.equal(after.pending, before.pending);
+    assert.equal(after.losses, 0);
+    assert.equal(after.stored + after.pending, mint.signedSats());
+  }
+
+  // Reset after the mint has read the body and signed. Restore has no usable signatures. Inputs are SPENT.
+  {
+    mint.setFault("/v1/swap", "drop-after");
+    mint.setFault("/v1/restore", "nosig");
+    const before = await books();
+    const signed = mint.signedSats();
+    const token = await freshToken();
+    const failed = await pay(token);
+    assert.equal(failed.status, 503, failed.text);
+    assert.equal(failed.body.pass, undefined);
+    const mid = await books();
+    holds(before, mid, signed);
+    assert.equal(mid.pending, before.pending + 10);
+    assert.equal(mid.spent, before.spent);
+    await finish(token, before);
+  }
+
+  // Partial restore, then a malformed restore. Neither is a reason to drop the outputs.
+  for (const mode of ["partial", "malformed"] as const) {
+    mint.setFault("/v1/swap", "drop-after");
+    mint.setFault("/v1/restore", mode);
+    const before = await books();
+    const signed = mint.signedSats();
+    const token = await freshToken();
+    const failed = await pay(token);
+    assert.equal(failed.status, 503, failed.text + " " + mode);
+    const mid = await books();
+    holds(before, mid, signed);
+    assert.equal(mid.pending, before.pending + 10);
+    await finish(token, before);
+  }
+
+  // Retry after crash-after-swap: 11001, empty restore, checkstate PENDING. Do not abort.
+  {
+    const before = await books();
+    const signed = mint.signedSats();
+    const token = await freshToken();
+    const crashed = await pay(token, "crash-after-swap");
+    assert.equal(crashed.status, 503, crashed.text);
+    const mid = await books();
+    holds(before, mid, signed);
+    mint.setFault("/v1/restore", "nosig");
+    mint.setFault("/v1/checkstate", "pending");
+    const retry = await pay(token);
+    assert.equal(retry.status, 503, retry.text);
+    assert.notEqual(retry.body.error, "replay");
+    const still = await books();
+    holds(before, still, signed);
+    assert.equal(still.pending, before.pending + 10);
+    assert.equal(still.spent, before.spent);
+    await finish(token, before);
+  }
+
+  // Mint down after the outputs are saved. Pending stays, then a live mint stores them.
+  {
+    const before = await books();
+    const signed = mint.signedSats();
+    const token = await freshToken();
+    const crashed = await pay(token, "crash-after-swap");
+    assert.equal(crashed.status, 503, crashed.text);
+    mint.setDown(true);
+    const down = await pay(token);
+    assert.equal(down.status, 503, down.text);
+    const mid = await books();
+    holds(before, mid, signed);
+    assert.equal(mid.pending, before.pending + 10);
+    await finish(token, before);
+  }
+
+  // Crash before the proof write. The mint has signed; the pending row is the recoverable set.
+  {
+    const before = await books();
+    const signed = mint.signedSats();
+    const token = await freshToken();
+    const dropped = await pay(token, "drop-commit");
+    assert.equal(dropped.status, 503, dropped.text);
+    assert.equal(dropped.body.pass, undefined);
+    const mid = await books();
+    holds(before, mid, signed);
+    assert.equal(mid.pending, before.pending + 10);
+    assert.equal(mid.losses, before.losses);
+    await finish(token, before);
+  }
+});
+
 test("a visitor without a payment still clears the work check", async () => {
   const denied = await call("/demo/contact", {
     method: "POST",

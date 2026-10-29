@@ -30,6 +30,8 @@ export interface KeysetMint {
   setFault: (path: string | null, mode: string | null) => void;
   /** Signature the mint kept for a blinded output, if the swap was accepted. */
   signatureFor: (B_: string) => string | undefined;
+  /** Sum of output amounts this mint has signed. */
+  signedSats: () => number;
   /** Issue a cashuB token for `amount` sats. The keyset id in the token is the short form. */
   token: (amount: number) => string;
   close: () => Promise<void>;
@@ -52,13 +54,14 @@ export async function startKeysetMint(): Promise<KeysetMint> {
   let down = false;
   let url = "";
   let lastIds: string[] = [];
-  let faultPath: string | null = null;
-  let faultMode: string | null = null;
+  const faults = new Map<string, string>();
   let uppercaseSigs = false;
 
   function faultFor(path: string): string | null {
-    if (!faultPath || !faultMode) return null;
-    if (path === faultPath || path.startsWith(faultPath + "/")) return faultMode;
+    if (faults.has(path)) return faults.get(path) ?? null;
+    for (const [prefix, mode] of faults) {
+      if (path.startsWith(prefix + "/")) return mode;
+    }
     return null;
   }
 
@@ -79,6 +82,7 @@ export async function startKeysetMint(): Promise<KeysetMint> {
       if (req.method === "GET" && path === "/v1/keysets") return json(res, 200, { keysets: [keysetRow(keysetId)] });
       if (req.method === "GET" && (path === "/v1/keys" || path === "/v1/keys/" + keysetId)) return json(res, 200, { keysets: [{ ...keysetRow(keysetId), keys: pubs }] });
       if (req.method === "POST" && path === "/v1/swap") {
+        if (fault === "refuse") return json(res, 400, { detail: "refused", code: 11002 });
         swaps++;
         const body = await readJson(req);
         const inputs = Array.isArray(body?.inputs) ? body.inputs : null;
@@ -132,6 +136,10 @@ export async function startKeysetMint(): Promise<KeysetMint> {
           const c = saved ? (uppercaseSigs ? saved.C_.toUpperCase() : saved.C_) : null;
           return saved ? { id: saved.id, amount: saved.amount, C_: c } : { id: output?.id ?? "", amount: output?.amount ?? 0, C_: null };
         });
+        if (fault === "nosig") return json(res, 200, { signatures: outputs.map((output: { amount?: number; id?: string }) => ({ id: output?.id ?? "", amount: output?.amount ?? 0, C_: null })) });
+        if (fault === "partial") {
+          return json(res, 200, { signatures: signatures.map((sig: { id: string; amount: number; C_: string | null }, i: number) => i === 0 ? sig : { id: sig.id, amount: sig.amount, C_: null }) });
+        }
         return json(res, 200, { outputs, signatures });
       }
       if (req.method === "POST" && path === "/v1/checkstate") {
@@ -139,7 +147,8 @@ export async function startKeysetMint(): Promise<KeysetMint> {
         const Ys = Array.isArray(body?.Ys) ? body.Ys : [];
         const known = new Map<string, string>();
         for (const secret of spent) known.set(secretY(secret), "SPENT");
-        const states = Ys.map((Y: unknown) => ({ Y, state: known.get(String(Y)) ?? "UNSPENT" }));
+        const forced = fault === "pending" ? "PENDING" : null;
+        const states = Ys.map((Y: unknown) => ({ Y, state: forced ?? known.get(String(Y)) ?? "UNSPENT" }));
         return json(res, 200, { states });
       }
       return json(res, 404, { detail: "unknown", code: 404 });
@@ -171,8 +180,13 @@ export async function startKeysetMint(): Promise<KeysetMint> {
     requests: () => requests,
     forgetSpent: () => { spent.clear(); },
     setDown: (v) => { down = v; },
-    setFault: (path, mode) => { faultPath = path; faultMode = mode; },
+    setFault: (path, mode) => {
+      if (path === null) { faults.clear(); return; }
+      if (mode === null) { faults.delete(path); return; }
+      faults.set(path, mode);
+    },
     signatureFor: (B_) => signed.get(B_)?.C_,
+    signedSats: () => [...signed.values()].reduce((n, s) => n + s.amount, 0),
     token: issue,
     close: () => new Promise<void>((ok) => { server.closeAllConnections?.(); server.close(() => ok()); }),
   };

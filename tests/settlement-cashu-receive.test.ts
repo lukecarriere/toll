@@ -10,6 +10,8 @@ import { join } from "node:path";
 import { fromB64url, fromUtf8 } from "../packages/protocol/src/bytes.ts";
 import { normalizeConfig } from "../packages/server-node/src/index.ts";
 import { decodeTokenV4, CashuReceiveEngine, assertProductionMint, guardMintUrl, mintFetch, resolveKeysetId, deriveKeysetIdV2, startKeysetMint, blockedAddress } from "../packages/settlement-ln/src/index.ts";
+import { FileProofStore, type PendingSwap, type ProofStore, type StoredProof } from "../packages/settlement-ln/src/cashu-store.ts";
+import { TollError } from "../packages/protocol/src/errors.ts";
 import { cashuPayer, createAgent } from "../packages/agent/src/index.ts";
 import { startDemo, drain } from "./helpers.ts";
 
@@ -139,8 +141,10 @@ test("a version-01 token swaps into stored proofs; replay, allowlist, and a down
     }, { settlement: { engine: new CashuReceiveEngine({ secret, mints: [mint.url], store: empty, loopbackHttp: true }) } });
     try {
       const other = await fetch(S3.url + "/contact", { method: "POST", headers: { accept: "application/json", "content-type": "application/json", "toll-client": "agent", "x-cashu": paidToken }, body: "{}" });
-      assert.equal(other.status, 401);
-      assert.equal((await other.json()).error, "replay");
+      assert.equal(other.status, 503);
+      assert.equal((await other.json()).error, "unavailable");
+      const kept = JSON.parse(readFileSync(empty, "utf8"));
+      assert.equal(kept.pending.length, 1, "11001 keeps the blinded outputs");
       assert.ok(mint.swaps() > remembered, "with an empty store the mint's spent state still refuses");
     } finally {
       await S3.close();
@@ -183,6 +187,85 @@ test("a version-01 token swaps into stored proofs; replay, allowlist, and a down
     assert.ok(downBody.challenge?.work);
   } finally {
     await S.close();
+    await mint.close();
+  }
+});
+
+/** A store that records spent inputs but will begin a second swap of them. The engine check is the only replay block. */
+function looseStore(): ProofStore & { begins: () => number } {
+  let proofs: StoredProof[] = [];
+  let spent: string[] = [];
+  let pending: PendingSwap[] = [];
+  let losses = 0;
+  let begins = 0;
+  const books = () => {
+    const stored = proofs.reduce((n, p) => n + p.amount, 0);
+    const pendingSats = pending.reduce((n, p) => n + p.outSats, 0);
+    return { stored, pending: pendingSats, losses, spent: spent.length, inSats: stored + pendingSats + losses };
+  };
+  return {
+    begins: () => begins,
+    async read() { return { proofs: proofs.slice(), spent: spent.slice(), pending: pending.slice(), losses }; },
+    books: async () => books(),
+    async begin(p) { begins++; pending.push(p); return p; },
+    async commit(o) {
+      proofs = proofs.concat(o.proofs);
+      for (const h of o.marks) if (!spent.includes(h)) spent.push(h);
+      pending = pending.filter((p) => p.id !== o.id);
+    },
+    async abort(id) { pending = pending.filter((p) => p.id !== id); },
+    async lose(o) {
+      pending = pending.filter((p) => p.id !== o.id);
+      for (const h of o.marks) if (!spent.includes(h)) spent.push(h);
+    },
+  };
+}
+
+test("verifyPaid's replay check alone blocks a second swap when the store would accept the inputs", async () => {
+  const mint = await startKeysetMint();
+  const store = looseStore();
+  const engine = new CashuReceiveEngine({ secret: "cashu-receive-test-secret", mints: [mint.url], store, loopbackHttp: true });
+  const now = Math.floor(Date.now() / 1000);
+  const firstUse = async () => true;
+  try {
+    const offer = await engine.offer({ site: "s", cls: "write", amount_msat: 10000, now });
+    const token = mint.token(10);
+    const swaps = mint.swaps();
+    await engine.verifyPaid({ site: "s", now, firstUse, proof: { kind: "cashu", offer_id: offer.id, credential: offer.credential, token } });
+    assert.equal(mint.swaps(), swaps + 1);
+    const begins = store.begins();
+    await assert.rejects(
+      () => engine.verifyPaid({ site: "s", now, firstUse, proof: { kind: "cashu", offer_id: offer.id, credential: offer.credential, token } }),
+      (e: unknown) => e instanceof TollError && e.code === "replay",
+    );
+    assert.equal(store.begins(), begins);
+    assert.equal(mint.swaps(), swaps + 1);
+  } finally {
+    await mint.close();
+  }
+});
+
+test("NUT-07 PENDING is not UNSPENT, so the blinded outputs stay", async () => {
+  const mint = await startKeysetMint();
+  const dir = mkdtempSync(join(tmpdir(), "toll-cashu-pending-"));
+  const store = new FileProofStore(join(dir, "proofs.json"));
+  const engine = new CashuReceiveEngine({ secret: "cashu-receive-test-secret", mints: [mint.url], store, loopbackHttp: true });
+  const now = Math.floor(Date.now() / 1000);
+  mint.setFault("/v1/swap", "refuse");
+  mint.setFault("/v1/checkstate", "pending");
+  try {
+    const offer = await engine.offer({ site: "s", cls: "write", amount_msat: 10000, now });
+    const token = mint.token(10);
+    await assert.rejects(
+      () => engine.verifyPaid({ site: "s", now, firstUse: async () => true, proof: { kind: "cashu", offer_id: offer.id, credential: offer.credential, token } }),
+      (e: unknown) => e instanceof TollError && e.code === "store_unavailable",
+    );
+    const mid = await store.read();
+    assert.equal(mid.pending.length, 1);
+    assert.equal(mid.pending[0].outSats, 10);
+    assert.equal(mid.spent.length, 0);
+  } finally {
+    mint.setFault(null, null);
     await mint.close();
   }
 });

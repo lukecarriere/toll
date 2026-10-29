@@ -123,7 +123,7 @@ export class CashuReceiveEngine implements SettlementEngine {
   async offer(o: { site: string; cls: PaidClass; amount_msat: number; now: number; ttl_s?: number }): Promise<CashuOffer> {
     if (!Number.isSafeInteger(o.amount_msat) || o.amount_msat <= 0 || o.amount_msat % 1000 !== 0) throw new Error("offer amount must be a positive whole number of 1,000 msat");
     const live = await this.liveMints();
-    if (live.length === 0) throw new Error("mint unavailable");
+    if (live.length === 0) throw new TollError("store_unavailable");
     const ttl = Math.min(o.ttl_s ?? 120, 120);
     const id = "off_" + randomHex(12);
     const amount = o.amount_msat / 1000;
@@ -197,13 +197,8 @@ export class CashuReceiveEngine implements SettlementEngine {
     for (const pending of snap.pending) {
       if (skip && sameMarks(pending.marks, skip)) continue;
       const restored = await this.tryRestore(pending);
-      if (restored.proofs) {
-        await store.commit({ id: pending.id, proofs: restored.proofs, marks: pending.marks });
-        continue;
-      }
-      if (!restored.answered) continue;
-      const state = await this.tryCheck(pending);
-      if (state === "spent") await store.lose({ id: pending.id, marks: pending.marks });
+      if (restored) await store.commit({ id: pending.id, proofs: restored, marks: pending.marks });
+      // A restore that did not return our signatures is inconclusive. Leave the row.
     }
   }
 
@@ -272,19 +267,23 @@ export class CashuReceiveEngine implements SettlementEngine {
       if (proofs) return proofs;
     }
     const restored = await this.tryRestore(pending);
-    if (restored.proofs) return restored.proofs;
+    if (restored) return restored;
+    // The response was lost. Post the same blinded outputs once more, then ask for the signatures again.
+    if (outcome.kind === "unknown") {
+      const again = await this.postSwap(pending);
+      if (again.kind === "sigs") {
+        const proofs = await this.unblindOutputs(pending, again.signatures);
+        if (proofs) return proofs;
+      }
+      const restoredAgain = await this.tryRestore(pending);
+      if (restoredAgain) return restoredAgain;
+    }
     const state = await this.tryCheck(pending);
+    // CASHU_GUARD keep-committed: drop pending outputs only when every input is UNSPENT and the mint refused the swap.
+    // 11001, PENDING, SPENT, or a restore without our signatures is inconclusive. The row stays.
     if (outcome.kind === "bad" && state === "unspent") {
       await (await this.useStore()).abort(pending.id);
       throw new TollError("bad_solution");
-    }
-    if (outcome.kind === "replay" && !restored.proofs) {
-      await (await this.useStore()).abort(pending.id);
-      throw new TollError("replay");
-    }
-    if (outcome.kind === "unknown" && restored.answered && state === "spent") {
-      await (await this.useStore()).lose({ id: pending.id, marks: pending.marks });
-      throw new TollError("store_unavailable");
     }
     throw new TollError("store_unavailable");
   }
@@ -319,29 +318,30 @@ export class CashuReceiveEngine implements SettlementEngine {
     return { kind: "sigs", signatures };
   }
 
-  private async tryRestore(pending: PendingSwap): Promise<{ answered: boolean; proofs: StoredProof[] | null }> {
+  /** Proofs only when every output has a usable signature. Anything else is inconclusive, not a loss. */
+  private async tryRestore(pending: PendingSwap): Promise<StoredProof[] | null> {
     let r: { status: number; text: string };
     try {
       const body = { outputs: pending.outputs.map((b) => ({ amount: b.amount, id: b.id, B_: b.B_ })) };
       r = await mintFetch(pending.mint, "/v1/restore", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }, this.guard, this.mints);
     } catch {
-      return { answered: false, proofs: null };
+      return null;
     }
-    if (r.status !== 200) return { answered: false, proofs: null };
+    if (r.status !== 200) return null;
     let rows: unknown;
-    try { rows = JSON.parse(r.text).signatures; } catch { return { answered: false, proofs: null }; }
-    if (!Array.isArray(rows) || rows.length !== pending.outputs.length) return { answered: true, proofs: null };
+    try { rows = JSON.parse(r.text).signatures; } catch { return null; }
+    // CASHU_GUARD inconclusive-restore: a parsed 200 with no usable signature is not proof the outputs are gone.
+    if (!Array.isArray(rows) || rows.length !== pending.outputs.length) return null;
     const signatures: { amount: number; C_: string }[] = [];
     for (let i = 0; i < pending.outputs.length; i++) {
       const C_ = signatureC(rows[i], pending.outputs[i].amount);
-      if (!C_) return { answered: true, proofs: null };
+      if (!C_) return null;
       signatures.push({ amount: pending.outputs[i].amount, C_ });
     }
-    const proofs = await this.unblindOutputs(pending, signatures);
-    return { answered: true, proofs };
+    return this.unblindOutputs(pending, signatures);
   }
 
-  private async tryCheck(pending: PendingSwap): Promise<"spent" | "unspent" | "unknown"> {
+  private async tryCheck(pending: PendingSwap): Promise<"spent" | "unspent" | "pending" | "unknown"> {
     let r: { status: number; text: string };
     try {
       const body = { Ys: pending.inputs.map((p) => secretY(p.secret)) };
@@ -355,11 +355,15 @@ export class CashuReceiveEngine implements SettlementEngine {
     if (!Array.isArray(states) || states.length !== pending.inputs.length) return "unknown";
     let spent = 0;
     let unspent = 0;
+    let waiting = 0;
     for (const row of states) {
       const state = row && typeof row === "object" ? (row as { state?: unknown }).state : undefined;
       if (state === "SPENT") spent++;
+      else if (state === "PENDING") waiting++;
+      // CASHU_GUARD pending-not-unspent: PENDING is not an unspent input.
       else if (state === "UNSPENT") unspent++;
     }
+    if (waiting > 0) return "pending";
     if (spent === pending.inputs.length) return "spent";
     if (unspent === pending.inputs.length) return "unspent";
     return "unknown";
