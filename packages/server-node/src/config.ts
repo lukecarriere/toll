@@ -170,12 +170,16 @@ function cashuAsked(raw: unknown): boolean {
 
 /** Loopback http origin, no path, no userinfo. Refuses any other mint so this build cannot point at a real one. */
 function loopbackMint(raw: unknown): string {
-  const bad = "toll config: settlement.cashu.mint must be a loopback http URL in test mode";
-  if (typeof raw !== "string" || raw.trim() === "") throw new Error(bad);
-  const u = (() => { try { return new URL(raw.trim()); } catch { throw new Error(bad); } })();
+  const bad = (why: string): never => { throw new Error("toll config: settlement.cashu.mint " + why); };
+  if (typeof raw !== "string" || raw.trim() === "") bad("must be a loopback http URL");
+  const u = (() => { try { return new URL(raw.trim()); } catch { return bad("must be a loopback http URL"); } })();
+  if (u.protocol !== "http:") bad("must be http");
+  if (u.username !== "" || u.password !== "" || u.search !== "" || u.hash !== "") bad("must be a loopback http URL");
+  // A path is a different refusal from a non-loopback host, so a test can lock each rule on its own.
+  if (u.pathname !== "/" && u.pathname !== "") bad("must not include a path");
   const host = u.hostname;
   const loop = host === "127.0.0.1" || host === "localhost" || host === "::1";
-  if (u.protocol !== "http:" || !loop || u.username !== "" || u.password !== "" || u.search !== "" || u.hash !== "" || (u.pathname !== "/" && u.pathname !== "")) throw new Error(bad);
+  if (!loop) bad("host must be loopback");
   return u.origin;
 }
 

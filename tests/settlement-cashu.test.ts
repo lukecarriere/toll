@@ -23,8 +23,21 @@ test("config refuses the Cashu option outside test mode and refuses a non-loopba
   ]) {
     assert.throws(() => normalizeConfig({ ...base, settlement }), /only available in test mode/, JSON.stringify(settlement));
   }
-  assert.throws(() => normalizeConfig({ ...base, settlement: { enabled: true, cashu: { enabled: true, mint: "https://example.com" } } }), /loopback/);
-  assert.throws(() => normalizeConfig({ ...base, settlement: { enabled: true, cashu: { enabled: true, mint: "http://127.0.0.1:3338/mint" } } }), /loopback/);
+  assert.throws(() => normalizeConfig({ ...base, settlement: { enabled: true, cashu: { enabled: true, mint: "https://example.com" } } }), /must be http/);
+  // Host rule, separate from the path rule. Forcing the host check true would accept these.
+  const hostErr = /host must be loopback/;
+  const pathErr = /must not include a path/;
+  for (const mint of ["http://example.com:3338", "http://10.0.0.5:3338", "http://192.168.1.2:3338"]) {
+    assert.throws(
+      () => normalizeConfig({ ...base, settlement: { enabled: true, cashu: { enabled: true, mint } } }),
+      (e: Error) => hostErr.test(e.message) && !pathErr.test(e.message),
+      mint,
+    );
+  }
+  assert.throws(
+    () => normalizeConfig({ ...base, settlement: { enabled: true, cashu: { enabled: true, mint: "http://127.0.0.1:3338/mint" } } }),
+    (e: Error) => pathErr.test(e.message) && !hostErr.test(e.message),
+  );
   const ok = normalizeConfig({ ...base, settlement: { enabled: true, cashu: { enabled: true, mint: "http://127.0.0.1:3338/" } } });
   assert.equal(ok.settlement.cashu?.enabled, true);
   assert.equal(ok.settlement.cashu?.mint, "http://127.0.0.1:3338");
@@ -108,6 +121,22 @@ test("agent 402 carries an X-Cashu payment request; a test-mint token yields a 1
     assert.equal(again.status, 401);
     assert.equal((await again.json()).error, "replay");
     assert.ok(mint.swaps() > swapsBefore + 1, "a replay is refused by the mint, not only by a local flag");
+
+    // A second issuer has an empty replay store, so local firstUse cannot know this token.
+    // Replay here is only the mint reporting the proofs already spent.
+    const S2 = await startDemo({
+      work: { standard: { cost: 500 } },
+      settlement: { enabled: true, backend: "stub", fee_bps: 1000, fx: { source: "fixed", usd_per_btc: 100000 }, cashu: { enabled: true, mint: mint.url } },
+    });
+    try {
+      const swapsAt = mint.swaps();
+      const other = await fetch(S2.url + "/contact", { method: "POST", headers: { accept: "application/json", "content-type": "application/json", "toll-client": "agent", "x-cashu": token }, body: "{}" });
+      assert.equal(other.status, 401);
+      assert.equal((await other.json()).error, "replay");
+      assert.ok(mint.swaps() > swapsAt, "the fresh issuer asked the mint");
+    } finally {
+      await S2.close();
+    }
 
     const forged = encodeTokenV4({ mint: mint.url, unit: "sat", proofs: [{ amount: 10, secret: "ab".repeat(32), id: randomBytes(8), C: randomBytes(33) }] });
     const unknown = await post({ "toll-client": "agent", "x-cashu": forged });
