@@ -40,7 +40,7 @@ test("config refuses the Cashu option outside test mode and refuses a non-loopba
   );
   const ok = normalizeConfig({ ...base, settlement: { enabled: true, cashu: { enabled: true, mint: "http://127.0.0.1:3338/" } } });
   assert.equal(ok.settlement.cashu?.enabled, true);
-  assert.equal(ok.settlement.cashu?.mint, "http://127.0.0.1:3338");
+  assert.equal(ok.settlement.cashu && "mint" in ok.settlement.cashu ? ok.settlement.cashu.mint : "", "http://127.0.0.1:3338");
   assert.equal(ok.settlement.backend, "stub");
   assert.equal(normalizeConfig({ ...base, settlement: { enabled: true } }).settlement.cashu, undefined);
 });

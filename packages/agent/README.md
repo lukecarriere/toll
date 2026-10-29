@@ -15,4 +15,18 @@ const result = await agent.fetch("/contact", {
 
 `solveWork` solves a challenge payload in Node. Browsers use `@lessspam/widget` instead.
 
+`cashuPayer` pays a `creqA` challenge from a `cashuB` string, or from proofs plus the mint they belong to. `testMintPayer` stays the local test mint. When the source is larger than the request, the leftover `cashuB` string is passed to `onChange`.
+
+```js
+import { createAgent, cashuPayer } from "@lessspam/agent";
+
+const pay = cashuPayer({ token: process.env.TOLL_CASHU_SOURCE });
+const agent = createAgent({ base: "https://pay.example.com", pay });
+const result = await agent.fetch("/contact", {
+  method: "POST",
+  headers: { "content-type": "application/json" },
+  body: "{}",
+});
+```
+
 The `toll-agent-pay` command runs against a local demo. It is for tests.

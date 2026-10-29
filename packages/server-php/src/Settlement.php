@@ -79,4 +79,87 @@ final class Settlement
         if (!preg_match('/^[0-9a-f]{64}$/', $preimage_hex) || !preg_match('/^[0-9a-f]{64}$/', $payment_hash_hex)) return false;
         return hash_equals($payment_hash_hex, hash('sha256', (string) hex2bin($preimage_hex)));
     }
+
+    /** Printable header value, no CR or LF, so it can be copied onto a response. */
+    public static function headerValueOk(string $value, int $max = 16384): bool
+    {
+        return $value !== '' && strlen($value) <= $max && preg_match('/^[\x20-\x7e]+$/', $value) === 1;
+    }
+
+    /**
+     * What a caller put in X-Cashu. `b` is a V4 string. `a` is the older V3 string.
+     * Anything else is not a payment.
+     * @return array{kind: 'a'}|array{kind: 'b', token: string}|null
+     */
+    public static function presentedCashu(?string $header): ?array
+    {
+        if (!is_string($header)) return null;
+        $t = trim($header);
+        if ($t === '' || strlen($t) > 16384) return null;
+        if (str_starts_with($t, 'cashuB')) return ['kind' => 'b', 'token' => $t];
+        if (str_starts_with($t, 'cashuA')) return ['kind' => 'a'];
+        return null;
+    }
+
+    /** One offer is safe to relay: strings of a bounded size, no parsing of the payment itself. */
+    public static function offerShapeOk(mixed $o): bool
+    {
+        if (!is_array($o)) return false;
+        $kind = $o['kind'] ?? '';
+        $fields = $kind === 'cashu' ? ['id', 'kind', 'request', 'credential'] : ['id', 'kind', 'invoice', 'macaroon'];
+        if ($kind !== 'cashu' && $kind !== 'ln402') return false;
+        foreach ($fields as $k) {
+            if (!is_string($o[$k] ?? null) || $o[$k] === '' || strlen($o[$k]) > 16384) return false;
+        }
+        return is_int($o['amount_msat'] ?? null) && $o['amount_msat'] > 0 && is_int($o['exp'] ?? null)
+            && (!isset($o['display']) || is_array($o['display']));
+    }
+
+    /**
+     * Headers and offers to copy from a payment server's offers response.
+     * @return array{offers: list<array<string, mixed>>, header: string, value: string}|null
+     */
+    public static function relayPayment(array $body): ?array
+    {
+        $rows = is_array($body['offers'] ?? null) ? array_values(array_filter($body['offers'], [self::class, 'offerShapeOk'])) : [];
+        if ($rows === []) return null;
+        $offers = array_slice($rows, 0, 4);
+        $kind = $offers[0]['kind'] ?? '';
+        if ($kind === 'cashu') {
+            $value = $body['x_cashu'] ?? null;
+            if (!is_string($value) || !self::headerValueOk($value)) return null;
+            return ['offers' => $offers, 'header' => 'X-Cashu', 'value' => $value];
+        }
+        $value = $body['www_authenticate'] ?? null;
+        if (!is_string($value) || !self::headerValueOk($value, 4096)) return null;
+        return ['offers' => $offers, 'header' => 'WWW-Authenticate', 'value' => $value];
+    }
+
+    /**
+     * Fields to forward on a paid redeem. Null when the body is not a bounded string shape.
+     * @return array<string, string>|null
+     */
+    public static function forwardRedeem(array $b): ?array
+    {
+        $kind = $b['kind'] ?? '';
+        $fields = $kind === 'cashu' ? ['offer_id', 'kind', 'token', 'credential'] : ($kind === 'ln402' ? ['offer_id', 'kind', 'preimage', 'macaroon'] : []);
+        if ($fields === []) return null;
+        $fwd = [];
+        foreach ($fields as $k) {
+            if (!is_string($b[$k] ?? null) || $b[$k] === '' || strlen($b[$k]) > 16384) return null;
+            $fwd[$k] = $b[$k];
+        }
+        return $fwd;
+    }
+
+    /**
+     * Body for POST /v1/owner/cashu when the caller retried with X-Cashu.
+     * @return array{token: string, action: string}|null
+     */
+    public static function forwardPresented(string $token, string $action): ?array
+    {
+        if (!str_starts_with($token, 'cashuB') || strlen($token) > 16384) return null;
+        if (!isset(Protocol::CLASS_MULT[$action]) || $action === 'read') return null;
+        return ['token' => $token, 'action' => $action];
+    }
 }

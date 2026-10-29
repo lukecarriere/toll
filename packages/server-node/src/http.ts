@@ -271,7 +271,7 @@ export function tollRouter(toll: Toll) {
       // Owner API (option A, docs/settlement.md §9): a WordPress site set to "Payment server" reads its
       // balance and sends withdrawals here, server to server, with the owner key. Off unless
       // settlement.owner_key is set. Amounts are integer msat plus the owner's USD string.
-      if (path === "/v1/owner/balance" || path === "/v1/owner/withdraw" || path === "/v1/owner/offers" || path === "/v1/owner/redeem" || path === "/v1/owner/price" || path === "/v1/owner/quote") {
+      if (path === "/v1/owner/balance" || path === "/v1/owner/withdraw" || path === "/v1/owner/offers" || path === "/v1/owner/redeem" || path === "/v1/owner/cashu" || path === "/v1/owner/price" || path === "/v1/owner/quote") {
         const key = toll.config.settlement.owner_key;
         if (!key || !toll.paid) return send(res, 404, { error: "not_found" });
         const auth = /^Bearer\s+(\S+)$/i.exec(String(req.headers.authorization ?? ""));
@@ -346,6 +346,20 @@ export function tollRouter(toll: Toll) {
           const body = await readBody(req);
           try {
             const r = await toll.redeemRelayed(body, body?.net);
+            toll.metrics.emit("owner_redeem", { cls: r.cls, amount_msat: r.amount_msat });
+            return send(res, 200, { ok: true, cls: r.cls, amount_msat: r.amount_msat, fee_msat: r.fee_msat, net_msat: r.net_msat });
+          } catch (e) {
+            if (e instanceof TollError && e.code === "store_unavailable") return send(res, 503, { error: "unavailable" });
+            return e instanceof TollError ? send(res, statusFor(e), { error: e.code }) : send(res, 400, { error: "malformed" });
+          }
+        }
+        if (path === "/v1/owner/cashu" && req.method === "POST") {
+          const body = await readBody(req);
+          const presented = typeof body?.token === "string" ? body.token : "";
+          const action = body?.action;
+          if (!presented.startsWith("cashuB") || presented.length > 16384 || !isActionClass(action) || action === "read") return send(res, 400, { error: "malformed" });
+          try {
+            const r = await toll.bookPresentedCashu(presented, action, body?.net);
             toll.metrics.emit("owner_redeem", { cls: r.cls, amount_msat: r.amount_msat });
             return send(res, 200, { ok: true, cls: r.cls, amount_msat: r.amount_msat, fee_msat: r.fee_msat, net_msat: r.net_msat });
           } catch (e) {

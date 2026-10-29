@@ -16,6 +16,7 @@
   "files": ["dist", "README.md", "LICENSE"],
   "publishConfig": { "access": "public", "provenance": true },
   "dependencies": {
+    "@noble/curves": "2.4.0",
     "altcha-lib": "2.5.0",
     "hash-wasm": "4.12.0"
   }

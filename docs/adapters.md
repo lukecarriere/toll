@@ -201,6 +201,33 @@ The client address keys three things: the load price (the velocity network, `coa
 - **Edge Worker.** Only `CF-Connecting-IP`, which Cloudflare sets and overwrites on every request, so a client cannot choose it. X-Forwarded-For is never read. Missing or not a plain address (local `wrangler dev` without Cloudflare in front): no client address, so no network, and every such request shares one rate-limit bucket.
 - **Tests:** tests/xff-trust.test.ts runs the shared `ip_bytes` and `client_ip` vectors (docs/net-vectors.json) natively in JS and cross-checks them against the plugin's PHP; break-it cases show a forged leftmost entry changes neither the network, the price nor the rate-limit bucket on Node, `guardFetch` and the edge.
 
+## 6. Cashu receive, Oct 29, 2026
+
+Toll can take a Cashu payment from an allowlisted mint and keep the resulting proofs. The allowlist defaults to empty, so no mint is used until it is set. The Lightning stub is unchanged and live mode still throws. The test mint in docs/settlement.md §16 stays loopback http.
+
+Settings, by name: `settlement.enabled`, `settlement.cashu.enabled`, `settlement.cashu.mints`, `settlement.cashu.store`. `settlement.backend` stays `stub`. Do not set `mode: live`.
+
+The allowlist entry for the mint exercised in production is `https://mint.minibits.cash/Bitcoin`. The bare host is not a mint. The active keyset id is version 01 (33 bytes, hex prefix `01`). Tokens carry the short form, the first 8 bytes. A decoder has to load the mint's keyset ids (`GET /v1/keysets`) and map that prefix to exactly one full id before `POST /v1/swap`. The swap returns proofs the operator keeps in `settlement.cashu.store`.
+
+An Ecashu-style client pays a Toll-gated endpoint with `@lessspam/agent`:
+
+```js
+import { createAgent, cashuPayer } from "@lessspam/agent";
+
+const pay = cashuPayer(
+  { token: process.env.TOLL_CASHU_SOURCE },
+  { onChange: (left) => process.env.TOLL_CASHU_SOURCE = left },
+);
+const agent = createAgent({ base: process.env.TOLL_BASE, pay });
+const result = await agent.fetch("/contact", {
+  method: "POST",
+  headers: { "content-type": "application/json" },
+  body: JSON.stringify({ message: "hi" }),
+});
+```
+
+`TOLL_CASHU_SOURCE` is a `cashuB` string (or pass `{ proofs, mint }` instead). The client sends `Toll-Client: agent`, reads the `creqA` on the 402, and returns a `cashuB` string for that amount. `onChange` receives a `cashuB` string when the source was larger. `result.via` is `paid` and `result.token` is the string that was redeemed. WordPress needs `issuer` set to `<site>/wp-json/toll`; the plugin copies `X-Cashu` and forwards the redeem.
+
 ## Vendor names (copy lint)
 
 Checked on every public surface (README, demo pages and strings, widget source and dist, issuer
@@ -209,5 +236,5 @@ They're allowed only in this file, in `package.json` / `composer.json` / lock fi
 `LICENSES.txt`.
 
 - Exact case: Cap
-- Any case: ALTCHA, Aperture, Cap Cloud, cap.js, capjs, trycap, Sentinel, ALTCHA Sentinel, ALTCHA Cloud, altcha-lib, Lightning Labs
+- Any case: ALTCHA, Aperture, Cap Cloud, cap.js, capjs, trycap, Sentinel, ALTCHA Sentinel, ALTCHA Cloud, altcha-lib, Lightning Labs, Ecashu
 - Forbidden services, any case: Turnstile, reCAPTCHA, hCaptcha, Arkose, FunCaptcha, DataDome, PerimeterX, Kasada, Friendly Captcha, Cloudflare Turnstile

@@ -300,7 +300,7 @@ test("(a) no payment code in the plugin's PHP: no proof or credential checks, no
   const settlementSrc = readFileSync(new URL("../packages/server-php/src/Settlement.php", import.meta.url), "utf8");
   const helpers = [...settlementSrc.matchAll(/public static function (\w+)/g)].map((m) => m[1]);
   assert.ok(helpers.includes("preimageMatches"), "the hash check is still in server-php");
-  const display = ["feePercent", "fillFee", "usdDisplay", "offerUsd"]; // copy and USD formatting only
+  const display = ["feePercent", "fillFee", "usdDisplay", "offerUsd", "presentedCashu", "relayPayment", "forwardRedeem", "forwardPresented"]; // copy, USD, and header shape only
   const banned = helpers.filter((h) => !display.includes(h));
   assert.ok(banned.includes("preimageMatches") && banned.length >= 4, banned.join(","));
   const pluginFiles: string[] = [];
@@ -331,7 +331,8 @@ test("(a) no payment code in the plugin's PHP: no proof or credential checks, no
   assert.match(payouts, /toll_gate_server_call\('POST', '\/v1\/owner\/withdraw', \['invoice' => \$invoice\]\)/);
   const relayRedeem = payouts.slice(payouts.indexOf("function toll_gate_relay_redeem"), payouts.indexOf("function toll_gate_withdraw"));
   assert.match(relayRedeem, /toll_gate_server_call\('POST', '\/v1\/owner\/redeem', \$fwd\)/);
-  assert.doesNotMatch(relayRedeem, /Settlement::|hash\(|hash_equals|hex2bin/, "no local check of the proof");
+  assert.match(relayRedeem, /Settlement::forwardRedeem\(\$b\)/);
+  assert.doesNotMatch(relayRedeem, /hash\(|hash_equals|hex2bin|preimageMatches/, "no local check of the proof");
   // The paid path treats invoice and credential as opaque strings: only presence and size checks.
   const paidPath = payouts.slice(payouts.indexOf("function toll_gate_relay_offers"), payouts.indexOf("function toll_gate_withdraw"));
   assert.doesNotMatch(paidPath, /preg_match\([^)]*\$o\[|explode|json_decode|substr|str_starts_with/, "no parsing of offer fields");

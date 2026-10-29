@@ -227,6 +227,33 @@ A retry that sends `X-Cashu: cashuB…` (NUT-00 V4) is not a local hash check. T
 
 If the mint does not answer `/v1/info`, the rail is unhealthy: `offers` is empty, the agent gets **403** with the work challenge, and a solved challenge still redeems. A presented token while the mint is down does not mint a pass (fail closed).
 
-`@lessspam/agent` exports `testMintPayer(mint)`, which asks `POST /test/mint` for a `cashuB` token and redeems it at `POST /v1/redeem` with `{ offer_id, kind: "cashu", token, credential }`. The MCP schema is unchanged. The PHP library and the WordPress relay still require the Lightning offer shape (`invoice`, `macaroon`, `WWW-Authenticate`) and do not forward `X-Cashu`; that parity is a follow-up, not a vector this build shares.
+`@lessspam/agent` exports `testMintPayer(mint)`, which asks `POST /test/mint` for a `cashuB` token and redeems it at `POST /v1/redeem` with `{ offer_id, kind: "cashu", token, credential }`. The MCP schema is unchanged. The PHP library and the WordPress relay forward `X-Cashu` (§17).
 
 Tests: `tests/settlement-cashu.test.ts`.
+
+## 17. Cashu receive (2026-10-29)
+
+The test path in §16 is unchanged: `settlement.cashu.mint` is still a loopback `http` URL with no path, and `CashuTestEngine` still only spends proofs on that mint. A second shape turns on receive against real mints. It stays off when the allowlist is empty. `settlement.backend` stays `stub`. `mode: live` still fails at startup. Nothing here pays out, and no mint is contacted unless the allowlist names it.
+
+```yaml
+settlement:
+  enabled: true
+  backend: stub
+  cashu:
+    enabled: true
+    mints:
+      - https://mint.minibits.cash/Bitcoin
+    store: env:TOLL_CASHU_STORE
+```
+
+`settlement.cashu.mints` is the allowlist. Each entry must be `https`, with no userinfo, query, or fragment. The path is part of the mint (`https://mint.minibits.cash` is not a mint). A loopback, private, or link-local host is refused even if it is listed. At request time the host is resolved and a private address is refused again, and redirects are not followed. `settlement.cashu.store` is the file that keeps the proofs the operator receives (mode 0600). `env:NAME` is allowed for the path. The file holds secrets. It is not logged.
+
+An agent 402 is still `X-Cashu: creqA…`. A `cashuB` token is decoded, and a short keyset id (the first 8 bytes of a version-01 id, 16 hex chars) is mapped to the mint's full id from `GET /v1/keysets` before `POST /v1/swap`. The swap's outputs are new proofs this process can spend. Those proofs and a hash of each spent input are written before the pass is minted. The same token after a restart is `401 replay` from that file, and a second issuer with an empty file is `401 replay` because the mint already spent the proofs. If the mint does not answer, offers are empty and the agent gets the work challenge. A token presented while the mint is down does not mint a pass.
+
+`@lessspam/agent` exports `cashuPayer({ token } | { proofs, mint })` beside `testMintPayer`. It returns a `cashuB` string for the request. When the source is larger, it swaps at the mint and passes the leftover `cashuB` string to `onChange`. The worked example is in docs/adapters.md.
+
+The PHP library (`Settlement::relayPayment`, `forwardRedeem`, `presentedCashu`, `forwardPresented`) and the WordPress relay copy `X-Cashu` on the 402, forward a redeem that carries `token` and `credential`, and forward an `X-Cashu` retry to `POST /v1/owner/cashu`.
+
+Tests: `tests/settlement-cashu-receive.test.ts` (loopback mint, version-01 keyset, short ids). `tests/php/run-cashu-relay.php`.
+
+Not in this build: Toll does not return change on the 402 (the payer splits first). Swap signatures are not checked with a DLEQ proof. A crash after the mint accepts the swap and before the file is replaced can drop the new proofs. The file lock is per process. Spending the stored proofs onward is not built.

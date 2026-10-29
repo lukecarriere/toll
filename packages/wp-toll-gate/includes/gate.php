@@ -141,11 +141,13 @@ function toll_gate_challenge_url(string $action, string $path): string
  */
 function toll_gate_agent_refusal(string $action, string $path): array
 {
+    $presented = toll_gate_presented_response($action);
+    if ($presented !== null) return $presented;
     $ok = toll_gate_lib_ok() && toll_gate_allow_challenge();
     $relay = $ok ? toll_gate_relay_offers($action) : null;
     if ($relay !== null) {
         toll_gate_count('offer_shown');
-        $headers = ['WWW-Authenticate' => $relay['www_authenticate'], 'Access-Control-Expose-Headers' => 'WWW-Authenticate'];
+        $headers = [$relay['header'] => $relay['value'], 'Access-Control-Expose-Headers' => $relay['header']];
         return [402, ['error' => 'payment_required', 'challenge_url' => toll_gate_challenge_url($action, $path), 'offers' => $relay['offers']], $headers];
     }
     toll_gate_turned_away($action);
@@ -158,6 +160,26 @@ function toll_gate_agent_refusal(string $action, string $path): array
         }
     }
     return [403, $body, []];
+}
+
+/**
+ * An agent retry that already carries X-Cashu. Null when this request is not that retry.
+ * A V4 string is forwarded. The older V3 string is refused. The pass is minted here after the
+ * payment server books the payment.
+ * @return array{0: int, 1: array<string, mixed>, 2: array<string, string>}|null
+ */
+function toll_gate_presented_response(string $action): ?array
+{
+    $raw = isset($_SERVER['HTTP_X_CASHU']) && is_string($_SERVER['HTTP_X_CASHU']) ? $_SERVER['HTTP_X_CASHU'] : '';
+    if ($raw === '') return null;
+    $p = \Toll\Settlement::presentedCashu($raw);
+    if ($p === null) return null;
+    if ($p['kind'] === 'a') return [400, ['error' => 'malformed'], []];
+    [$status, $body] = toll_gate_relay_presented($p['token'], $action);
+    if ($status !== 200) return [$status, $body, []];
+    $claims = \Toll\Protocol::newPassClaims(toll_gate_site_key(), $body['cls'], TOLL_GATE_PAID_PASS_USES, TOLL_GATE_PAID_PASS_TTL, time());
+    toll_gate_count('paid');
+    return [200, ['pass' => \Toll\Protocol::signPass(toll_gate_secret(), $claims), 'exp' => $claims['exp'], 'cls' => $claims['cls'], 'rail' => 'settle'], []];
 }
 
 /** Send toll_gate_agent_refusal() and stop: nothing after this runs (no comment, order or mail). */
