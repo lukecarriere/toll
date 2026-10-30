@@ -437,6 +437,91 @@ test("the next payment clears a pending swap the mint never took", async () => {
   }
 });
 
+test("a sweep does not delete a swap the mint has not answered yet", async () => {
+  const mint = await startKeysetMint();
+  const dir = mkdtempSync(join(tmpdir(), "toll-cashu-inflight-"));
+  const store = new FileProofStore(join(dir, "proofs.json"));
+  let release = () => {};
+  const held = new Promise<void>((resolve) => { release = resolve; });
+  let heldSwap = false;
+  const engine = new CashuReceiveEngine({
+    secret: "cashu-receive-test-secret",
+    mints: [mint.url],
+    store,
+    loopbackHttp: true,
+    fetch: async (input, init) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+      if (url.includes("/v1/swap") && !heldSwap) {
+        heldSwap = true;
+        await held;
+      }
+      return fetch(input, init);
+    },
+  });
+  const now = Math.floor(Date.now() / 1000);
+  const firstUse = async () => true;
+  try {
+    const offer = await engine.offer({ site: "s", cls: "write", amount_msat: 10000, now });
+    const token = cashuAFull(mint.url, mint.keysetId, mint.token(10));
+    const paid = engine.verifyPaid({ site: "s", now, firstUse, proof: { kind: "cashu", offer_id: offer.id, credential: offer.credential, token } });
+    const deadline = Date.now() + 5_000;
+    let row = (await store.read()).pending[0];
+    while (!row) {
+      if (Date.now() > deadline) throw new Error("the pending swap was not saved");
+      await new Promise((r) => setTimeout(r, 5));
+      row = (await store.read()).pending[0];
+    }
+    assert.ok(Date.now() - (row.at ?? 0) < 10_000);
+    await engine.recoverSaved();
+    release();
+    let error: unknown = null;
+    try { await paid; } catch (e) { error = e; }
+    const books = await store.books();
+    assert.equal(mint.signedSats(), 10);
+    assert.equal(books.stored + books.pending + books.losses, mint.signedSats());
+    assert.equal(books.stored, 10);
+    assert.equal(books.pending, 0);
+    assert.equal(error, null);
+  } finally {
+    release();
+    await mint.close();
+  }
+});
+
+test("a 200 restore body that is not a signature list is logged without secrets", async () => {
+  const mint = await startKeysetMint();
+  const dir = mkdtempSync(join(tmpdir(), "toll-cashu-shape-"));
+  const store = new FileProofStore(join(dir, "proofs.json"));
+  const lines: string[] = [];
+  const orig = console.log;
+  console.log = (...a: unknown[]) => { lines.push(a.map((x) => typeof x === "string" ? x : JSON.stringify(x)).join(" ")); orig(...a); };
+  const engine = new CashuReceiveEngine({ secret: "cashu-receive-test-secret", mints: [mint.url], store, loopbackHttp: true });
+  const now = Math.floor(Date.now() / 1000);
+  mint.setFault("/v1/swap", "refuse");
+  mint.setFault("/v1/restore", "malformed");
+  try {
+    const offer = await engine.offer({ site: "s", cls: "write", amount_msat: 10000, now });
+    const token = cashuAFull(mint.url, mint.keysetId, mint.token(10));
+    const secret = decodeToken(token).proofs[0].secret;
+    await assert.rejects(
+      () => engine.verifyPaid({ site: "s", now, firstUse: async () => true, proof: { kind: "cashu", offer_id: offer.id, credential: offer.credential, token } }),
+      (e: unknown) => e instanceof TollError && e.code === "store_unavailable",
+    );
+    const notes = lines.flatMap((line) => { try { return [JSON.parse(line)]; } catch { return []; } })
+      .filter((row) => row.event === "mint_inconclusive" && row.check === "restore");
+    assert.ok(notes.length > 0);
+    assert.equal(notes[0].status, 200);
+    assert.ok(Array.isArray(notes[0].shape?.keys) && notes[0].shape.keys.includes("wat"));
+    const blob = lines.join("\n");
+    assert.equal(blob.includes(secret), false);
+    assert.equal(/"C"\s*:/.test(blob), false);
+    assert.equal(blob.includes("cashuA"), false);
+  } finally {
+    console.log = orig;
+    await mint.close();
+  }
+});
+
 test("NUT-07 PENDING is not UNSPENT, so the blinded outputs stay", async () => {
   const mint = await startKeysetMint();
   const dir = mkdtempSync(join(tmpdir(), "toll-cashu-pending-"));
