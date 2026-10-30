@@ -207,8 +207,8 @@ test("a throw after the mint signs is refused and recorded as a loss", async () 
   try {
     const retry = await post("/contact", auth(macaroon, preimage));
     const body = await retry.json();
-    assert.notEqual(retry.status, 200, JSON.stringify(body));
-    assert.notEqual(body.rail, "settle");
+    assert.equal(retry.status, 500, JSON.stringify(body));
+    assert.equal(body.error, "internal");
     const losses = store.mintQuoteLosses?.() ?? [];
     assert.equal(losses.length, 1, JSON.stringify(losses));
     assert.deepEqual(losses[0], { quote: caveatsOf(macaroon).quote, action: "write", amount: 10 });
