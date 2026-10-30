@@ -3,11 +3,9 @@
 import { spawnSync } from "node:child_process";
 import { readFileSync, writeFileSync } from "node:fs";
 
-const file = "packages/settlement-ln/src/cashu-store.ts";
-const original = readFileSync(file, "utf8");
-
 const mutants = [
   {
+    file: "packages/settlement-ln/src/cashu-store.ts",
     name: "a shared input returns the other swap",
     from: `  // CASHU_GUARD overlap: one stored swap per input set. A shared mark is not this swap.
   if (hit.mint === p.mint && sameInputSet(hit.marks, p.marks)) return hit;
@@ -15,6 +13,17 @@ const mutants = [
     to: `  // CASHU_GUARD overlap: one stored swap per input set. A shared mark is not this swap.
   if (hit) return hit;
   throw new TollError("replay");`,
+  },
+  {
+    file: "packages/settlement-ln/src/cashu-receive.ts",
+    name: "the claim write drops the lease",
+    from: `      // CASHU_GUARD claim-lease: leased in the same write as the claim, before any mint call.
+      prepared.at = Date.now();
+      prepared.owner = "own_" + randomHex(8);
+      prepared.leaseExp = prepared.at + LEASE_MS;
+      pending = await store.begin(prepared);`,
+    to: `      // CASHU_GUARD claim-lease: leased in the same write as the claim, before any mint call.
+      pending = await store.begin(prepared);`,
   },
 ];
 
@@ -26,11 +35,14 @@ function runGuard() {
 }
 
 let survived = 0;
+const originals = new Map(mutants.map((m) => [m.file, readFileSync(m.file, "utf8")]));
 try {
   for (const mutant of mutants) {
-    if (!original.includes(mutant.from)) throw new Error(mutant.name + ": anchor missing");
-    writeFileSync(file, original.replace(mutant.from, mutant.to));
+    const source = originals.get(mutant.file);
+    if (!source || !source.includes(mutant.from)) throw new Error(mutant.name + ": anchor missing");
+    writeFileSync(mutant.file, source.replace(mutant.from, mutant.to));
     const result = runGuard();
+    writeFileSync(mutant.file, source);
     if (result.error) throw new Error(mutant.name + ": " + result.error.message);
     const text = (result.stdout || "") + (result.stderr || "");
     const failed = result.status !== 0 && /# fail [1-9]/.test(text);
@@ -42,7 +54,7 @@ try {
     }
   }
 } finally {
-  writeFileSync(file, original);
+  for (const [file, source] of originals) writeFileSync(file, source);
 }
 
 if (survived > 0) {

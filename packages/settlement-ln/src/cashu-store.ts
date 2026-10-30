@@ -95,6 +95,11 @@ export interface ProofStore {
   abort(id: string): Promise<void>;
   /** Inputs are spent and the outputs cannot be restored. Counts `outSats` as a loss and marks the inputs spent. */
   lose(o: { id: string; marks: string[] }): Promise<void>;
+  /**
+   * The mint signed `amount` and the pending row is gone, so commit cannot store the proofs.
+   * Count `amount` once. A live row or marks already spent are left alone.
+   */
+  noteSigned?(amount: number, marks: string[]): Promise<void>;
 }
 
 interface FileShape {
@@ -235,6 +240,18 @@ export class FileProofStore implements ProofStore {
       file.losses -= pending.inSats - pending.outSats;
       if (file.losses < 0) file.losses = 0;
       file.pending = file.pending.filter((x) => x.id !== id);
+      await writeStore(this.path, file);
+    });
+  }
+
+  async noteSigned(amount: number, marks: string[]): Promise<void> {
+    return queue(this.path, async () => {
+      const file = await readStore(this.path);
+      if (marks.length > 0 && marks.every((h) => file.spent.includes(h))) return;
+      if (file.pending.some((p) => p.marks.some((h) => marks.includes(h)))) return;
+      if (!Number.isSafeInteger(amount) || amount <= 0) return;
+      file.losses += amount;
+      for (const h of marks) if (!file.spent.includes(h)) file.spent.push(h);
       await writeStore(this.path, file);
     });
   }
