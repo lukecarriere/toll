@@ -10,9 +10,9 @@ import { COPY } from "./strings.ts";
 
 const here = fileURLToPath(new URL(".", import.meta.url));
 
-export function createDemo(o: { config?: TollConfig; metrics?: Metrics; store?: MemoryStore; host?: string; pickCounter?: (counter_max: number) => number; settlement?: TollOptions["settlement"] } = {}) {
+export function createDemo(o: { config?: TollConfig; metrics?: Metrics; store?: MemoryStore; host?: string; pickCounter?: (counter_max: number) => number; now?: () => number; settlement?: TollOptions["settlement"] } = {}) {
   const config = o.config ?? loadConfig(here + "toll.yaml");
-  const toll = createToll(config, { metrics: o.metrics, store: o.store, pickCounter: o.pickCounter, settlement: o.settlement });
+  const toll = createToll(config, { metrics: o.metrics, store: o.store, pickCounter: o.pickCounter, now: o.now, settlement: o.settlement });
   const app = express();
   app.disable("x-powered-by");
   const comments: Comment[] = [

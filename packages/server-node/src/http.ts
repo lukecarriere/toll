@@ -6,7 +6,7 @@ import { readFileSync, existsSync, statSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { type ActionClass, TollError, isActionClass, timingSafeEqual, utf8, verifyPassToken, classCovers, clientIp as resolveClientIp } from "../../protocol/src/index.ts";
-import { asCashuPayment, l402Challenge, paymentRequired, presentedCashu, StubSettler } from "../../settlement-ln/src/index.ts";
+import { asCashuPayment, l402Challenge, parseL402Authorization, paymentRequired, presentedCashu, StubSettler } from "../../settlement-ln/src/index.ts";
 import type { Toll } from "./toll.ts";
 import { buildManifest, agentsPointer, priceBody, PAID_CLASSES } from "./manifest.ts";
 
@@ -458,6 +458,8 @@ export function protect(toll: Toll, o: ProtectOptions = {}) {
     if (!token) {
       const paid = await cashuPassResponse(toll, req.headers["x-cashu"], agent, action, from.ip);
       if (paid) return send(res, paid.status, paid.body);
+      const quoted = await quotedPassResponse(toll, req.headers.authorization, agent, action, from.ip);
+      if (quoted) return send(res, quoted.status, quoted.body);
       return reject(toll, req, res, action, o.noJsMessage, true); // first contact: absent, not rejected
     }
     try {
@@ -469,6 +471,8 @@ export function protect(toll: Toll, o: ProtectOptions = {}) {
       if (e instanceof TollError && e.code === "store_unavailable") return send(res, 503, { error: "unavailable" });
       const paid = await cashuPassResponse(toll, req.headers["x-cashu"], agent, action, from.ip);
       if (paid) return send(res, paid.status, paid.body);
+      const quoted = await quotedPassResponse(toll, req.headers.authorization, agent, action, from.ip);
+      if (quoted) return send(res, quoted.status, quoted.body);
       return reject(toll, req, res, action, o.noJsMessage, false);
     }
   };
@@ -492,6 +496,25 @@ async function reject(toll: Toll, req: Req, res: ServerResponse, action: ActionC
   const r = await gateResponse(toll, { action, path: new URL(req.url ?? "/", "http://x").pathname, agent, userAgent: req.headers["user-agent"] as string | undefined, ip: from.ip, limit: from.limit });
   gateLog(toll, action, absent, r.status);
   return send(res, r.status, r.body, r.headers);
+}
+
+/**
+ * Agent retry with `Authorization` on a loopback-mint issuer. Cashu is tried first.
+ * Null when this request is not that retry. The token and the secret are not logged.
+ */
+async function quotedPassResponse(toll: Toll, header: string | string[] | undefined, agent: boolean, action: ActionClass, ip: string | null): Promise<{ status: number; body: unknown } | null> {
+  const cashu = toll.config.settlement.cashu;
+  if (!agent || !cashu || !("mint" in cashu)) return null;
+  const raw = Array.isArray(header) ? header[0] : header;
+  const parsed = parseL402Authorization(raw, "x");
+  if (!parsed || !("preimage" in parsed)) return null;
+  try {
+    const r = await toll.redeemQuoted({ macaroon: parsed.credential, preimage: parsed.preimage, action, ip });
+    return { status: 200, body: { pass: r.pass, exp: r.exp, cls: r.cls, rail: r.rail } };
+  } catch (e) {
+    if (e instanceof TollError && e.code === "store_unavailable") return { status: 503, body: { error: "unavailable" } };
+    return { status: statusFor(e), body: { error: e instanceof TollError ? e.code : "internal" } };
+  }
 }
 
 /**
@@ -587,9 +610,15 @@ export function guardFetch(
       gateLog(toll, action, absent, r.status);
       return Response.json(r.body, { status: r.status, headers: r.headers });
     };
+    const quoteRetry = async () => {
+      if (!parseL402Authorization(auth, "x")) return null;
+      return quotedPassResponse(toll, auth, agent, action, peerOf().ip);
+    };
     if (!token) {
       const paid = await cashu();
       if (paid) return Response.json(paid.body, { status: paid.status });
+      const quoted = await quoteRetry();
+      if (quoted) return Response.json(quoted.body, { status: quoted.status });
       return refuse(true);
     }
     try {
@@ -599,6 +628,8 @@ export function guardFetch(
       if (e instanceof TollError && e.code === "store_unavailable") return Response.json({ error: "unavailable" }, { status: 503 });
       const paid = await cashu();
       if (paid) return Response.json(paid.body, { status: paid.status });
+      const quoted = await quoteRetry();
+      if (quoted) return Response.json(quoted.body, { status: quoted.status });
       return refuse(false);
     }
   };

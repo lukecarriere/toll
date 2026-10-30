@@ -6,7 +6,8 @@ import {
   type ActionClass, TollError, canonicalJson, fromB64url, fromUtf8, hmacSha256, hmacVerify, randomHex, sha256, toB64url, toHex, utf8,
 } from "../../protocol/src/index.ts";
 import { CASHU_UNIT, decodeToken, encodePaymentRequest, stripMint, type DecodedToken } from "./cashu.ts";
-import type { CashuOffer, Paid, PaidClass, PaidProof, SettlementEngine } from "./engine.ts";
+import type { CashuOffer, LnOffer, Paid, PaidClass, PaidProof, SettlementEngine } from "./engine.ts";
+import { mintQuoteOffer, verifyMintQuote, type HeldProof } from "./mint-quote.ts";
 
 const SEAL_PREFIX = "toll-cashu-v1.";
 const MINT_TIMEOUT_MS = 1500;
@@ -69,6 +70,7 @@ export class CashuTestEngine implements SettlementEngine {
   readonly kind = "cashu" as const;
   private secret: string;
   readonly mint: string;
+  private held = new Map<string, HeldProof[]>();
 
   constructor(o: { secret: string; mint: string }) {
     if (!o.secret || o.secret.length < 16) throw new Error("cashu engine: secret too short");
@@ -87,8 +89,19 @@ export class CashuTestEngine implements SettlementEngine {
     return { id, kind: "cashu", amount_msat: o.amount_msat, amount, unit: CASHU_UNIT, mint: this.mint, request, credential, exp };
   }
 
-  async verifyPaid(o: { site: string; proof: PaidProof; now: number; firstUse: (key: string, ttl_s: number) => Promise<boolean> }): Promise<Paid> {
-    if (o.proof.kind !== "cashu") throw new TollError("unsupported");
+  mintQuote(o: { site: string; cls: PaidClass; amount_msat: number; now: number; ttl_s?: number }): Promise<LnOffer> {
+    return mintQuoteOffer({ ...o, secret: this.secret, mint: this.mint });
+  }
+
+  async verifyPaid(o: { site: string; proof: PaidProof; now: number; action?: ActionClass; firstUse: (key: string, ttl_s: number) => Promise<boolean> }): Promise<Paid> {
+    if (o.proof.kind !== "cashu") {
+      if (!o.action || !("preimage" in o.proof)) throw new TollError("malformed");
+      return verifyMintQuote({
+        secret: this.secret, mint: this.mint, site: o.site, action: o.action, offer_id: o.proof.offer_id,
+        macaroon: o.proof.credential, preimage: o.proof.preimage, now: o.now, firstUse: o.firstUse,
+        held: (q) => this.held.get(q), hold: (q, proofs) => { this.held.set(q, proofs); },
+      });
+    }
     const c = await open(this.secret, o.proof.credential);
     if (c.offer_id !== o.proof.offer_id) throw new TollError("bad_sig");
     if (c.site !== o.site) throw new TollError("wrong_site");

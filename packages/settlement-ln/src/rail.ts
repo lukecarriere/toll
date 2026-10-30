@@ -5,7 +5,7 @@
 //   status(), balance() for health and owner screens (USD, hidden when the rate is unavailable)
 // Proof of payment is checked by the settlement engine (stub here; the L402 proxy later). This file
 // holds no macaroon or invoice logic of its own.
-import { TollError, hmacSha256, toHex, utf8, type ActionClass } from "../../protocol/src/index.ts";
+import { TollError, hmacSha256, isActionClass, toHex, utf8, type ActionClass } from "../../protocol/src/index.ts";
 import { asCashuPayment } from "./cashu.ts";
 import type { Offer, Paid, PaidClass, PaidProof, SettlementEngine } from "./engine.ts";
 import { type FxSource, fresh, offerUsd } from "./fx.ts";
@@ -81,12 +81,20 @@ export function createSettlementRail(o: RailOptions) {
     }
     try {
       const { amount_msat, usd } = price(cls, mults);
-      const offer = await o.engine.offer({ site: o.site, cls, amount_msat, now, ttl_s: o.offer_ttl_s });
+      const args = { site: o.site, cls, amount_msat, now, ttl_s: o.offer_ttl_s };
+      const offer = await o.engine.offer(args);
       degraded = false;
-      const out: Offer = { ...offer };
-      if (usd) out.display = { usd, label: "per request" };
-      else delete out.display; // rate unavailable: the amount stands, the USD is omitted (Q4)
-      return [out];
+      const shown = (row: Offer): Offer => {
+        const out: Offer = { ...row };
+        if (usd) out.display = { usd, label: "per request" };
+        else delete out.display; // rate unavailable: the amount stands, the USD is omitted (Q4)
+        return out;
+      };
+      const rows = [shown(offer)];
+      if (o.engine.mintQuote) {
+        try { rows.push(shown(await o.engine.mintQuote(args))); } catch { /* Cashu still stands when the quote does not. */ }
+      }
+      return rows;
     } catch {
       markDegraded("offer_failed");
       return [];
@@ -130,7 +138,7 @@ export function createSettlementRail(o: RailOptions) {
     }
     let paid: Paid;
     try {
-      paid = await o.engine.verifyPaid({ site: o.site, proof, now, firstUse: o.firstUse });
+      paid = await o.engine.verifyPaid({ site: o.site, proof, now, action: isActionClass(body.action) ? body.action : undefined, firstUse: o.firstUse });
     } catch (e) {
       if (e instanceof TollError && e.code === "replay") replayRejected++;
       throw e;

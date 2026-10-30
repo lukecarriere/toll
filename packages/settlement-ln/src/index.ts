@@ -4,6 +4,7 @@ export * from "./stub-engine.ts";
 export * from "./proxy-client.ts";
 export * from "./cashu.ts";
 export * from "./cashu-engine.ts";
+export * from "./mint-quote.ts";
 export * from "./cashu-crypto.ts";
 export * from "./cashu-net.ts";
 export * from "./cashu-store.ts";

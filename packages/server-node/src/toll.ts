@@ -31,6 +31,7 @@ import {
   StubEngine,
   StubSettler,
   createSettlementRail,
+  offerIdOf,
   stubEngineSecret,
   workChallengeUrl,
 } from "../../settlement-ln/src/index.ts";
@@ -124,6 +125,11 @@ export function createToll(config: TollConfig, opts: TollOptions = {}) {
     const lazy: SettlementEngine = {
       kind: "stub",
       offer: async (o) => (await ready).offer(o),
+      mintQuote: async (o) => {
+        const engine = await ready;
+        if (!engine.mintQuote) throw new Error("unsupported");
+        return engine.mintQuote(o);
+      },
       verifyPaid: async (o) => (await ready).verifyPaid(o),
       healthy: async () => (await ready).healthy(),
     };
@@ -319,6 +325,17 @@ export function createToll(config: TollConfig, opts: TollOptions = {}) {
   }
 
   /**
+   * An agent retried with Authorization on a loopback-mint issuer. The token binds the quote.
+   * The pass is minted only after the quote is paid and the proofs are in this process.
+   */
+  async function redeemQuoted(o: { macaroon: string; preimage: string; action: ActionClass; ip?: string | null }): Promise<PaidRedeemResult> {
+    const cashu = config.settlement.cashu;
+    if (!paid || !cashu || !("mint" in cashu) || !paid.rail.isCollecting()) throw new TollError("unsupported");
+    if (o.action === "read") throw new TollError("malformed");
+    return redeemPaid({ offer_id: offerIdOf(o.macaroon), kind: "ln402", preimage: o.preimage, macaroon: o.macaroon, action: o.action }, { ip: o.ip });
+  }
+
+  /**
    * Paid redeem (settlement.md §6): the settlement engine checks the proof, the rail books it in the
    * msat ledger, then a short settle pass is minted (Q6 default: one use, 60 s).
    */
@@ -397,6 +414,7 @@ export function createToll(config: TollConfig, opts: TollOptions = {}) {
     redeemRelayed,
     challengeUrl,
     redeemPaid,
+    redeemQuoted,
     redeemPresentedToken,
     bookPresentedCashu,
     /** Paid-request rail, when enabled (status, owner balance, recent payments). */

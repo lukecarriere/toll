@@ -56,3 +56,6 @@ jobs:
 
       - name: Cashu token mutants
         run: node scripts/mutate-cashu-token.mjs
+
+      - name: Mint quote payment mutants
+        run: node scripts/mutate-mint-quote.mjs
