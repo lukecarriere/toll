@@ -295,7 +295,8 @@ export class TollStoreDO extends DurableObject {
       lookup: env.TOLL_TEST_HOOKS === "1" ? async () => ["1.1.1.1"] : undefined,
       fetch: cashuFetch(env, mints),
     });
-    await engine.recoverSaved();
+    // A row younger than this may still be the swap the worker is waiting on. Do not delete it.
+    await engine.recoverSaved(undefined, 10_000);
     if (!this.pendingRows().length) {
       try { await this.ctx.storage.deleteAlarm?.(); } catch { /* alarm is optional */ }
     }

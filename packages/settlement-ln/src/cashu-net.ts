@@ -134,20 +134,35 @@ export async function guardMintUrl(raw: string, allowlist: string[], opts: MintG
   return key;
 }
 
+/** Path and status only. Proofs, secrets and blinded points stay out of the log. */
+function mintLog(method: string, path: string, status: number, ms: number): void {
+  console.log(JSON.stringify({ event: "mint", method, path, status, ms }));
+}
+
 /** GET or POST `path` on an allowlisted mint. `path` is a mint route such as `/v1/swap`. */
 export async function mintFetch(base: string, path: string, init: RequestInit, opts: MintGuard, allowlist: string[]): Promise<{ status: number; text: string }> {
   if (!path.startsWith("/v1/") || path.includes("..") || path.includes("\\") || path.includes("?")) throw new Error("mint path");
   const key = await guardMintUrl(base, allowlist, opts);
   const f = opts.fetch ?? fetch;
+  const method = init.method ?? "GET";
+  const started = Date.now();
   let r: Response;
   try {
     // CASHU_GUARD redirect: never follow. A 3xx below is refused before the body is trusted.
     r = await f(key + path, { ...init, redirect: "manual", signal: AbortSignal.timeout(TIMEOUT_MS) });
   } catch {
+    mintLog(method, path, 0, Date.now() - started);
     throw new TollError("store_unavailable");
   }
   const buf = await r.arrayBuffer();
-  if (buf.byteLength > MAX_BODY) throw new TollError("store_unavailable");
-  if (r.status >= 300 && r.status < 400) throw new TollError("store_unavailable");
+  if (buf.byteLength > MAX_BODY) {
+    mintLog(method, path, r.status, Date.now() - started);
+    throw new TollError("store_unavailable");
+  }
+  if (r.status >= 300 && r.status < 400) {
+    mintLog(method, path, r.status, Date.now() - started);
+    throw new TollError("store_unavailable");
+  }
+  mintLog(method, path, r.status, Date.now() - started);
   return { status: r.status, text: new TextDecoder().decode(buf) };
 }

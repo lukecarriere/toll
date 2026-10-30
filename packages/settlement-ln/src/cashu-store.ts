@@ -29,6 +29,8 @@ export interface PendingOutput {
  */
 export interface PendingSwap {
   id: string;
+  /** Unix ms when the row was saved. Absent on rows written before this field; those are treated as old. */
+  at?: number;
   mint: string;
   unit: "sat";
   inSats: number;

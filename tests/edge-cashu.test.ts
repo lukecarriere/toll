@@ -3,7 +3,7 @@
 // suite does not spend and does not need the public mint to be up.
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
-import { execFileSync, spawn, spawnSync, type ChildProcess } from "node:child_process";
+import { execFileSync, spawn, type ChildProcess } from "node:child_process";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -790,11 +790,18 @@ test("a cashuA swap the mint never took is cleared on the next request", async (
 });
 
 test("check-live-state.sh sends the agent header, expects 402, and reads the gate tool", async () => {
-  const r = spawnSync("sh", [ROOT + "scripts/check-live-state.sh", base], { encoding: "utf8" });
-  assert.equal(r.status, 0, (r.stdout ?? "") + (r.stderr ?? ""));
-  assert.match(r.stdout ?? "", /gate_form_write/);
-  assert.match(r.stdout ?? "", /cashu/);
-  assert.match(r.stdout ?? "", /\b402\b/);
+  const r = await new Promise<{ status: number | null; stdout: string; stderr: string }>((resolve) => {
+    const child = spawn("sh", [ROOT + "scripts/check-live-state.sh", base]);
+    let stdout = "";
+    let stderr = "";
+    child.stdout.on("data", (c) => { stdout += c.toString(); });
+    child.stderr.on("data", (c) => { stderr += c.toString(); });
+    child.on("close", (status) => resolve({ status, stdout, stderr }));
+  });
+  assert.equal(r.status, 0, r.stdout + r.stderr);
+  assert.match(r.stdout, /gate_form_write/);
+  assert.match(r.stdout, /cashu/);
+  assert.match(r.stdout, /\b402\b/);
 });
 
 test("a visitor without a payment still clears the work check", async () => {

@@ -46,15 +46,15 @@ type RestoreOutcome =
   | { kind: "inconclusive" };
 
 /**
- * A mint error code is a label for the caller after the outputs are already resolved.
- * 11000 is not a NUT code. 11002, 11003, and 11004 mean a swap may already be signed.
+ * A label for the caller after the outputs are already resolved.
+ * Any 4xx other than 429 is a refusal, including a body that is not JSON.
+ * 11001 is replay. 429 and 5xx stay an outage. A code never decides whether the row is deleted.
  */
 function messageFor(outcome: SwapOutcome): "bad_solution" | "replay" | "store_unavailable" {
   if (outcome.kind !== "http") return "store_unavailable";
   if (outcome.status === 429 || outcome.status < 400 || outcome.status >= 500) return "store_unavailable";
   let code = Number.NaN;
-  try { code = Number(JSON.parse(outcome.text)?.code); } catch { return "store_unavailable"; }
-  if (!Number.isSafeInteger(code) || code <= 0) return "store_unavailable";
+  try { code = Number(JSON.parse(outcome.text)?.code); } catch { /* a 4xx that is not JSON is still a refusal */ }
   if (code === 11001) return "replay";
   return "bad_solution";
 }
@@ -206,17 +206,27 @@ export class CashuReceiveEngine implements SettlementEngine {
   }
 
   /**
-   * NUT-09 then NUT-07 for swaps that were saved and not finished. Stores proofs. Does not grant a gate.
+   * NUT-09 then NUT-07 for swaps that were saved and not finished. Stores proofs, or deletes the row
+   * when restore is empty and every input is unspent. Does not grant a gate.
    * `skip` leaves that input set for the request in progress, which grants the gate itself.
+   * `minAgeMs` skips the delete for a row younger than that. The alarm uses it so a swap still
+   * in flight is not deleted. Commit of a signature the mint already returned is not delayed.
    */
-  async recoverSaved(skip?: string[]): Promise<void> {
+  async recoverSaved(skip?: string[], minAgeMs = 0): Promise<void> {
     const store = await this.useStore();
     const snap = await store.read();
+    const now = Date.now();
     for (const pending of snap.pending) {
       if (skip && sameMarks(pending.marks, skip)) continue;
       const restored = await this.tryRestore(pending);
-      if (restored.kind === "proofs") await store.commit({ id: pending.id, proofs: restored.proofs, marks: pending.marks });
-      // A restore that did not return our signatures is inconclusive. Leave the row.
+      if (restored.kind === "proofs") {
+        await store.commit({ id: pending.id, proofs: restored.proofs, marks: pending.marks });
+        continue;
+      }
+      // A restore that did not return an empty signature list is inconclusive. Leave the row.
+      if (restored.kind !== "none") continue;
+      if (minAgeMs > 0 && now - (pending.at ?? 0) < minAgeMs) continue;
+      if ((await this.tryCheck(pending)) === "unspent") await store.abort(pending.id);
     }
   }
 
@@ -267,6 +277,7 @@ export class CashuReceiveEngine implements SettlementEngine {
     });
     return {
       id: "pend_" + randomHex(8),
+      at: Date.now(),
       mint,
       unit: "sat",
       inSats: proofs.reduce((n, p) => n + p.amount, 0),
