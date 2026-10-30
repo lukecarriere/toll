@@ -60,6 +60,26 @@ export interface ProofSnapshot {
   losses: number;
 }
 
+/** True when both lists are the same set of input marks, in any order. */
+export function sameInputSet(a: string[], b: string[]): boolean {
+  if (a.length !== b.length) return false;
+  const set = new Set(b);
+  return a.every((h) => set.has(h));
+}
+
+/**
+ * The pending row that already holds this input set, or null when none of the marks are taken.
+ * A shared mark that is not the same set is replay: one stored swap, one input set.
+ * The file store and the Durable Object both use this, inside the write that inserts the row.
+ */
+export function claimPending(rows: PendingSwap[], p: PendingSwap): PendingSwap | null {
+  const hit = rows.find((x) => x.marks.some((h) => p.marks.includes(h)));
+  if (!hit) return null;
+  // CASHU_GUARD overlap: one stored swap per input set. A shared mark is not this swap.
+  if (hit.mint === p.mint && sameInputSet(hit.marks, p.marks)) return hit;
+  throw new TollError("replay");
+}
+
 /**
  * Proofs, spent inputs, and in-flight swaps. `begin` returns only after the pending swap is durable.
  * `commit` returns only after the new proofs and the spent marks are durable.
@@ -169,7 +189,7 @@ export class FileProofStore implements ProofStore {
     return queue(this.path, async () => {
       const file = await readStore(this.path);
       if (p.marks.some((h) => file.spent.includes(h))) throw new TollError("replay");
-      const existing = file.pending.find((x) => x.marks.some((h) => p.marks.includes(h)));
+      const existing = claimPending(file.pending, p);
       if (existing) return existing;
       file.pending.push(p);
       file.losses += p.inSats - p.outSats;

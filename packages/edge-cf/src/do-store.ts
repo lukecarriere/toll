@@ -8,7 +8,7 @@ import { TollError } from "../../protocol/src/index.ts";
 import type { TollStore } from "../../server-node/src/stores.ts";
 import { CashuReceiveEngine } from "../../settlement-ln/src/cashu-receive.ts";
 import { parseCashuMints } from "../../settlement-ln/src/cashu-net.ts";
-import type { CashuBooks, PendingSwap, ProofSnapshot, ProofStore, StoredProof } from "../../settlement-ln/src/cashu-store.ts";
+import { claimPending, type CashuBooks, type PendingSwap, type ProofSnapshot, type ProofStore, type StoredProof } from "../../settlement-ln/src/cashu-store.ts";
 import { cashuFaultSlot, cashuFetch, type CashuEnv } from "./cashu-edge.ts";
 
 /** Set true for the current request to make every store call fail closed. Unset: the store works. */
@@ -208,9 +208,8 @@ export class TollStoreDO extends DurableObject {
     for (const h of p.marks) {
       if (this.sql.exec("SELECT h FROM cashu_spent WHERE h = ?", h).toArray().length) throw new TollError("replay");
     }
-    for (const existing of this.pendingRows()) {
-      if (existing.marks.some((h) => p.marks.includes(h))) return existing;
-    }
+    const existing = claimPending(this.pendingRows(), p);
+    if (existing) return existing;
     this.sql.exec("INSERT INTO cashu_pending (id, body) VALUES (?, ?)", p.id, JSON.stringify(p));
     this.addLoss(p.inSats - p.outSats);
     return p;

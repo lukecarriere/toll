@@ -33,6 +33,7 @@
 | `abort()` runs only after an empty restore and an unspent check. | `scripts/cashu-guards.ts` | [tests/cashu-guards.test.ts](https://github.com/lukecarriere/toll/blob/cursor/cashu-guard-notes-389a/tests/cashu-guards.test.ts) |
 | An issued quote with no store row does not pay. | `scripts/mutate-mint-quote.mjs` | [tests/settlement-mint-quote.test.ts](tests/settlement-mint-quote.test.ts) |
 | An author `display` rule must not show an element that carries `hidden`. | `scripts/hidden-attr.ts` | [tests/hidden-attr.test.ts](tests/hidden-attr.test.ts) |
+| Two receives that share an input get one pass from the one stored swap. | `scripts/mutate-cashu-overlap.mjs` | [tests/settlement-cashu-receive.test.ts](tests/settlement-cashu-receive.test.ts) |
 
 Cannot catch, in `scripts/cashu-guards.ts`:
 
