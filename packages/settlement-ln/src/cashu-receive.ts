@@ -249,8 +249,9 @@ export class CashuReceiveEngine implements SettlementEngine {
    * NUT-09 then NUT-07 for swaps that were saved and not finished. Stores proofs, or deletes the row
    * when restore is empty and every input is unspent. Does not grant a gate.
    * `skip` leaves that input set for the request in progress, which grants the gate itself.
-   * A row younger than SWEEP_MIN_AGE_MS is left alone: the request that saved it may still be
-   * waiting on the mint. Missing `at` is an old row.
+   * A signature the mint already returned is stored immediately. A row younger than
+   * SWEEP_MIN_AGE_MS is not deleted: the request that saved it may still be waiting on the mint.
+   * Missing `at` is an old row.
    */
   async recoverSaved(skip?: string[]): Promise<void> {
     const store = await this.useStore();
@@ -258,12 +259,13 @@ export class CashuReceiveEngine implements SettlementEngine {
     const now = Date.now();
     for (const pending of snap.pending) {
       if (skip && sameMarks(pending.marks, skip)) continue;
-      if (now - (pending.at ?? 0) < SWEEP_MIN_AGE_MS) continue;
       const restored = await this.tryRestore(pending);
       if (restored.kind === "proofs") {
         await store.commit({ id: pending.id, proofs: restored.proofs, marks: pending.marks });
         continue;
       }
+      // A young row may still be the request that saved it. Do not delete it.
+      if (now - (pending.at ?? 0) < SWEEP_MIN_AGE_MS) continue;
       const empty = restored.kind === "none";
       const unclear = restored.kind === "inconclusive";
       await this.abortIfUntaken(pending, empty, unclear);
