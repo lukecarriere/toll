@@ -64,6 +64,11 @@ test("the worker stores its own quote row and refuses a quote someone else minte
   assert.ok(m, www);
   const offers = denied.body.offers as { kind: string }[];
   assert.equal(offers[1].kind, "l402");
+  const manifest = await read(await fetch(base + "/.well-known/toll.json"));
+  assert.equal(manifest.status, 200);
+  const tools = manifest.body.tools as { payment: { methods: { kind: string }[] } }[];
+  assert.equal(tools.length, 3);
+  for (const t of tools) assert.deepEqual(t.payment.methods.map((m) => m.kind), offers.map((o) => o.kind));
   const macaroon = m[1];
   const invoice = m[2];
   const quote = JSON.parse(fromUtf8(fromB64url(macaroon.split(".")[0]))).quote as string;
@@ -78,4 +83,18 @@ test("the worker stores its own quote row and refuses a quote someone else minte
   const books = await read(await fetch(base + "/v1/test/cashu-books"));
   assert.equal(books.status, 200);
   assert.equal(books.body.stored, 0);
+
+  const again = await post({});
+  assert.equal(again.status, 402);
+  const www2 = again.headers.get("www-authenticate") ?? "";
+  const m2 = /^L402 macaroon="([^"]+)", invoice="([^"]+)"$/.exec(www2);
+  assert.ok(m2);
+  const paid2 = await fetch(mint.url + "/test/pay", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ request: m2[2] }) });
+  const pay2 = await paid2.json();
+  assert.equal(paid2.status, 200);
+  const ok = await post({ authorization: `L402 ${m2[1]}:${pay2.preimage}` });
+  assert.equal(ok.status, 200, JSON.stringify(ok.body));
+  assert.equal(ok.body.rail, "settle");
+  const after = await read(await fetch(base + "/v1/test/cashu-books"));
+  assert.equal(after.body.stored, 10);
 });

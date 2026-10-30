@@ -18,7 +18,7 @@ import { buildManifest, agentsPointer, priceBody, PAID_CLASSES } from "../../ser
 import { offerAmountMsat } from "../../settlement-ln/src/stub-engine.ts";
 import { CashuReceiveEngine } from "../../settlement-ln/src/cashu-receive.ts";
 import { parseCashuMints } from "../../settlement-ln/src/cashu-net.ts";
-import { parseL402Authorization, paymentRequired, presentedCashu, stubEngineSecret, withQuoteOffer } from "../../settlement-ln/src/index.ts";
+import { parseL402Authorization, paymentHashOf, paymentRequired, presentedCashu, QUOTE_KIND, stubEngineSecret, withQuoteOffer } from "../../settlement-ln/src/index.ts";
 import type { ProofStore } from "../../settlement-ln/src/cashu-store.ts";
 import type { KVLike } from "./kv-store.ts";
 import { cashuFaultSlot, cashuFetch, mintFetches } from "./cashu-edge.ts";
@@ -280,7 +280,8 @@ export function createEdgeHandler<E extends EdgeEnv>(options: EdgeOptions<E>) {
           await r.arrayBuffer();
           live = r.ok;
         } catch { live = false; }
-        methods = live ? ["cashu"] : [];
+        const quote = live && await loopbackQuoteOffered(env, mints);
+        methods = live ? ["cashu", ...(quote ? [QUOTE_KIND] : [])] : [];
       }
       const doc = path === "/.well-known/toll.json"
         ? buildManifest({ api: url.origin + "/v1", docs: siteUrl(env.TOLL_SITE_URL), status: mints.length ? "cashu" : "stub", prices, method: mints.length ? "cashu" : "ln402", methods })
@@ -449,6 +450,27 @@ export function createEdgeHandler<E extends EdgeEnv>(options: EdgeOptions<E>) {
   }
 
   return { fetch };
+}
+
+/** True when test hooks are on and the mint's quote invoice is the loopback form the 402 can offer. */
+async function loopbackQuoteOffered(env: EdgeEnv, mints: string[]): Promise<boolean> {
+  if (env.TOLL_TEST_HOOKS !== "1" || mints.length === 0) return false;
+  try {
+    const r = await cashuFetch(env, mints)(mints[0] + "/v1/mint/quote/bolt11", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ amount: 1, unit: "sat" }),
+    });
+    const text = await r.text();
+    if (!r.ok) return false;
+    const parsed: unknown = text ? JSON.parse(text) : null;
+    const request = parsed && typeof parsed === "object" && "request" in parsed ? (parsed as { request?: unknown }).request : undefined;
+    if (typeof request !== "string") return false;
+    paymentHashOf(request);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function cashuMints<E extends EdgeEnv>(env: E, proofStore: EdgeOptions<E>["proofStore"]): string[] {
