@@ -14,6 +14,11 @@ import type { CashuOffer, Paid, PaidClass, PaidProof, SettlementEngine } from ".
 
 const SEAL_PREFIX = "toll-cashu-recv-v1.";
 const MAX_TOKEN = 16384;
+/**
+ * A swap is posted twice, and each mint call gives up after 1.5s. A row younger than this
+ * may still be the request that saved it. Every sweep uses this floor, including the alarm.
+ */
+export const SWEEP_MIN_AGE_MS = 10_000;
 
 interface Caveats {
   v: 1;
@@ -57,6 +62,41 @@ function messageFor(outcome: SwapOutcome): "bad_solution" | "replay" | "store_un
   try { code = Number(JSON.parse(outcome.text)?.code); } catch { /* a 4xx that is not JSON is still a refusal */ }
   if (code === 11001) return "replay";
   return "bad_solution";
+}
+
+/** Field names, counts, and state labels. Values that could be a proof stay out. */
+function responseShape(text: string): { keys: string[]; outputs: number | null; signatures: number | null; sig: string[] | null; states: number | null; state: string[] | null } {
+  const empty: { keys: string[]; outputs: number | null; signatures: number | null; sig: string[] | null; states: number | null; state: string[] | null } = { keys: [], outputs: null, signatures: null, sig: null, states: null, state: null };
+  let parsed: unknown;
+  try { parsed = text === "" ? undefined : JSON.parse(text); } catch { return empty; }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return empty;
+  const obj = parsed as Record<string, unknown>;
+  const shape = { ...empty, keys: Object.keys(obj).slice(0, 12) };
+  if (Array.isArray(obj.outputs)) shape.outputs = obj.outputs.length;
+  if (Array.isArray(obj.signatures)) {
+    shape.signatures = obj.signatures.length;
+    shape.sig = obj.signatures.slice(0, 8).map((row) => {
+      if (row === null) return "null";
+      if (!row || typeof row !== "object") return typeof row;
+      const c = (row as { C_?: unknown; c_?: unknown }).C_ ?? (row as { c_?: unknown }).c_;
+      if (c === null) return "null";
+      return typeof c === "string" ? "string" : typeof c;
+    });
+  }
+  if (Array.isArray(obj.states)) {
+    shape.states = obj.states.length;
+    shape.state = obj.states.slice(0, 8).map((row) => {
+      if (!row || typeof row !== "object") return typeof row;
+      const st = (row as { state?: unknown }).state;
+      if (st === "UNSPENT" || st === "PENDING" || st === "SPENT") return st;
+      return typeof st;
+    });
+  }
+  return shape;
+}
+
+function noteInconclusive(check: "restore" | "checkstate", status: number, text: string): void {
+  console.log(JSON.stringify({ event: "mint_inconclusive", check, status, shape: responseShape(text) }));
 }
 
 async function seal(secret: string, c: Caveats): Promise<string> {
@@ -209,25 +249,35 @@ export class CashuReceiveEngine implements SettlementEngine {
    * NUT-09 then NUT-07 for swaps that were saved and not finished. Stores proofs, or deletes the row
    * when restore is empty and every input is unspent. Does not grant a gate.
    * `skip` leaves that input set for the request in progress, which grants the gate itself.
-   * `minAgeMs` skips the delete for a row younger than that. The alarm uses it so a swap still
-   * in flight is not deleted. Commit of a signature the mint already returned is not delayed.
+   * A row younger than SWEEP_MIN_AGE_MS is left alone: the request that saved it may still be
+   * waiting on the mint. Missing `at` is an old row.
    */
-  async recoverSaved(skip?: string[], minAgeMs = 0): Promise<void> {
+  async recoverSaved(skip?: string[]): Promise<void> {
     const store = await this.useStore();
     const snap = await store.read();
     const now = Date.now();
     for (const pending of snap.pending) {
       if (skip && sameMarks(pending.marks, skip)) continue;
+      if (now - (pending.at ?? 0) < SWEEP_MIN_AGE_MS) continue;
       const restored = await this.tryRestore(pending);
       if (restored.kind === "proofs") {
         await store.commit({ id: pending.id, proofs: restored.proofs, marks: pending.marks });
         continue;
       }
-      // A restore that did not return an empty signature list is inconclusive. Leave the row.
-      if (restored.kind !== "none") continue;
-      if (minAgeMs > 0 && now - (pending.at ?? 0) < minAgeMs) continue;
-      if ((await this.tryCheck(pending)) === "unspent") await store.abort(pending.id);
+      const empty = restored.kind === "none";
+      const unclear = restored.kind === "inconclusive";
+      await this.abortIfUntaken(pending, empty, unclear);
     }
+  }
+
+  /** One abort. The condition is the empty-restore and all-UNSPENT gate. */
+  private async abortIfUntaken(pending: PendingSwap, empty: boolean, unclear: boolean): Promise<boolean> {
+    const state = empty && !unclear ? await this.tryCheck(pending) : "unknown";
+    if (empty && !unclear && state === "unspent") {
+      await (await this.useStore()).abort(pending.id);
+      return true;
+    }
+    return false;
   }
 
   private async proofsDurable(proofs: StoredProof[]): Promise<boolean> {
@@ -307,14 +357,9 @@ export class CashuReceiveEngine implements SettlementEngine {
     if (second.kind === "proofs") return second.proofs;
     const empty = first.kind === "none" || second.kind === "none";
     const unclear = first.kind === "inconclusive" || second.kind === "inconclusive";
-    const state = await this.tryCheck(pending);
     const notice = messageFor(outcome.kind === "http" ? outcome : again);
     // CASHU_GUARD abort-only-empty-restore: a mint code never deletes the outputs.
-    // Abort only when restore returned zero signatures and every input is UNSPENT.
-    if (empty && !unclear && state === "unspent") {
-      await (await this.useStore()).abort(pending.id);
-      throw new TollError(notice);
-    }
+    if (await this.abortIfUntaken(pending, empty, unclear)) throw new TollError(notice);
     throw new TollError("store_unavailable");
   }
 
@@ -355,15 +400,20 @@ export class CashuReceiveEngine implements SettlementEngine {
       r = await mintFetch(pending.mint, "/v1/restore", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }, this.guard, this.mints);
     } catch {
       // CASHU_GUARD transport-not-4xx: a dropped connection is not a conclusive empty restore.
+      noteInconclusive("restore", 0, "");
       return { kind: "inconclusive" };
     }
-    if (r.status !== 200) return { kind: "inconclusive" };
+    const inconclusive = (): RestoreOutcome => {
+      noteInconclusive("restore", r.status, r.text);
+      return { kind: "inconclusive" };
+    };
+    if (r.status !== 200) return inconclusive();
     let parsed: unknown;
-    try { parsed = JSON.parse(r.text); } catch { return { kind: "inconclusive" }; }
+    try { parsed = JSON.parse(r.text); } catch { return inconclusive(); }
     const outputs = parsed && typeof parsed === "object" ? (parsed as { outputs?: unknown; signatures?: unknown }).outputs : undefined;
     const rows = parsed && typeof parsed === "object" ? (parsed as { signatures?: unknown }).signatures : undefined;
     // CASHU_GUARD inconclusive-restore: only paired arrays are an answer. Empty arrays mean zero signatures.
-    if (!Array.isArray(outputs) || !Array.isArray(rows) || outputs.length !== rows.length) return { kind: "inconclusive" };
+    if (!Array.isArray(outputs) || !Array.isArray(rows) || outputs.length !== rows.length) return inconclusive();
     if (outputs.length === 0) return { kind: "none" };
     const got: ({ amount: number; C_: string } | undefined)[] = new Array(pending.outputs.length);
     let usable = 0;
@@ -378,10 +428,10 @@ export class CashuReceiveEngine implements SettlementEngine {
       got[idx] = { amount, C_ };
       usable++;
     }
-    if (usable === 0) return { kind: "inconclusive" };
-    if (usable !== pending.outputs.length || got.some((g) => !g)) return { kind: "inconclusive" };
+    if (usable === 0) return inconclusive();
+    if (usable !== pending.outputs.length || got.some((g) => !g)) return inconclusive();
     const proofs = await this.unblindOutputs(pending, got as { amount: number; C_: string }[]);
-    if (!proofs) return { kind: "inconclusive" };
+    if (!proofs) return inconclusive();
     return { kind: "proofs", proofs };
   }
 
@@ -391,12 +441,17 @@ export class CashuReceiveEngine implements SettlementEngine {
       const body = { Ys: pending.inputs.map((p) => secretY(p.secret)) };
       r = await mintFetch(pending.mint, "/v1/checkstate", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }, this.guard, this.mints);
     } catch {
+      noteInconclusive("checkstate", 0, "");
       return "unknown";
     }
-    if (r.status !== 200) return "unknown";
+    const unknown = (): "unknown" => {
+      noteInconclusive("checkstate", r.status, r.text);
+      return "unknown";
+    };
+    if (r.status !== 200) return unknown();
     let states: unknown;
-    try { states = JSON.parse(r.text).states; } catch { return "unknown"; }
-    if (!Array.isArray(states) || states.length !== pending.inputs.length) return "unknown";
+    try { states = JSON.parse(r.text).states; } catch { return unknown(); }
+    if (!Array.isArray(states) || states.length !== pending.inputs.length) return unknown();
     let spent = 0;
     let unspent = 0;
     let waiting = 0;
@@ -410,7 +465,7 @@ export class CashuReceiveEngine implements SettlementEngine {
     if (waiting > 0) return "pending";
     if (spent === pending.inputs.length) return "spent";
     if (unspent === pending.inputs.length) return "unspent";
-    return "unknown";
+    return unknown();
   }
 
   private async unblindOutputs(pending: PendingSwap, signatures: { amount: number; C_: string }[]): Promise<StoredProof[] | null> {

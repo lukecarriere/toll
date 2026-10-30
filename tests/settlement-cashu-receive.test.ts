@@ -4,12 +4,12 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
-import { mkdtempSync } from "node:fs";
+import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fromB64url, fromUtf8, toB64url, toHex, utf8 } from "../packages/protocol/src/bytes.ts";
 import { normalizeConfig } from "../packages/server-node/src/index.ts";
-import { decodeToken, decodeTokenV4, encodeTokenV3, encodeTokenV4, CashuReceiveEngine, assertProductionMint, guardMintUrl, mintFetch, resolveKeysetId, deriveKeysetIdV2, startKeysetMint, blockedAddress } from "../packages/settlement-ln/src/index.ts";
+import { decodeToken, decodeTokenV4, encodeTokenV3, encodeTokenV4, CashuReceiveEngine, SWEEP_MIN_AGE_MS, assertProductionMint, guardMintUrl, mintFetch, resolveKeysetId, deriveKeysetIdV2, startKeysetMint, blockedAddress } from "../packages/settlement-ln/src/index.ts";
 import { FileProofStore, type PendingSwap, type ProofStore, type StoredProof } from "../packages/settlement-ln/src/cashu-store.ts";
 import { TollError } from "../packages/protocol/src/errors.ts";
 import { cashuPayer, createAgent } from "../packages/agent/src/index.ts";
@@ -422,6 +422,10 @@ test("the next payment clears a pending swap the mint never took", async () => {
       (e: unknown) => e instanceof TollError && e.code === "store_unavailable",
     );
     assert.equal((await store.read()).pending.length, 1);
+    const path = join(dir, "proofs.json");
+    const saved = JSON.parse(readFileSync(path, "utf8"));
+    saved.pending[0].at = Date.now() - SWEEP_MIN_AGE_MS - 1_000;
+    writeFileSync(path, JSON.stringify(saved));
     const next = new CashuReceiveEngine({ secret, mints: [mint.url], store, loopbackHttp: true });
     const offer2 = await next.offer({ site: "s", cls: "write", amount_msat: 10000, now });
     const token2 = cashuAFull(mint.url, mint.keysetId, mint.token(10));

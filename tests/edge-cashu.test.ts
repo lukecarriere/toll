@@ -13,7 +13,7 @@ import { fileURLToPath } from "node:url";
 import { fromB64url, toB64url, toHex, utf8 } from "../packages/protocol/src/bytes.ts";
 import { cborDecode } from "../packages/settlement-ln/src/cbor.ts";
 import { decodePaymentRequest, decodeToken, decodeTokenV4, encodeTokenV3, encodeTokenV4 } from "../packages/settlement-ln/src/cashu.ts";
-import { CashuReceiveEngine } from "../packages/settlement-ln/src/cashu-receive.ts";
+import { CashuReceiveEngine, SWEEP_MIN_AGE_MS } from "../packages/settlement-ln/src/cashu-receive.ts";
 import { startKeysetMint } from "../packages/settlement-ln/src/keyset-mint.ts";
 import { guardMintUrl } from "../packages/settlement-ln/src/cashu-net.ts";
 import type { PendingSwap, ProofStore, StoredProof } from "../packages/settlement-ln/src/cashu-store.ts";
@@ -779,6 +779,7 @@ test("a cashuA swap the mint never took is cleared on the next request", async (
   booksOk(mid);
   assert.equal(mid.pending, before.pending + 10);
   assert.equal(mid.stored, before.stored);
+  await new Promise((r) => setTimeout(r, SWEEP_MIN_AGE_MS + 1_000));
   const paid = await pay(cashuA(mint.token(10)));
   assert.equal(paid.status, 200, paid.text);
   const after = await books();
