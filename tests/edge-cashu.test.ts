@@ -201,6 +201,48 @@ test("parallel receives that share an input: one 200 from the durable object, th
   assert.equal(after.body.inSats - before.body.inSats, signed);
 });
 
+test("a claimed durable-object row keeps its lease until the mint answers", async () => {
+  const before = await books();
+  const signedBefore = mint.signedSats();
+  const parts = decodeToken(retarget(mint.token(10), MINT));
+  const shared = parts.proofs[0];
+  const large = encodeTokenV4({ mint: MINT, unit: parts.unit, proofs: parts.proofs });
+  const small = encodeTokenV4({ mint: MINT, unit: parts.unit, proofs: [shared] });
+  const held = pay(large, "hold-before-swap");
+  const deadline = Date.now() + 5_000;
+  let pending = before.pending;
+  while (pending === before.pending) {
+    if (Date.now() > deadline) throw new Error("the claim was not saved");
+    await new Promise((r) => setTimeout(r, 20));
+    pending = (await books()).pending;
+  }
+  assert.equal(pending, before.pending + 10);
+  const overlap = await call("/search", {
+    method: "POST",
+    headers: { accept: "application/json", "content-type": "application/json", "toll-client": "agent", "x-cashu": small },
+    body: "{}",
+  });
+  assert.equal(overlap.status, 401, overlap.text);
+  assert.equal(overlap.body.error, "replay");
+  const mid = await books();
+  booksOk(mid);
+  assert.equal(mid.pending, before.pending + 10, "an overlapping receive must not abort the claimed row");
+  assert.equal(mid.stored, before.stored);
+  const released = await call("/v1/test/release-hold", { method: "POST" });
+  assert.equal(released.status, 200, released.text);
+  const paid = await held;
+  assert.equal(paid.status, 200, paid.text);
+  assert.equal(typeof paid.body.pass, "string");
+  const after = await books();
+  booksOk(after);
+  holds(after);
+  const signed = mint.signedSats() - signedBefore;
+  assert.equal(after.pending, before.pending);
+  assert.equal(after.stored - before.stored, signed);
+  assert.equal(after.stored - before.stored, 10);
+  assert.equal(after.losses, before.losses);
+});
+
 test("an unlisted mint is refused and not fetched", async () => {
   await call("/v1/test/mint-fetches");
   const denied = await call("/demo/contact", {

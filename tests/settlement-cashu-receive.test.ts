@@ -759,3 +759,70 @@ test("overlap guard: N parallel HTTP receives on the memory replay store return 
     await mint.close();
   }
 });
+
+test("overlap guard: a claimed row keeps its lease until the mint answers", async () => {
+  const mint = await startKeysetMint();
+  const dir = mkdtempSync(join(tmpdir(), "toll-overlap-lease-"));
+  const proofs = new FileProofStore(join(dir, "proofs.json"));
+  let release = () => {};
+  const gate = new Promise<void>((resolve) => { release = resolve; });
+  let held = false;
+  const engine = new CashuReceiveEngine({
+    secret: "cashu-receive-test-secret",
+    mints: [mint.url],
+    store: proofs,
+    loopbackHttp: true,
+    beforeSwap: async () => {
+      if (!held) {
+        held = true;
+        await gate;
+      }
+    },
+  });
+  const now = 1_790_000_000;
+  const replay = new MemoryStore(() => now);
+  const firstUse = (key: string, ttl: number) => replay.firstUse(key, ttl);
+  try {
+    const eight = decodeToken(mint.token(8));
+    const two = decodeToken(mint.token(2));
+    const large = encodeTokenV4({ mint: mint.url, unit: eight.unit, proofs: [...eight.proofs, ...two.proofs] });
+    const small = encodeTokenV4({ mint: mint.url, unit: eight.unit, proofs: eight.proofs });
+    const write = await engine.offer({ site: "s", cls: "write", amount_msat: 10000, now });
+    const search = await engine.offer({ site: "s", cls: "search", amount_msat: 2000, now });
+    const first = engine.verifyPaid({
+      site: "s", now: now + 1, firstUse,
+      proof: { kind: "cashu", offer_id: write.id, credential: write.credential, token: large },
+    });
+    const deadline = Date.now() + 5_000;
+    let row = (await proofs.read()).pending[0];
+    while (!row) {
+      if (Date.now() > deadline) throw new Error("the claim was not saved");
+      await new Promise((r) => setTimeout(r, 5));
+      row = (await proofs.read()).pending[0];
+    }
+    assert.equal(row.outSats, 10);
+    assert.ok(typeof row.leaseExp === "number" && row.leaseExp > Date.now(), "the claim write leases the row");
+    const claimed = row.id;
+    await assert.rejects(
+      engine.verifyPaid({
+        site: "s", now: now + 1, firstUse,
+        proof: { kind: "cashu", offer_id: search.id, credential: search.credential, token: small },
+      }),
+      (e: unknown) => e instanceof TollError && e.code === "replay",
+    );
+    const mid = await proofs.read();
+    assert.equal(mid.pending.length, 1);
+    assert.equal(mid.pending[0].id, claimed, "an overlapping receive must not abort the claimed row");
+    release();
+    const paid = await first;
+    assert.equal(paid.amount_msat, 10000);
+    const books = await proofs.books();
+    assert.equal(books.pending, 0);
+    assert.equal(books.stored + books.pending + books.losses, mint.signedSats());
+    assert.equal(books.stored, mint.signedSats());
+    assert.equal(books.stored, 10);
+  } finally {
+    release();
+    await mint.close();
+  }
+});
