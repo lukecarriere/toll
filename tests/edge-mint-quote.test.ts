@@ -66,9 +66,13 @@ test("the worker stores its own quote row and refuses a quote someone else minte
   assert.equal(offers[1].kind, "l402");
   const manifest = await read(await fetch(base + "/.well-known/toll.json"));
   assert.equal(manifest.status, 200);
-  const tools = manifest.body.tools as { payment: { methods: { kind: string }[] } }[];
+  const tools = manifest.body.tools as { payment: { methods: { kind: string; status: string }[] } }[];
   assert.equal(tools.length, 3);
-  for (const t of tools) assert.deepEqual(t.payment.methods.map((m) => m.kind), offers.map((o) => o.kind));
+  for (const t of tools) {
+    assert.deepEqual(t.payment.methods.map((m) => m.kind), offers.map((o) => o.kind));
+    assert.equal(t.payment.methods.find((m) => m.kind === "cashu")?.status, "cashu");
+    assert.equal(t.payment.methods.find((m) => m.kind === "l402")?.status, "l402");
+  }
   const macaroon = m[1];
   const invoice = m[2];
   const quote = JSON.parse(fromUtf8(fromB64url(macaroon.split(".")[0]))).quote as string;
