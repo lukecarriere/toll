@@ -20,6 +20,10 @@ jobs:
           # hides that commit, so the title range is empty and the lint test fails.
           fetch-depth: 0
 
+      # Squash merge #22 dropped the conservation commits. The guard test reads them.
+      - name: Fetch the Cashu receive branch
+        run: git fetch --no-tags origin cursor/edge-cashu-receive-8ea2
+
       - name: Set up Node.js 22
         uses: actions/setup-node@v4
         with:
