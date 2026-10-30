@@ -10,9 +10,9 @@ import { join } from "node:path";
 import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
 import { fileURLToPath } from "node:url";
-import { fromB64url } from "../packages/protocol/src/bytes.ts";
+import { fromB64url, toHex } from "../packages/protocol/src/bytes.ts";
 import { cborDecode } from "../packages/settlement-ln/src/cbor.ts";
-import { decodePaymentRequest, decodeTokenV4, encodeTokenV4 } from "../packages/settlement-ln/src/cashu.ts";
+import { decodePaymentRequest, decodeToken, decodeTokenV4, encodeTokenV3, encodeTokenV4 } from "../packages/settlement-ln/src/cashu.ts";
 import { CashuReceiveEngine } from "../packages/settlement-ln/src/cashu-receive.ts";
 import { startKeysetMint } from "../packages/settlement-ln/src/keyset-mint.ts";
 import { guardMintUrl } from "../packages/settlement-ln/src/cashu-net.ts";
@@ -180,6 +180,58 @@ test("an unlisted mint is refused and not fetched", async () => {
   assert.equal(typeof refused.body.pass, "undefined");
   const seen = await call("/v1/test/mint-fetches");
   assert.equal(seen.body.urls.some((u: string) => u.includes("evil.example")), false);
+});
+
+test("a cashuA token pays, a replay is rejected, a short keyset id is mapped, and an unlisted mint is refused", async () => {
+  const denied = await call("/demo/contact", {
+    method: "POST",
+    headers: { accept: "application/json", "content-type": "application/json", "toll-client": "agent" },
+    body: "{}",
+  });
+  assert.equal(denied.status, 402);
+  const raw = decodeToken(mint.token(10));
+  const token = encodeTokenV3({ ...raw, mint: MINT });
+  const short = toHex(decodeToken(token).proofs[0].id);
+  assert.equal(short.length, 16);
+  const swaps = mint.swaps();
+  const paid = await call("/demo/contact", {
+    method: "POST",
+    headers: { accept: "application/json", "content-type": "application/json", "toll-client": "agent", "x-cashu": token },
+    body: "{}",
+  });
+  assert.equal(paid.status, 200, paid.text);
+  assert.equal(paid.body.rail, "settle");
+  assert.equal(mint.lastInputIds()[0].length, 66);
+  assert.ok(mint.lastInputIds()[0].startsWith(short));
+  const again = await call("/demo/contact", {
+    method: "POST",
+    headers: { accept: "application/json", "content-type": "application/json", "toll-client": "agent", "x-cashu": token },
+    body: "{}",
+  });
+  assert.equal(again.status, 401);
+  assert.equal(again.body.error, "replay");
+  assert.equal(mint.swaps(), swaps + 1);
+
+  await call("/v1/test/mint-fetches");
+  const foreign = encodeTokenV3({ ...decodeToken(mint.token(10)), mint: UNLISTED });
+  const refused = await call("/demo/contact", {
+    method: "POST",
+    headers: { accept: "application/json", "content-type": "application/json", "toll-client": "agent", "x-cashu": foreign },
+    body: "{}",
+  });
+  assert.equal(refused.status, 400);
+  assert.equal(refused.body.error, "malformed");
+  const seen = await call("/v1/test/mint-fetches");
+  assert.equal(seen.body.urls.some((u: string) => u.includes("evil.example")), false);
+
+  const both = decodeToken(mint.token(10));
+  const v4 = encodeTokenV4({ mint: MINT, unit: both.unit, proofs: both.proofs });
+  const paidB = await call("/demo/contact", {
+    method: "POST",
+    headers: { accept: "application/json", "content-type": "application/json", "toll-client": "agent", "x-cashu": v4 },
+    body: "{}",
+  });
+  assert.equal(paidB.status, 200, paidB.text);
 });
 
 test("uppercase C_ is accepted", async () => {

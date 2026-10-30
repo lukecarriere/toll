@@ -164,8 +164,7 @@ function toll_gate_agent_refusal(string $action, string $path): array
 
 /**
  * An agent retry that already carries X-Cashu. Null when this request is not that retry.
- * A V4 string is forwarded. The older V3 string is refused. The pass is minted here after the
- * payment server books the payment.
+ * A V3 or V4 string is forwarded. The pass is minted here after the payment server books it.
  * @return array{0: int, 1: array<string, mixed>, 2: array<string, string>}|null
  */
 function toll_gate_presented_response(string $action): ?array
@@ -174,7 +173,6 @@ function toll_gate_presented_response(string $action): ?array
     if ($raw === '') return null;
     $p = \Toll\Settlement::presentedCashu($raw);
     if ($p === null) return null;
-    if ($p['kind'] === 'a') return [400, ['error' => 'malformed'], []];
     [$status, $body] = toll_gate_relay_presented($p['token'], $action);
     if ($status !== 200) return [$status, $body, []];
     $claims = \Toll\Protocol::newPassClaims(toll_gate_site_key(), $body['cls'], TOLL_GATE_PAID_PASS_USES, TOLL_GATE_PAID_PASS_TTL, time());

@@ -30,10 +30,12 @@ check(Settlement::forwardRedeem(['offer_id' => 'off_1', 'kind' => 'ln402', 'prei
 check(Settlement::forwardRedeem(['offer_id' => 'off_1', 'kind' => 'cashu', 'token' => '', 'credential' => 'cred']) === null, 'an empty field is refused');
 
 check(Settlement::presentedCashu('cashuBabc') === ['kind' => 'b', 'token' => 'cashuBabc'], 'V4 header');
-check(Settlement::presentedCashu('cashuAabc') === ['kind' => 'a'], 'V3 header');
+check(Settlement::presentedCashu('cashuAabc') === ['kind' => 'a', 'token' => 'cashuAabc'], 'V3 header');
+check(Settlement::presentedCashu('cashu:cashuAabc') === ['kind' => 'a', 'token' => 'cashuAabc'], 'a URI prefix is not part of the payment');
 check(Settlement::presentedCashu('creqAabc') === null, 'a payment request is not a payment');
-check(Settlement::forwardPresented('cashuBabc', 'write') === ['token' => 'cashuBabc', 'action' => 'write'], 'presented body');
-check(Settlement::forwardPresented('cashuAabc', 'write') === null, 'V3 is not forwarded as a payment');
+check(Settlement::forwardPresented('cashuBabc', 'write') === ['token' => 'cashuBabc', 'action' => 'write'], 'V4 presented body');
+check(Settlement::forwardPresented('cashuAabc', 'write') === ['token' => 'cashuAabc', 'action' => 'write'], 'V3 is forwarded as a payment');
+check(Settlement::forwardRedeem(['offer_id' => 'off_1', 'kind' => 'cashu', 'token' => 'cashuAabc', 'credential' => 'cred'])['token'] === 'cashuAabc', 'a V3 redeem field is copied');
 
 echo "\nPHP " . PHP_VERSION . " cashu relay: $pass passed, $fail failed\n";
 exit($fail === 0 ? 0 : 1);

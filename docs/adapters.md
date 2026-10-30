@@ -226,7 +226,7 @@ const result = await agent.fetch("/contact", {
 });
 ```
 
-`TOLL_CASHU_SOURCE` is a `cashuB` string (or pass `{ proofs, mint }` instead). The client sends `Toll-Client: agent`, reads the `creqA` on the 402, and returns a `cashuB` string for that amount. `onChange` receives a `cashuB` string when the source was larger. `result.via` is `paid` and `result.token` is the string that was redeemed. WordPress needs `issuer` set to `<site>/wp-json/toll`; the plugin copies `X-Cashu` and forwards the redeem.
+`TOLL_CASHU_SOURCE` is a `cashuA` or `cashuB` string (or pass `{ proofs, mint }` instead). The client sends `Toll-Client: agent`, reads the `creqA` on the 402, and returns a string for that amount. An exact source is sent as it arrived. `onChange` receives a `cashuB` string when the source was larger, and the string that was redeemed is `cashuB` in that case. `result.via` is `paid` and `result.token` is the string that was redeemed. WordPress needs `issuer` set to `<site>/wp-json/toll`; the plugin copies `X-Cashu` for either token and forwards the redeem. Ecashu is the reference for which tokens Toll accepts: `cashuA` and `cashuB`, a short version-01 keyset id, and more than one entry from the same mint. Change is `cashuB`. A `creqA` string is still only the offer.
 
 ## Vendor names (copy lint)
 

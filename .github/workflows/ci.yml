@@ -49,3 +49,6 @@ jobs:
 
       - name: Cashu conservation mutants
         run: node scripts/mutate-cashu-conservation.mjs
+
+      - name: Cashu token mutants
+        run: node scripts/mutate-cashu-token.mjs

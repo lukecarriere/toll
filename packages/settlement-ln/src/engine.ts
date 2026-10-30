@@ -29,7 +29,7 @@ export interface LnOffer extends OfferBase {
 
 /**
  * Test-only Cashu offer (NUT-24). `request` is the `creqA` payment request carried in `X-Cashu`.
- * `credential` is the opaque seal the client returns with the `cashuB` token.
+ * `credential` is the opaque seal the client returns with the `cashuA` or `cashuB` token.
  */
 export interface CashuOffer extends OfferBase {
   kind: "cashu";
@@ -51,7 +51,7 @@ export interface LnPaidProof {
   preimage: string;
 }
 
-/** Cashu proof: a `cashuB` token plus the offer seal. Accepted only after a mint call. */
+/** Cashu proof: a `cashuA` or `cashuB` token plus the offer seal. Accepted only after a mint call. */
 export interface CashuPaidProof {
   kind: "cashu";
   offer_id: string;

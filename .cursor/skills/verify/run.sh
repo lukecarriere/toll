@@ -59,6 +59,9 @@ log "npm test exit $test_status"
 log "cashu conservation mutants"
 node scripts/mutate-cashu-conservation.mjs | tee -a "$TRANSCRIPT"
 
+log "cashu token mutants"
+node scripts/mutate-cashu-token.mjs | tee -a "$TRANSCRIPT"
+
 log "packages"
 node --input-type=module <<'EOF' | tee -a "$TRANSCRIPT"
 import { VERSION } from "./packages/server-node/dist/index.js";

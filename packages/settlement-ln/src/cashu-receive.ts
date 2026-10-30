@@ -1,12 +1,12 @@
-// Production Cashu receive. A cashuB token is swapped at an allowlisted mint into proofs this
-// process keeps. Short version-01 keyset ids are mapped with the mint's keyset list first.
+// Production Cashu receive. A cashuA or cashuB token is swapped at an allowlisted mint into proofs
+// this process keeps. Short version-01 keyset ids are mapped with the mint's keyset list first.
 // Blinded outputs are durable before POST /v1/swap. A crash there is recovered with NUT-09
 // restore and NUT-07 checkstate. The gate is granted only after the new proofs are stored.
 // The test engine (cashu-engine.ts) is unchanged and still talks only to a loopback http mint.
 import {
   type ActionClass, TollError, canonicalJson, fromB64url, fromUtf8, hmacSha256, hmacVerify, randomBytes, randomHex, sha256, toB64url, toHex, utf8,
 } from "../../protocol/src/index.ts";
-import { CASHU_UNIT, decodeTokenV4, encodePaymentRequest, type DecodedToken } from "./cashu.ts";
+import { CASHU_UNIT, decodeToken, encodePaymentRequest, type DecodedToken } from "./cashu.ts";
 import { blindMessage, deriveKeysetIdV2, inputFee, resolveKeysetId, secretMark, secretY, splitAmount, unblind } from "./cashu-crypto.ts";
 import { type MintGuard, guardMintUrl, mintFetch, mintKey } from "./cashu-net.ts";
 import { FileProofStore, type PendingOutput, type PendingSwap, type ProofStore, type StoredProof } from "./cashu-store.ts";
@@ -160,14 +160,14 @@ export class CashuReceiveEngine implements SettlementEngine {
     if (o.now > c.exp) throw new TollError("expired");
     if (c.amount * 1000 !== c.amount_msat) throw new TollError("bad_sig");
     let token: DecodedToken;
-    try { token = decodeTokenV4(o.proof.token); } catch { throw new TollError("malformed"); }
+    try { token = decodeToken(o.proof.token); } catch { throw new TollError("malformed"); }
     if (token.proofs.length > 32) throw new TollError("malformed");
     if (token.unit !== CASHU_UNIT) throw new TollError("malformed");
     let mint: string;
     try { mint = mintKey(token.mint); } catch { throw new TollError("malformed"); }
     const sealed = c.mints.map((m) => { try { return mintKey(m); } catch { return ""; } });
+    // CASHU_GUARD allowlist: a V3 token and a V4 token must name a mint on the offer and the allowlist before any request.
     if (!sealed.includes(mint)) throw new TollError("malformed");
-    // Allowlist and https/SSRF before any request. A removed check would call a mint that is not listed.
     try { await guardMintUrl(mint, this.mints, this.guard); } catch (e) {
       if (e instanceof TollError) throw e;
       throw new TollError("malformed");

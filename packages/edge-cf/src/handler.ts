@@ -233,7 +233,6 @@ export function createEdgeHandler<E extends EdgeEnv>(options: EdgeOptions<E>) {
     if (!agent || !toll.config.settlement.cashu?.enabled) return null;
     const presented = presentedCashu(req.headers.get("x-cashu"));
     if (!presented) return null;
-    if (presented.kind === "a") return json({ error: "malformed" }, 400);
     try {
       const r = await toll.redeemPresentedToken(presented.token, { action, ip: ip(req) });
       return json({ pass: r.pass, exp: r.exp, cls: r.cls, rail: r.rail });

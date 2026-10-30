@@ -87,18 +87,30 @@ final class Settlement
     }
 
     /**
-     * What a caller put in X-Cashu. `b` is a V4 string. `a` is the older V3 string.
-     * Anything else is not a payment.
-     * @return array{kind: 'a'}|array{kind: 'b', token: string}|null
+     * A V3 or V4 payment string, with a URI prefix removed. Null when it is not a payment.
+     */
+    private static function cashuPayment(string $header): ?string
+    {
+        $t = trim($header);
+        foreach (['web+cashu://', 'cashu://', 'cashu:'] as $prefix) {
+            if (str_starts_with($t, $prefix)) $t = trim(substr($t, strlen($prefix)));
+        }
+        if ($t === '' || strlen($t) > 16384) return null;
+        if (str_starts_with($t, 'cashuA') || str_starts_with($t, 'cashuB')) return $t;
+        return null;
+    }
+
+    /**
+     * What a caller put in X-Cashu. `a` is a V3 string and `b` is a V4 string.
+     * Anything else, including a payment request, is not a payment.
+     * @return array{kind: 'a'|'b', token: string}|null
      */
     public static function presentedCashu(?string $header): ?array
     {
         if (!is_string($header)) return null;
-        $t = trim($header);
-        if ($t === '' || strlen($t) > 16384) return null;
-        if (str_starts_with($t, 'cashuB')) return ['kind' => 'b', 'token' => $t];
-        if (str_starts_with($t, 'cashuA')) return ['kind' => 'a'];
-        return null;
+        $t = self::cashuPayment($header);
+        if ($t === null) return null;
+        return ['kind' => str_starts_with($t, 'cashuA') ? 'a' : 'b', 'token' => $t];
     }
 
     /** One offer is safe to relay: strings of a bounded size, no parsing of the payment itself. */
@@ -158,7 +170,8 @@ final class Settlement
      */
     public static function forwardPresented(string $token, string $action): ?array
     {
-        if (!str_starts_with($token, 'cashuB') || strlen($token) > 16384) return null;
+        $token = self::cashuPayment($token) ?? '';
+        if ($token === '') return null;
         if (!isset(Protocol::CLASS_MULT[$action]) || $action === 'read') return null;
         return ['token' => $token, 'action' => $action];
     }

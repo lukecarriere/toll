@@ -15,7 +15,7 @@ const result = await agent.fetch("/contact", {
 
 `solveWork` solves a challenge payload in Node. Browsers use `@lessspam/widget` instead.
 
-`cashuPayer` pays a `creqA` challenge from a `cashuB` string, or from proofs plus the mint they belong to. `testMintPayer` stays the local test mint. When the source is larger than the request, the leftover `cashuB` string is passed to `onChange`.
+`cashuPayer` pays a `creqA` challenge from a `cashuA` or `cashuB` string, or from proofs plus the mint they belong to. `testMintPayer` stays the local test mint. An exact source is sent as it arrived. When the source is larger than the request, the payment and the leftover are `cashuB` strings, and the leftover is passed to `onChange`.
 
 ```js
 import { createAgent, cashuPayer } from "@lessspam/agent";

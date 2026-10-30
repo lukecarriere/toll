@@ -1,11 +1,11 @@
-// Test-only Cashu engine. Offers are NUT-24 payment requests. A payment is a cashuB token, and it
-// is accepted only after the configured test mint spends it (POST /v1/swap). There is no local
-// hash check that can stand in for that call. A mint outage fails the health check, so the rail
-// offers nothing and the work challenge still flows.
+// Test-only Cashu engine. Offers are NUT-24 payment requests. A payment is a cashuA or cashuB
+// token, and it is accepted only after the configured test mint spends it (POST /v1/swap). There
+// is no local hash check that can stand in for that call. A mint outage fails the health check,
+// so the rail offers nothing and the work challenge still flows.
 import {
   type ActionClass, TollError, canonicalJson, fromB64url, fromUtf8, hmacSha256, hmacVerify, randomHex, sha256, toB64url, toHex, utf8,
 } from "../../protocol/src/index.ts";
-import { CASHU_UNIT, decodeTokenV4, encodePaymentRequest, stripMint, type DecodedToken } from "./cashu.ts";
+import { CASHU_UNIT, decodeToken, encodePaymentRequest, stripMint, type DecodedToken } from "./cashu.ts";
 import type { CashuOffer, Paid, PaidClass, PaidProof, SettlementEngine } from "./engine.ts";
 
 const SEAL_PREFIX = "toll-cashu-v1.";
@@ -95,7 +95,7 @@ export class CashuTestEngine implements SettlementEngine {
     if (o.now > c.exp) throw new TollError("expired");
     if (c.mint !== this.mint || c.amount * 1000 !== c.amount_msat) throw new TollError("bad_sig");
     let token: DecodedToken;
-    try { token = decodeTokenV4(o.proof.token); } catch { throw new TollError("malformed"); }
+    try { token = decodeToken(o.proof.token); } catch { throw new TollError("malformed"); }
     if (token.proofs.length > 32) throw new TollError("malformed");
     // Shape is checked here. Acceptance is the mint call below, not a local hash of the secret.
     if (token.mint !== c.mint || token.unit !== CASHU_UNIT) throw new TollError("malformed");
