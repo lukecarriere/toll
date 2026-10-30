@@ -4,12 +4,12 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
-import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fromB64url, fromUtf8, toB64url, toHex, utf8 } from "../packages/protocol/src/bytes.ts";
 import { normalizeConfig } from "../packages/server-node/src/index.ts";
-import { decodeToken, decodeTokenV4, encodeTokenV3, encodeTokenV4, CashuReceiveEngine, SWEEP_MIN_AGE_MS, COMPLETE_MINT_CALLS, LEASE_MARGIN_MS, LEASE_MS, MINT_CALL_TIMEOUT_MS, assertProductionMint, guardMintUrl, mintFetch, resolveKeysetId, deriveKeysetIdV2, startKeysetMint, blockedAddress } from "../packages/settlement-ln/src/index.ts";
+import { decodeToken, decodeTokenV4, encodeTokenV3, encodeTokenV4, CashuReceiveEngine, COMPLETE_MINT_CALLS, LEASE_MARGIN_MS, LEASE_MS, MINT_CALL_TIMEOUT_MS, assertProductionMint, guardMintUrl, mintFetch, resolveKeysetId, deriveKeysetIdV2, startKeysetMint, blockedAddress } from "../packages/settlement-ln/src/index.ts";
 import { FileProofStore, type PendingSwap, type ProofStore, type StoredProof } from "../packages/settlement-ln/src/cashu-store.ts";
 import { TollError } from "../packages/protocol/src/errors.ts";
 import { cashuPayer, createAgent } from "../packages/agent/src/index.ts";
@@ -253,6 +253,13 @@ function looseStore(): ProofStore & { begins: () => number } {
     async read() { return { proofs: proofs.slice(), spent: spent.slice(), pending: pending.slice(), losses }; },
     books: async () => books(),
     async begin(p) { begins++; pending.push(p); return p; },
+    async lease(id, owner, exp) {
+      const row = pending.find((p) => p.id === id);
+      if (!row || (row.owner !== undefined && row.owner !== owner)) return;
+      if (row.at === undefined) row.at = Date.now();
+      row.owner = owner;
+      row.leaseExp = exp;
+    },
     async commit(o) {
       proofs = proofs.concat(o.proofs);
       for (const h of o.marks) if (!spent.includes(h)) spent.push(h);
@@ -422,10 +429,6 @@ test("the next payment clears a pending swap the mint never took", async () => {
       (e: unknown) => e instanceof TollError && e.code === "store_unavailable",
     );
     assert.equal((await store.read()).pending.length, 1);
-    const path = join(dir, "proofs.json");
-    const saved = JSON.parse(readFileSync(path, "utf8"));
-    saved.pending[0].at = Date.now() - SWEEP_MIN_AGE_MS - 1_000;
-    writeFileSync(path, JSON.stringify(saved));
     const next = new CashuReceiveEngine({ secret, mints: [mint.url], store, loopbackHttp: true });
     const offer2 = await next.offer({ site: "s", cls: "write", amount_msat: 10000, now });
     const token2 = cashuAFull(mint.url, mint.keysetId, mint.token(10));
@@ -470,12 +473,13 @@ test("a sweep does not delete a swap the mint has not answered yet", async () =>
     const paid = engine.verifyPaid({ site: "s", now, firstUse, proof: { kind: "cashu", offer_id: offer.id, credential: offer.credential, token } });
     const deadline = Date.now() + 5_000;
     let row = (await store.read()).pending[0];
-    while (!row) {
+    while (!row?.leaseExp) {
       if (Date.now() > deadline) throw new Error("the pending swap was not saved");
       await new Promise((r) => setTimeout(r, 5));
       row = (await store.read()).pending[0];
     }
-    assert.ok(Date.now() - (row.at ?? 0) < 10_000);
+    assert.equal(LEASE_MS, COMPLETE_MINT_CALLS * MINT_CALL_TIMEOUT_MS + LEASE_MARGIN_MS);
+    assert.ok(typeof row.leaseExp === "number" && row.leaseExp - Date.now() > 10_000);
     await engine.recoverSaved();
     release();
     let error: unknown = null;

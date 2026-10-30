@@ -13,7 +13,7 @@ import { fileURLToPath } from "node:url";
 import { fromB64url, toB64url, toHex, utf8 } from "../packages/protocol/src/bytes.ts";
 import { cborDecode } from "../packages/settlement-ln/src/cbor.ts";
 import { decodePaymentRequest, decodeToken, decodeTokenV4, encodeTokenV3, encodeTokenV4 } from "../packages/settlement-ln/src/cashu.ts";
-import { CashuReceiveEngine, SWEEP_MIN_AGE_MS } from "../packages/settlement-ln/src/cashu-receive.ts";
+import { CashuReceiveEngine } from "../packages/settlement-ln/src/cashu-receive.ts";
 import { startKeysetMint } from "../packages/settlement-ln/src/keyset-mint.ts";
 import { guardMintUrl } from "../packages/settlement-ln/src/cashu-net.ts";
 import type { PendingSwap, ProofStore, StoredProof } from "../packages/settlement-ln/src/cashu-store.ts";
@@ -692,6 +692,13 @@ function matrixStore(): ProofStore & { aborts: () => number } {
       losses += p.inSats - p.outSats;
       return p;
     },
+    async lease(id, owner, exp) {
+      const row = pending.find((x) => x.id === id);
+      if (!row || (row.owner !== undefined && row.owner !== owner)) return;
+      if (row.at === undefined) row.at = Date.now();
+      row.owner = owner;
+      row.leaseExp = exp;
+    },
     async commit(o) {
       if (!pending.some((x) => x.id === o.id)) throw new TollError("store_unavailable");
       proofs = proofs.concat(o.proofs);
@@ -725,6 +732,13 @@ function looseStore(): ProofStore & { begins: () => number } {
       return { stored, pending: pendingSats, losses, spent: spent.length, inSats: stored + pendingSats + losses };
     },
     async begin(p) { begins++; pending.push(p); losses += p.inSats - p.outSats; return p; },
+    async lease(id, owner, exp) {
+      const row = pending.find((x) => x.id === id);
+      if (!row || (row.owner !== undefined && row.owner !== owner)) return;
+      if (row.at === undefined) row.at = Date.now();
+      row.owner = owner;
+      row.leaseExp = exp;
+    },
     async commit(o) {
       proofs = proofs.concat(o.proofs);
       for (const h of o.marks) if (!spent.includes(h)) spent.push(h);
@@ -779,7 +793,6 @@ test("a cashuA swap the mint never took is cleared on the next request", async (
   booksOk(mid);
   assert.equal(mid.pending, before.pending + 10);
   assert.equal(mid.stored, before.stored);
-  await new Promise((r) => setTimeout(r, SWEEP_MIN_AGE_MS + 1_000));
   const paid = await pay(cashuA(mint.token(10)));
   assert.equal(paid.status, 200, paid.text);
   const after = await books();

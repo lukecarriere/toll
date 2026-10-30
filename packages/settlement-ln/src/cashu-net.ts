@@ -14,6 +14,8 @@ export interface MintGuard {
   /** Test double. Default resolves DNS. */
   lookup?: (host: string) => Promise<string[]>;
   fetch?: typeof fetch;
+  /** Bounds DNS together with the HTTP call. */
+  signal?: AbortSignal;
 }
 
 function bareHost(hostname: string): string {
@@ -130,7 +132,7 @@ export async function guardMintUrl(raw: string, allowlist: string[], opts: MintG
   if (isIP(host) === 0 && !loopbackOk) {
     const look = opts.lookup ?? defaultLookup;
     let addrs: string[];
-    try { addrs = await look(host); } catch { throw new Error("mint url host did not resolve"); }
+    try { addrs = await lookupWithin(look, host, opts.signal); } catch { throw new Error("mint url host did not resolve"); }
     if (addrs.length === 0 || addrs.some((a) => blockedAddress(a))) throw new Error("mint url host is not public");
   }
   return key;
@@ -141,17 +143,32 @@ function mintLog(method: string, path: string, status: number, ms: number): void
   console.log(JSON.stringify({ event: "mint", method, path, status, ms }));
 }
 
+function lookupWithin(look: (host: string) => Promise<string[]>, host: string, signal?: AbortSignal): Promise<string[]> {
+  if (!signal) return look(host);
+  if (signal.aborted) return Promise.reject(new Error("mint url host did not resolve"));
+  return new Promise((resolve, reject) => {
+    const onAbort = () => reject(new Error("mint url host did not resolve"));
+    signal.addEventListener("abort", onAbort, { once: true });
+    look(host).then(
+      (addrs) => { signal.removeEventListener("abort", onAbort); resolve(addrs); },
+      (err) => { signal.removeEventListener("abort", onAbort); reject(err); },
+    );
+  });
+}
+
 /** GET or POST `path` on an allowlisted mint. `path` is a mint route such as `/v1/swap`. */
 export async function mintFetch(base: string, path: string, init: RequestInit, opts: MintGuard, allowlist: string[]): Promise<{ status: number; text: string }> {
   if (!path.startsWith("/v1/") || path.includes("..") || path.includes("\\") || path.includes("?")) throw new Error("mint path");
-  const key = await guardMintUrl(base, allowlist, opts);
+  // DNS and the HTTP call share one timer, so a mint call cannot outlast MINT_CALL_TIMEOUT_MS.
+  const signal = AbortSignal.timeout(TIMEOUT_MS);
+  const key = await guardMintUrl(base, allowlist, { ...opts, signal });
   const f = opts.fetch ?? fetch;
   const method = init.method ?? "GET";
   const started = Date.now();
   let r: Response;
   try {
     // CASHU_GUARD redirect: never follow. A 3xx below is refused before the body is trusted.
-    r = await f(key + path, { ...init, redirect: "manual", signal: AbortSignal.timeout(TIMEOUT_MS) });
+    r = await f(key + path, { ...init, redirect: "manual", signal });
   } catch {
     mintLog(method, path, 0, Date.now() - started);
     throw new TollError("store_unavailable");

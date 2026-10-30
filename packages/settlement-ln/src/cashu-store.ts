@@ -29,8 +29,11 @@ export interface PendingOutput {
  */
 export interface PendingSwap {
   id: string;
-  /** Unix ms when the row was saved. Absent on rows written before this field; those are treated as old. */
+  /** Unix ms when the owner stamped the row, after begin(). */
   at?: number;
+  /** Set after begin(). A sweeper does not delete the row while this is in the future. */
+  owner?: string;
+  leaseExp?: number;
   mint: string;
   unit: "sat";
   inSats: number;
@@ -65,6 +68,8 @@ export interface ProofStore {
   read(): Promise<ProofSnapshot>;
   books(): Promise<CashuBooks>;
   begin(p: PendingSwap): Promise<PendingSwap>;
+  /** Stamp `at` if unset and set the owner's lease. A different owner is ignored. */
+  lease(id: string, owner: string, exp: number): Promise<void>;
   commit(o: { id: string; proofs: StoredProof[]; marks: string[] }): Promise<void>;
   /** The mint never took the inputs. Drops the pending swap and its fee. */
   abort(id: string): Promise<void>;
@@ -170,6 +175,18 @@ export class FileProofStore implements ProofStore {
       file.losses += p.inSats - p.outSats;
       await writeStore(this.path, file);
       return p;
+    });
+  }
+
+  async lease(id: string, owner: string, exp: number): Promise<void> {
+    return queue(this.path, async () => {
+      const file = await readStore(this.path);
+      const pending = file.pending.find((x) => x.id === id);
+      if (!pending || (pending.owner !== undefined && pending.owner !== owner)) return;
+      if (pending.at === undefined) pending.at = Date.now();
+      pending.owner = owner;
+      pending.leaseExp = exp;
+      await writeStore(this.path, file);
     });
   }
 

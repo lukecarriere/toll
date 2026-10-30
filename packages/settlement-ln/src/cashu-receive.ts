@@ -9,16 +9,11 @@ import {
 import { CASHU_UNIT, decodeToken, encodePaymentRequest, type DecodedToken } from "./cashu.ts";
 import { blindMessage, deriveKeysetIdV2, inputFee, resolveKeysetId, secretMark, secretY, splitAmount, unblind } from "./cashu-crypto.ts";
 import { type MintGuard, MINT_CALL_TIMEOUT_MS, guardMintUrl, mintFetch, mintKey } from "./cashu-net.ts";
-import { FileProofStore, type PendingOutput, type PendingSwap, type ProofStore, type StoredProof } from "./cashu-store.ts";
+import { FileProofStore, type PendingOutput, type PendingSwap, type ProofSnapshot, type ProofStore, type StoredProof } from "./cashu-store.ts";
 import type { CashuOffer, Paid, PaidClass, PaidProof, SettlementEngine } from "./engine.ts";
 
 const SEAL_PREFIX = "toll-cashu-recv-v1.";
 const MAX_TOKEN = 16384;
-/**
- * A swap is posted twice, and each mint call gives up after 1.5s. A row younger than this
- * may still be the request that saved it. Every sweep uses this floor, including the alarm.
- */
-export const SWEEP_MIN_AGE_MS = 10_000;
 /** Worst-case mint calls inside complete(): two swaps, two key fetches, two restores, one checkstate. */
 export const COMPLETE_MINT_CALLS = 7;
 /** Room for the gaps between those calls. Not a second copy of the 10s floor. */
@@ -168,6 +163,10 @@ export class CashuReceiveEngine implements SettlementEngine {
   private store: ProofStore;
   private beforeSwap?: () => Promise<void> | void;
   private afterSwap?: () => Promise<void> | void;
+  /** Set for the request inside complete(). Null for prepare and for a sweeper. */
+  private leaseCtx: { id: string; owner: string; deadline: number } | null = null;
+  /** recoverSaved is on this engine. Its mint calls must not renew the owner's lease. */
+  private sweeping = false;
 
   constructor(o: ReceiveEngineOptions) {
     if (!o.secret || o.secret.length < 16) throw new Error("cashu engine: secret too short");
@@ -182,6 +181,14 @@ export class CashuReceiveEngine implements SettlementEngine {
 
   private async useStore(): Promise<ProofStore> {
     return this.store;
+  }
+
+  /** Renew the owner's lease, or stop when the next mint call would pass the deadline. */
+  private async renewLease(): Promise<void> {
+    const ctx = this.leaseCtx;
+    if (!ctx || this.sweeping) return;
+    if (Date.now() + MINT_CALL_TIMEOUT_MS > ctx.deadline) throw new TollError("store_unavailable");
+    await (await this.useStore()).lease(ctx.id, ctx.owner, ctx.deadline);
   }
 
   async offer(o: { site: string; cls: PaidClass; amount_msat: number; now: number; ttl_s?: number }): Promise<CashuOffer> {
@@ -255,14 +262,24 @@ export class CashuReceiveEngine implements SettlementEngine {
    * NUT-09 then NUT-07 for swaps that were saved and not finished. Stores proofs, or deletes the row
    * when restore is empty and every input is unspent. Does not grant a gate.
    * `skip` leaves that input set for the request in progress, which grants the gate itself.
-   * A signature the mint already returned is stored immediately. A row younger than
-   * SWEEP_MIN_AGE_MS is not deleted: the request that saved it may still be waiting on the mint.
-   * Missing `at` is an old row.
+   * A signature the mint already returned is stored immediately. A row with a live lease
+   * is not deleted: the owner renews it before each mint call and complete() stops at the
+   * same deadline. A row with no lease, or an expired one, may be deleted.
    */
   async recoverSaved(skip?: string[]): Promise<void> {
     const store = await this.useStore();
     const snap = await store.read();
     const now = Date.now();
+    const outer = this.sweeping;
+    this.sweeping = true;
+    try {
+      await this.sweep(store, snap, skip, now);
+    } finally {
+      this.sweeping = outer;
+    }
+  }
+
+  private async sweep(store: ProofStore, snap: ProofSnapshot, skip: string[] | undefined, now: number): Promise<void> {
     for (const pending of snap.pending) {
       if (skip && sameMarks(pending.marks, skip)) continue;
       const restored = await this.tryRestore(pending);
@@ -270,8 +287,8 @@ export class CashuReceiveEngine implements SettlementEngine {
         await store.commit({ id: pending.id, proofs: restored.proofs, marks: pending.marks });
         continue;
       }
-      // A young row may still be the request that saved it. Do not delete it.
-      if (now - (pending.at ?? 0) < SWEEP_MIN_AGE_MS) continue;
+      // The owner renews this before every mint call. A live lease is still that request.
+      if (typeof pending.leaseExp === "number" && pending.leaseExp > now) continue;
       const empty = restored.kind === "none";
       const unclear = restored.kind === "inconclusive";
       await this.abortIfUntaken(pending, empty, unclear);
@@ -280,7 +297,7 @@ export class CashuReceiveEngine implements SettlementEngine {
 
   /** One abort. The condition is the empty-restore and all-UNSPENT gate. */
   private async abortIfUntaken(pending: PendingSwap, empty: boolean, unclear: boolean): Promise<boolean> {
-    const state = empty && !unclear ? await this.tryCheck(pending) : "unknown";
+    const state = await this.tryCheck(pending);
     if (empty && !unclear && state === "unspent") {
       await (await this.useStore()).abort(pending.id);
       return true;
@@ -335,7 +352,6 @@ export class CashuReceiveEngine implements SettlementEngine {
     });
     return {
       id: "pend_" + randomHex(8),
-      at: Date.now(),
       mint,
       unit: "sat",
       inSats: proofs.reduce((n, p) => n + p.amount, 0),
@@ -347,6 +363,16 @@ export class CashuReceiveEngine implements SettlementEngine {
   }
 
   private async complete(pending: PendingSwap): Promise<StoredProof[]> {
+    const deadline = Date.now() + LEASE_MS;
+    this.leaseCtx = { id: pending.id, owner: "own_" + randomHex(8), deadline };
+    try {
+      return await this.finish(pending);
+    } finally {
+      this.leaseCtx = null;
+    }
+  }
+
+  private async finish(pending: PendingSwap): Promise<StoredProof[]> {
     const outcome = await this.postSwap(pending);
     if (this.afterSwap) await this.afterSwap();
     if (outcome.kind === "sigs") {
@@ -372,6 +398,7 @@ export class CashuReceiveEngine implements SettlementEngine {
   }
 
   private async postSwap(pending: PendingSwap): Promise<SwapOutcome> {
+    await this.renewLease();
     const body = {
       inputs: pending.inputs.map((p) => ({ amount: p.amount, id: p.id, secret: p.secret, C: p.C })),
       outputs: pending.outputs.map((b) => ({ amount: b.amount, id: b.id, B_: b.B_ })),
@@ -402,6 +429,7 @@ export class CashuReceiveEngine implements SettlementEngine {
    * failure is inconclusive and must not delete the row.
    */
   private async tryRestore(pending: PendingSwap): Promise<RestoreOutcome> {
+    await this.renewLease();
     let r: { status: number; text: string };
     try {
       const body = { outputs: pending.outputs.map((b) => ({ amount: b.amount, id: b.id, B_: b.B_ })) };
@@ -444,6 +472,7 @@ export class CashuReceiveEngine implements SettlementEngine {
   }
 
   private async tryCheck(pending: PendingSwap): Promise<"spent" | "unspent" | "pending" | "unknown"> {
+    await this.renewLease();
     let r: { status: number; text: string };
     try {
       const body = { Ys: pending.inputs.map((p) => secretY(p.secret)) };
@@ -477,6 +506,7 @@ export class CashuReceiveEngine implements SettlementEngine {
   }
 
   private async unblindOutputs(pending: PendingSwap, signatures: { amount: number; C_: string }[]): Promise<StoredProof[] | null> {
+    await this.renewLease();
     const id = pending.outputs[0]?.id;
     if (!id) return null;
     let keys: Record<string, string>;

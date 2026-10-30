@@ -19,8 +19,10 @@ const mutants = [
   {
     name: "dropped connection treated as an empty restore",
     from: `      // CASHU_GUARD transport-not-4xx: a dropped connection is not a conclusive empty restore.
+      noteInconclusive("restore", 0, "");
       return { kind: "inconclusive" };`,
     to: `      // CASHU_GUARD transport-not-4xx: a dropped connection is not a conclusive empty restore.
+      noteInconclusive("restore", 0, "");
       return { kind: "none" };`,
   },
   {

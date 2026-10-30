@@ -233,6 +233,17 @@ export class TollStoreDO extends DurableObject {
     this.sql.exec("DELETE FROM cashu_pending WHERE id = ?", o.id);
   }
 
+  leasePending(id: string, owner: string, exp: number): void {
+    const rows = this.sql.exec("SELECT body FROM cashu_pending WHERE id = ?", id).toArray();
+    if (!rows.length) return;
+    const pending = JSON.parse(String(rows[0].body)) as PendingSwap;
+    if (pending.owner !== undefined && pending.owner !== owner) return;
+    if (pending.at === undefined) pending.at = Date.now();
+    pending.owner = owner;
+    pending.leaseExp = exp;
+    this.sql.exec("UPDATE cashu_pending SET body = ? WHERE id = ?", JSON.stringify(pending), id);
+  }
+
   abortPending(id: string): void {
     const rows = this.sql.exec("SELECT body FROM cashu_pending WHERE id = ?", id).toArray();
     if (!rows.length) return;
@@ -271,6 +282,11 @@ export class TollStoreDO extends DurableObject {
       if (e instanceof TollError) return { ok: false, error: "store_unavailable" };
       throw e;
     }
+  }
+
+  async cashuLease(id: string, owner: string, exp: number): Promise<{ ok: true }> {
+    this.leasePending(id, owner, exp);
+    return { ok: true };
   }
 
   async cashuAbort(id: string): Promise<{ ok: true }> {
@@ -319,6 +335,7 @@ export class TollStoreDO extends DurableObject {
       read: async () => this.cashuRead(),
       books: async () => this.cashuBooks(),
       begin: async (p) => this.beginPending(p),
+      lease: async (id, owner, exp) => { this.leasePending(id, owner, exp); },
       commit: async (o) => { this.commitPending(o); },
       abort: async (id) => { this.abortPending(id); },
       lose: async (o) => { this.losePending(o); },
@@ -340,6 +357,7 @@ export interface TollDoStub {
   cashuRead(): Promise<ProofSnapshot>;
   cashuBooks(): Promise<CashuBooks>;
   cashuBegin(p: PendingSwap): Promise<{ ok: true; pending: PendingSwap } | { ok: false; error: "replay" }>;
+  cashuLease(id: string, owner: string, exp: number): Promise<{ ok: true }>;
   cashuCommit(o: { id: string; proofs: StoredProof[]; marks: string[] }): Promise<{ ok: true } | { ok: false; error: "store_unavailable" }>;
   cashuAbort(id: string): Promise<{ ok: true }>;
   cashuLose(o: { id: string; marks: string[] }): Promise<{ ok: true }>;
@@ -367,6 +385,10 @@ export class DurableProofStore implements ProofStore {
     const r = await this.stub.cashuBegin(p);
     if (!r.ok) throw new TollError(r.error);
     return r.pending;
+  }
+  async lease(id: string, owner: string, exp: number) {
+    if (storeFailSlot.getStore() === true) throw new TollError("store_unavailable");
+    await this.stub.cashuLease(id, owner, exp);
   }
   async commit(o: { id: string; proofs: StoredProof[]; marks: string[] }) {
     if (storeFailSlot.getStore() === true) throw new TollError("store_unavailable");
