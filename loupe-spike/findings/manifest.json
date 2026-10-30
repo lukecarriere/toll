@@ -1,0 +1,20 @@
+[
+  {
+    "id": "forged-quote-pass",
+    "commit": "c8a7a8fa605fb7409005062eaf375de091edec17",
+    "test": "forged-quote-pass.test.ts",
+    "seed": true
+  },
+  {
+    "id": "overlapping-swap-double-pass",
+    "commit": "266c9a0d28e5583fa8fb8c917e6e4a793e82aa9a",
+    "test": "overlapping-swap-double-pass.test.ts",
+    "seed": false
+  },
+  {
+    "id": "kv-replay-race",
+    "commit": "266c9a0d28e5583fa8fb8c917e6e4a793e82aa9a",
+    "test": "kv-replay-race.test.ts",
+    "seed": false
+  }
+]
