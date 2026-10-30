@@ -3,6 +3,7 @@
 // USD figure comes from the settlement rail's price() (the same function and round-up to $0.0001
 // as the 402 offer) and always carries a status, "test" or "stub". Reads are never priced.
 import type { ActionClass } from "../../protocol/src/index.ts";
+import { QUOTE_KIND } from "../../settlement-ln/src/mint-quote.ts";
 
 /** Catalog description seed (verbatim, 147 characters). */
 export const MANIFEST_DESCRIPTION = "A small check for writes. Heavy clients do work on each write, or pay in test mode. Page views stay free. Does not identify the caller.";
@@ -87,7 +88,7 @@ export function payment(status: PriceStatus, paid: boolean, method: "ln402" | "c
 /** One list on every tool. An empty list is protocol none, including when the mint is down. */
 export function paymentFor(status: PriceStatus, paid: boolean, methods: readonly string[]) {
   if (!paid || methods.length === 0) return payment(status, false);
-  const rows = methods.map((kind) => ({ kind, status: kind === "ln402" ? status : "cashu" as const }));
+  const rows = methods.map((kind) => ({ kind, status: kind === "ln402" ? status : kind === QUOTE_KIND ? QUOTE_KIND : "cashu" as const }));
   const top = methods.every((kind) => kind === "ln402") ? "stub" as const : "cashu" as const;
   return { status: top, protocol: "HTTP 402" as const, methods: rows, x402: { status: "stub" as const } };
 }

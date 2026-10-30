@@ -169,6 +169,18 @@ test("a new store refuses a macaroon whose quote is already minted", async () =>
   }
 });
 
+test("the quote method is not reported as cashu", async () => {
+  const res = await fetch(demo.url + "/.well-known/toll.json");
+  const doc = await res.json();
+  assert.equal(res.status, 200);
+  for (const t of doc.tools) {
+    const quote = t.payment.methods.find((m: { kind: string }) => m.kind === QUOTE_KIND);
+    const cashu = t.payment.methods.find((m: { kind: string }) => m.kind === "cashu");
+    assert.equal(quote.status, QUOTE_KIND, t.name);
+    assert.equal(cashu.status, "cashu", t.name);
+  }
+});
+
 test("a down mint is a 403 and the manifest does not advertise pay methods", async () => {
   mint.setDown(true);
   try {
