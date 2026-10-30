@@ -19,7 +19,11 @@ const ROOT = fileURLToPath(new URL("..", import.meta.url));
 const SECRET = randomBytes(24).toString("hex");
 const ART = "/opt/cursor/artifacts";
 const SHOTS = ART + "/screenshots";
-const SITE_CSP = "default-src 'none'; style-src 'self'; img-src 'self'; font-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'";
+function siteCsp(): string {
+  const line = readFileSync(ROOT + "website/dist/_headers", "utf8").split("\n").find((l) => l.includes("default-src 'none'"));
+  assert.ok(line, "site CSP line");
+  return line!.replace(/^\s*Content-Security-Policy:\s*/, "").trim();
+}
 const DEMO_CSP = "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; worker-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'";
 const PAGES = ["/", "/mission", "/vision", "/values", "/ecosystem"] as const;
 const PAGE_FILE: Record<string, string> = { "/": "index.html", "/mission": "mission.html", "/vision": "vision.html", "/values": "values.html", "/ecosystem": "ecosystem.html" };
@@ -97,7 +101,7 @@ test("wrangler.toml: assets, sqlite durable object, workers_dev, production cust
   assert.match(toml, /^workers_dev = true$/m);
   assert.match(toml, /^preview_urls = false$/m);
   assert.match(toml, /binding = "ASSETS"/);
-  assert.match(toml, /run_worker_first = \[ "\/v1\/\*", "\/toll\/v1\/\*", "\/demo\/\*", "\/\.well-known\/toll\.json", "\/\.well-known\/agents\.json" \]/);
+  assert.match(toml, /^run_worker_first = true$/m);
   assert.match(toml, /new_sqlite_classes = \["TollStoreDO"\]/);
   assert.match(toml, /class_name = "TollStoreDO"/);
   // Production: exactly the two custom domains, no zone routes.
@@ -118,12 +122,36 @@ test("existing pages: 200, site CSP unchanged, body byte-identical to the build"
     const res = curlShow("GET " + p, p);
     assert.equal(res.status, 200, p);
     const csp = /content-security-policy:\s*(.+)/i.exec(res.headers)?.[1]?.trim();
-    assert.equal(csp, SITE_CSP, p);
+    assert.equal(csp, siteCsp(), p);
     const built = readFileSync(ROOT + "website/dist/" + PAGE_FILE[p]);
     assert.deepEqual(Buffer.from(res.body), built, p + " body");
     lines.push(p + " 200 CSP site " + built.length + " bytes");
   }
   record("page bytes", lines.join("\n"));
+});
+
+test("discovery files are served, unknown paths stay 404, and a static POST is not gated", () => {
+  const home = curl("/");
+  assert.equal(home.status, 200);
+  assert.match(home.body, /<link rel="canonical" href="https:\/\/lessspam\.dev\/">/);
+  assert.match(home.body, /<script type="application\/ld\+json">/);
+  assert.match(home.headers, new RegExp("content-security-policy:\\s*" + siteCsp().replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i"));
+  const robots = curl("/robots.txt");
+  assert.equal(robots.status, 200);
+  assert.match(robots.body, /^User-agent: \*\nAllow: \/\nSitemap: https:\/\/lessspam\.dev\/sitemap\.xml\n$/);
+  const sm = curl("/sitemap.xml");
+  assert.equal(sm.status, 200);
+  assert.match(sm.body, /<loc>https:\/\/lessspam\.dev\/<\/loc>/);
+  assert.doesNotMatch(sm.body, /\/v1\/|toll\.json|\.html</);
+  const llms = curl("/llms.txt");
+  assert.equal(llms.status, 200);
+  assert.match(llms.body, /^# Toll\n/);
+  assert.doesNotMatch(llms.body, /\b(cashu|ecash|sats|bitcoin)\b/i);
+  const missing = curl("/not-a-real-page");
+  assert.equal(missing.status, 404);
+  const post = curl("/mission", ["-X", "POST", "-H", "content-type: application/x-www-form-urlencoded", "-d", "a=b"]);
+  assert.notEqual(post.status, 403, post.body.slice(0, 180));
+  assert.doesNotMatch(post.body, /toll_required/);
 });
 
 test("docs and download: 200, site CSP, body matches the build, zip bytes match", () => {
@@ -134,7 +162,7 @@ test("docs and download: 200, site CSP, body matches the build, zip bytes match"
     const res = curl(route);
     assert.equal(res.status, 200, route + " " + res.body.slice(0, 180));
     const csp = /content-security-policy:\s*(.+)/i.exec(res.headers)?.[1]?.trim();
-    assert.equal(csp, SITE_CSP, route);
+    assert.equal(csp, siteCsp(), route);
     const built = readFileSync(ROOT + "website/dist/" + p.file + ".html");
     assert.deepEqual(Buffer.from(res.body), built, route);
     const h1 = /<h1>([^<]*)<\/h1>/.exec(res.body)?.[1] ?? "";

@@ -28,6 +28,7 @@ export const ALLOWED_HOSTS = new Map<string, string>([
   ["wordpress.org", "the WordPress.org plugin listing named in docs/copy.md"],
   ["downloads.wordpress.org", "SQLite integration plugin download in the local WordPress setup script"],
   ["schema.org", "structured-data vocabulary (EM list)"],
+  ["www.sitemaps.org", "sitemap xmlns, the sitemap protocol namespace"],
   ["www.w3.org", "W3C specs and XML namespaces (EM list)"],
   ["json-schema.org", "JSON Schema spec, for the tool input schemas (EM list)"],
   ["datatracker.ietf.org", "IETF RFCs and drafts (EM list)"],

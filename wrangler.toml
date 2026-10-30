@@ -22,7 +22,9 @@ directory = "website/dist"
 binding = "ASSETS"
 html_handling = "drop-trailing-slash"
 not_found_handling = "none"
-run_worker_first = [ "/v1/*", "/toll/v1/*", "/demo/*", "/.well-known/toll.json", "/.well-known/agents.json" ]
+# The worker runs first so www.<apex> can 308 to the apex for every path. Paths outside
+# /v1, /toll/v1, /demo/ and the two well-known documents are forwarded to ASSETS and are not gated.
+run_worker_first = true
 
 [vars]
 TOLL_SITE_URL = "https://lessspam.dev"

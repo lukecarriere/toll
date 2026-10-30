@@ -60,15 +60,17 @@ test("_headers: the site CSP line is unchanged, and /demo replaces it with the d
   assert.doesNotMatch(src, /lessspam|https?:|\/\/[a-z0-9]/i, "no domain or URL");
 });
 
-test("_headers: a build copies website/_headers into dist/_headers unchanged (fresh build and website/dist)", () => {
+test("_headers: an empty site root copies the file; the production build adds the JSON-LD hash and keeps the demo policy", () => {
   assert.deepEqual(SITE_FILES.filter((f: string) => f === "_headers"), ["_headers"]);
   const src = readFileSync(ROOT + "website/_headers");
   assert.ok(existsSync(OUT + "_headers"), "fresh build has _headers at the dist root");
-  assert.ok(readFileSync(OUT + "_headers").equals(src), "fresh build: dist/_headers is byte-identical to website/_headers");
+  assert.ok(readFileSync(OUT + "_headers").equals(src), "fresh build with an empty site root: dist/_headers is byte-identical to website/_headers");
   assert.ok(existsSync(DIST), "website/dist/ is missing: run `npm run build` (or `npm run build:website`) first");
   assert.ok(existsSync(DIST + "_headers"), "website/dist/_headers is missing");
-  assert.ok(readFileSync(DIST + "_headers").equals(src), "website/dist/_headers is byte-identical to website/_headers");
-  const built = readFileSync(DIST + "_headers", "utf8").split("\n").filter((l) => l.startsWith("  Content-Security-Policy:"));
-  assert.equal(built[0], CSP_LINE);
-  assert.ok(built.slice(1).every((l) => l === DEMO_CSP));
+  const dist = readFileSync(DIST + "_headers", "utf8");
+  assert.match(dist, /script-src 'sha256-[A-Za-z0-9+/]+=*'/, "the production build allows the homepage JSON-LD by hash");
+  assert.doesNotMatch(dist, /unsafe-inline|unsafe-eval/);
+  const built = dist.split("\n").filter((l) => l.startsWith("  Content-Security-Policy:"));
+  assert.ok(built[0].includes("default-src 'none'"), "the site-wide policy is still default-src none");
+  assert.ok(built.slice(1).every((l) => l === DEMO_CSP), "the demo policy is unchanged");
 });

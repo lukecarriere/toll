@@ -10,9 +10,12 @@
 // root, unchanged, with the same three <link> tags on every page. No icon-192/512, no web manifest.
 // Site files (QA NO-GO, Oct 3): website/_headers is the section 2 `_headers` block of the deploy plan, word for
 // word; it ships at the dist root unchanged, where Workers static assets applies it to every response.
-// website/robots.txt allows everything, with no Sitemap line and no domain; it ships at /robots.txt unchanged.
-// Canonicals: each page points at itself under TOLL_SITE_URL, validated by @toll/protocol/site-url.
-// Unset or invalid: no canonical tag at all, and the pages are byte-identical to a build without it.
+// website/robots.txt allows everything and names no host. A build with a site root appends one Sitemap line.
+// Canonicals and social tags: each page points at itself under TOLL_SITE_URL, validated by @toll/protocol/site-url.
+// The CLI (`node website/build.mjs`) uses the environment, then wrangler.toml [vars] TOLL_SITE_URL, so the
+// deployed site has absolute URLs. An explicit empty site (the tests) or an invalid value: no canonical,
+// no social tags, no sitemap, no llms.txt, and those pages stay byte-identical to a build without them.
+import { createHash } from "node:crypto";
 import { existsSync, readFileSync, writeFileSync, mkdirSync, copyFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { parseSiteUrl, SITE_URL_ENV } from "@toll/protocol/site-url";
@@ -103,6 +106,7 @@ export function parse(md) {
 /** Root-relative path of a page: "/" for the homepage, "/mission", "/docs", "/docs/widget", "/download". No extension. */
 export function pagePath(file) {
   if (file === "index") return "/";
+  if (file === "demo") return "/demo";
   if (file === "docs/index") return "/docs";
   if (file === "download/index") return "/download";
   return "/" + file;
@@ -111,6 +115,26 @@ export function pagePath(file) {
 /** `<link rel="canonical">` for `file` under the validated site root, or "" when there is none. */
 export function canonical(file, base) {
   return base ? `<link rel="canonical" href="${esc(base + pagePath(file))}">` : "";
+}
+
+/** Hero photo already shipped on the homepage. Absolute social image for every public page. */
+const OG_IMAGE = "/img/forest-road-1280.jpg";
+
+/** Canonical, Open Graph and Twitter tags for one page, or "" when `base` is null. Titles and descriptions are the page's own. */
+export function socialTags(file, title, description, base) {
+  if (!base) return "";
+  const url = base + pagePath(file);
+  const image = base + OG_IMAGE;
+  return canonical(file, base) +
+    `<meta property="og:title" content="${esc(title)}">` +
+    `<meta property="og:description" content="${esc(description)}">` +
+    `<meta property="og:url" content="${esc(url)}">` +
+    `<meta property="og:type" content="website">` +
+    `<meta property="og:image" content="${esc(image)}">` +
+    `<meta name="twitter:card" content="summary_large_image">` +
+    `<meta name="twitter:title" content="${esc(title)}">` +
+    `<meta name="twitter:description" content="${esc(description)}">` +
+    `<meta name="twitter:image" content="${esc(image)}">`;
 }
 
 /**
@@ -137,7 +161,7 @@ export function renderLegal(page, md, base = null) {
   const { title, blocks } = parseGuide(md);
   const nav = PAGES.map((p) => `<a href="${pagePath(p.file)}">${esc(p.nav)}</a>`).join("") + `<a href="/docs">${esc(DOC_META.label)}</a>`;
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>${esc(title)} · Toll</title><meta name="description" content="${esc(page.description)}">${canonical(page.file, base)}${ICON_TAGS}<link rel="stylesheet" href="/site.css"><link rel="stylesheet" href="/docs.css"></head><body>
+<title>${esc(title)} · Toll</title><meta name="description" content="${esc(page.description)}">${socialTags(page.file, `${title} · Toll`, page.description, base)}${ICON_TAGS}<link rel="stylesheet" href="/site.css"><link rel="stylesheet" href="/docs.css"></head><body>
 <header><div class="bar"><a class="mark" href="/">Toll</a><nav aria-label="Pages">${nav}</nav></div></header>
 <main><h1>${esc(title)}</h1>
 ${guideBody(blocks)}
@@ -153,7 +177,7 @@ export function render(page, md, base = null) {
     return `<p${close ? ' class="close"' : ""}>${esc(b.p)}</p>`;
   }).join("\n");
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>${esc(title)} · Toll</title><meta name="description" content="${esc(page.description)}">${canonical(page.file, base)}${ICON_TAGS}<link rel="stylesheet" href="/site.css"></head><body>
+<title>${esc(title)} · Toll</title><meta name="description" content="${esc(page.description)}">${socialTags(page.file, `${title} · Toll`, page.description, base)}${ICON_TAGS}<link rel="stylesheet" href="/site.css"></head><body>
 <header><div class="bar"><a class="mark" href="/">Toll</a><nav aria-label="Pages">${nav}</nav></div></header>
 <main><h1>${esc(title)}</h1>
 ${body}
@@ -173,12 +197,27 @@ export const HOME = {
   alt: "An empty two-lane road through a tall forest.",
 };
 
+/** SoftwareApplication JSON-LD for the homepage, or "" when there is no site root. Facts already on the page: name, description, url, the hero image, and the docs link. */
+export function jsonLdTag(base) {
+  if (!base) return "";
+  const body = JSON.stringify({
+    "@context": "https://schema.org",
+    "@type": "SoftwareApplication",
+    name: "Toll",
+    description: HOME.description,
+    url: base + "/",
+    image: base + OG_IMAGE,
+    documentation: base + "/docs",
+  }).replace(/</g, "\\u003c");
+  return `<script type="application/ld+json">${body}</script>`;
+}
+
 /** The homepage: markup from design/concepts/d-merged.html, styles in home.css (no inline styles). */
 export function renderHome(base = null) {
   const h = HOME;
   const nav = PAGES.map((p) => `<a href="${pagePath(p.file)}">${esc(p.nav)}</a>`).join("") + `<a href="/docs">${esc(DOC_META.label)}</a>`;
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>${esc(h.title)}</title><meta name="description" content="${esc(h.description)}">${canonical("index", base)}
+<title>${esc(h.title)}</title><meta name="description" content="${esc(h.description)}">${socialTags("index", h.title, h.description, base)}${jsonLdTag(base)}
 ${ICON_TAGS}<link rel="preload" href="/fonts/arvo/Arvo-Bold.woff2" as="font" type="font/woff2" crossorigin><link rel="stylesheet" href="/home.css"></head><body><main class="hero"><div class="left">
 <header><a class="sign" href="/" aria-current="page">Toll</a><nav aria-label="Main">${nav}</nav></header>
 <div class="copy"><p class="kicker">${esc(h.kicker)}</p><h1>${h.h1.map((l) => `<span>${esc(l)}</span>`).join("")}</h1><p class="line">${esc(h.line)}</p></div>
@@ -276,7 +315,7 @@ export function renderGuide(page, md, base = null, rel = pluginRelease(), sha = 
   const pagesNav = PAGES.map((p) => `<a href="${pagePath(p.file)}">${esc(p.nav)}</a>`).join("") + `<a href="/docs"${inDocs ? ' aria-current="page"' : ""}>${esc(DOC_META.label)}</a>`;
   const guides = GUIDE_PAGES.map((g) => `<a href="${pagePath(g.file)}"${pagePath(g.file) === path ? ' aria-current="page"' : ""}>${esc(g.nav)}</a>`).join("");
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>${esc(title)} · Toll</title><meta name="description" content="${esc(page.description)}">${canonical(page.file, base)}${ICON_TAGS}<link rel="stylesheet" href="/site.css"><link rel="stylesheet" href="/docs.css"></head><body>
+<title>${esc(title)} · Toll</title><meta name="description" content="${esc(page.description)}">${socialTags(page.file, `${title} · Toll`, page.description, base)}${ICON_TAGS}<link rel="stylesheet" href="/site.css"><link rel="stylesheet" href="/docs.css"></head><body>
 <header><div class="bar"><a class="mark" href="/">Toll</a><nav aria-label="Pages">${pagesNav}</nav><nav class="guides" aria-label="Guides">${guides}</nav></div></header>
 <main><h1>${esc(title)}</h1>
 ${guideBody(blocks)}
@@ -303,12 +342,84 @@ function copyPluginZip(out, rel) {
   return true;
 }
 
+/** Public HTML pages, in sitemap order. `download/index` is already in DOC_PAGES. */
+export function discoveryFiles() {
+  return ["index", ...PAGES.map((p) => p.file), ...DOC_PAGES.map((p) => p.file), ...LEGAL_PAGES.map((p) => p.file), "demo"];
+}
+
+const xml = (s) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+
+export function sitemapXml(base) {
+  const rows = discoveryFiles().map((f) => `  <url><loc>${xml(base + pagePath(f))}</loc></url>`).join("\n");
+  return `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${rows}\n</urlset>\n`;
+}
+
+/** Plain-language index. Every sentence is already on a public page; the link blurbs are those pages' meta descriptions. */
+export function llmsText(base) {
+  const link = (href, label, description) => `- [${label}](${base}${href}): ${description}`;
+  return [
+    "# Toll",
+    "",
+    `> ${HOME.description}`,
+    "",
+    "Toll is a small check for comments, forms, logins, and write APIs. Page views stay free. People post the usual way. Floods get slower and more expensive.",
+    "",
+    "Page views and articles stay free. Spam takes another road.",
+    "",
+    "A site owner should not have to choose between closing the site and cleaning up after a flood. Toll runs on your server. Toll Gate is the WordPress plugin.",
+    "",
+    "Pages, docs and downloads are static files. There are no analytics, no ads and no tracking scripts. We do not block crawlers.",
+    "",
+    "## Docs",
+    "",
+    ...DOC_PAGES.map((p) => link(pagePath(p.file), p.nav, p.description)),
+    "",
+    "## Also on this site",
+    "",
+    link("/", "Toll", HOME.description),
+    ...PAGES.map((p) => link(pagePath(p.file), p.nav, p.description)),
+    ...LEGAL_PAGES.map((p) => link(pagePath(p.file), p.nav, p.description)),
+    "",
+  ].join("\n");
+}
+
+/** TOLL_SITE_URL from wrangler.toml [vars], or undefined when that line is absent. */
+export function readWranglerSiteUrl() {
+  const toml = readFileSync(fileURLToPath(new URL("../wrangler.toml", import.meta.url)), "utf8");
+  return /^TOLL_SITE_URL\s*=\s*"([^"]*)"\s*$/m.exec(toml)?.[1];
+}
+
+/** What `node website/build.mjs` uses: the environment when it is set, otherwise the wrangler.toml value. */
+export function cliSiteRaw(env = process.env) {
+  if (env[SITE_URL_ENV] !== undefined) return env[SITE_URL_ENV];
+  return readWranglerSiteUrl();
+}
+
+function decorateDemo(html, base) {
+  const title = /<title>([^<]*)<\/title>/.exec(html)?.[1];
+  const desc = /<meta name="description" content="([^"]*)">/.exec(html)?.[1];
+  if (!title || desc == null) throw new Error("website: demo.html has no title or description");
+  const tags = socialTags("demo", title, desc, base);
+  const needle = `<meta name="description" content="${desc}">`;
+  return html.replace(needle, needle + tags);
+}
+
+/** Add script-src for the homepage JSON-LD only. The rest of the site policy stays. Demo CSP is a different line. */
+function withJsonLdCsp(headers, html) {
+  const body = /<script type="application\/ld\+json">([\s\S]*?)<\/script>/.exec(html)?.[1];
+  if (!body) return headers;
+  const hash = createHash("sha256").update(body).digest("base64");
+  const from = "default-src 'none'; style-src 'self'";
+  if (!headers.includes(from)) throw new Error("website: site CSP line not found");
+  return headers.replace(from, `default-src 'none'; script-src 'sha256-${hash}'; style-src 'self'`);
+}
+
 /**
- * Build into `out`. `site` is the raw TOLL_SITE_URL value (default: the environment); it is validated
- * by the protocol helper; an invalid value is reported through `warn` (without the value) and treated as unset.
- * The plugin zip is copied from dist-release/ when that build has been run (npm run build does it first).
+ * Build into `out`. `site` is the raw TOLL_SITE_URL value (default: the environment, then wrangler.toml).
+ * It is validated by the protocol helper; an invalid value is reported through `warn` (without the value)
+ * and treated as unset. The plugin zip is copied from dist-release/ when that build has been run.
  */
-export function build(out = HERE + "dist/", site = process.env[SITE_URL_ENV], warn = console.warn) {
+export function build(out = HERE + "dist/", site = cliSiteRaw(), warn = console.warn) {
   const { url: base, error } = parseSiteUrl(site);
   if (error) warn(`website: ${error}; ignored, so no page gets a canonical tag`);
   const rel = pluginRelease();
@@ -324,10 +435,19 @@ export function build(out = HERE + "dist/", site = process.env[SITE_URL_ENV], wa
   copyFileSync(HERE + "docs.css", out + "docs.css");
   for (const f of ICON_FILES) copyFileSync(HERE + f, out + f);
   for (const f of SITE_FILES) copyFileSync(HERE + f, out + f);
-  for (const f of DEMO_FILES) copyFileSync(HERE + f, out + f);
+  for (const f of DEMO_FILES) {
+    if (f === "demo.html" && base) writeFileSync(out + f, decorateDemo(readFileSync(HERE + f, "utf8"), base));
+    else copyFileSync(HERE + f, out + f);
+  }
   for (const f of HOME_ASSETS) {
     mkdirSync(out + f.slice(0, f.lastIndexOf("/") + 1), { recursive: true });
     copyFileSync(HERE + f, out + f);
+  }
+  if (base) {
+    writeFileSync(out + "robots.txt", readFileSync(out + "robots.txt", "utf8") + `Sitemap: ${base}/sitemap.xml\n`);
+    writeFileSync(out + "sitemap.xml", sitemapXml(base));
+    writeFileSync(out + "llms.txt", llmsText(base));
+    writeFileSync(out + "_headers", withJsonLdCsp(readFileSync(out + "_headers", "utf8"), readFileSync(out + "index.html", "utf8")));
   }
   copyPluginZip(out, rel);
   return out;

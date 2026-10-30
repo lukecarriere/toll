@@ -4,6 +4,7 @@
 import { TollError } from "../../protocol/src/index.ts";
 import { createEdgeHandler, type EdgeEnv } from "./handler.ts";
 import { DurableObjectStore, DurableProofStore, storeFailSlot, TollStoreDO, type TollDoStub } from "./do-store.ts";
+import { workerHandles, wwwRedirect } from "./host-redirect.ts";
 
 export { TollStoreDO };
 
@@ -61,8 +62,13 @@ function inject(req: Request, env: SiteEnv): boolean {
 
 export default {
   async fetch(req: Request, env: SiteEnv): Promise<Response> {
+    // Host canonicalisation runs before the gate. Static paths are not gated: the worker
+    // runs first only so this redirect can see them, then ASSETS serves them as before.
+    const redirected = wwwRedirect(req, env.TOLL_SITE_URL);
+    if (redirected) return redirected;
+    const url = new URL(req.url);
+    if (!workerHandles(url.pathname)) return env.ASSETS.fetch(req);
     return storeFailSlot.run(inject(req, env), async () => {
-      const url = new URL(req.url);
       const method = req.method.toUpperCase();
       // Counts for the demo page. A store failure here is 503; the page itself is a static asset.
       if (url.pathname === "/demo/stats" && (method === "GET" || method === "HEAD")) {

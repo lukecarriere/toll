@@ -139,6 +139,9 @@ curl -fsS "$site/privacy.html" | grep -o "<h1>Privacy</h1>"
 curl -fsS "$site/terms.html" | grep -o "<h1>Terms</h1>"
 curl -fsS "$site/support.html" | grep -o "<h1>Support</h1>"
 curl -fsS "$site/robots.txt"
+curl -fsS "$site/sitemap.xml" | grep -o "<loc>" | head -n 1
+curl -fsS "$site/llms.txt" | grep -o "^# Toll"
+curl -fsS "$site/" | grep -o 'rel="canonical"'
 curl -fsS "$site/" | grep -o 'href="/docs"'
 for p in docs/index.html docs/quick-start.html docs/widget.html docs/server.html docs/agent.html docs/mcp.html docs/wordpress.html docs/self-hosting.html download/index.html; do
   curl -fsS -o /tmp/toll-page.html "$site/$p"
@@ -153,7 +156,7 @@ unzip -p "/tmp/$(basename "$zip")" toll-gate/toll-gate.php | grep -o "GPL-2.0-or
 unzip -p "/tmp/$(basename "$zip")" toll-gate/toll-gate.php | grep -o "Plugin Name: Toll Gate"
 ```
 
-Expected headings match the file names (`<h1>Docs</h1>`, `<h1>Quick start</h1>`, `<h1>Widget</h1>`, `<h1>Server</h1>`, `<h1>Agent SDK</h1>`, `<h1>MCP server</h1>`, `<h1>WordPress plugin</h1>`, `<h1>Self-hosting</h1>`, `<h1>Download</h1>`), plus `Less traffic.`, the four mission and three legal headings, `User-agent: *`, `Allow: /`, `href="/docs"`, a `sha256sum` line ending `OK`, `GPL-2.0-or-later`, and `Plugin Name: Toll Gate`. `unzip -t` exits 0.
+Expected headings match the file names (`<h1>Docs</h1>`, `<h1>Quick start</h1>`, `<h1>Widget</h1>`, `<h1>Server</h1>`, `<h1>Agent SDK</h1>`, `<h1>MCP server</h1>`, `<h1>WordPress plugin</h1>`, `<h1>Self-hosting</h1>`, `<h1>Download</h1>`), plus `Less traffic.`, the four mission and three legal headings, `User-agent: *`, `Allow: /`, `Sitemap:`, `<loc>`, `# Toll`, `rel="canonical"`, `href="/docs"`, a `sha256sum` line ending `OK`, `GPL-2.0-or-later`, and `Plugin Name: Toll Gate`. `unzip -t` exits 0.
 
 Worker, same pages under extension-less paths, then the demo form on the worker:
 

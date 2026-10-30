@@ -13,7 +13,7 @@ import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
 import { chromium } from "playwright";
 // @ts-ignore plain JS build script
-import { build, PAGES, HOME, HOME_ASSETS, ICON_FILES, SITE_FILES, DOC_PAGES, DOC_META, pluginRelease, LEGAL_PAGES } from "../website/build.mjs";
+import { build, cliSiteRaw, PAGES, HOME, HOME_ASSETS, ICON_FILES, SITE_FILES, DOC_PAGES, DOC_META, pluginRelease, LEGAL_PAGES } from "../website/build.mjs";
 // @ts-ignore plain JS helper
 import { section, lintText } from "../scripts/copy-lib.mjs";
 import { parseSiteUrl } from "../packages/protocol/src/site-url.ts";
@@ -105,7 +105,7 @@ function badRefs(dir: string, site: string | null): string[] {
 
 test("root-relative: every src, srcset entry, href and CSS url() on the five pages starts with '/' (canonical aside)", () => {
   // website/dist as built (with whatever TOLL_SITE_URL the build saw), a fresh build without a site root, and one with it.
-  const builtSite = parseSiteUrl(process.env.TOLL_SITE_URL).url;
+  const builtSite = parseSiteUrl(cliSiteRaw()).url;
   assert.deepEqual(badRefs(DIST, builtSite), [], "website/dist");
   assert.deepEqual(badRefs(OUT, null), [], "fresh build, TOLL_SITE_URL unset");
   const refs = urlRefs(OUT);
@@ -160,8 +160,10 @@ test("canonical: TOLL_SITE_URL=https://site.example gives each page a canonical 
       const h = readFileSync(dir + f + ".html", "utf8");
       assert.deepEqual(canonicals(h), [`<link rel="canonical" href="${want[f]}">`], `${JSON.stringify(raw)}: ${f}`);
       assert.ok(h.indexOf("rel=\"canonical\"") < h.indexOf("</head>"), f + ": canonical is in the head");
-      // The canonical is the only absolute URL; everything else stays local.
-      assert.equal([...h.matchAll(/https?:\/\//g)].length, 1, f + ": one absolute URL, the canonical");
+      const urls = [...h.matchAll(/https?:\/\/[^"'\\\s<]+/g)].map((m) => m[0]);
+      assert.ok(urls.includes(want[f]), f);
+      assert.ok(urls.every((u) => u === "https://schema.org" || u.startsWith(SITE + "/")), f + ": " + urls.join(" "));
+      if (f !== "index") assert.ok(!urls.includes("https://schema.org"), f);
     }
   }
   // A site root with a path keeps it.
