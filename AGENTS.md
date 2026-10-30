@@ -37,7 +37,7 @@
 - `cashuB`: NUT-00 V4 payment. `decodeTokenV4` reads `cashuB` plus base64url CBOR. Change is `encodeTokenV4`.
 - `creqA`: NUT-18 payment request on `X-Cashu`. `encodePaymentRequest` writes it. `asCashuPayment` does not treat it as a payment.
 - `proof`: one note, `amount`, `secret`, `id`, `C`. `CashuProof` in a token. `StoredProof` after the swap.
-- `keyset`: version-01 id, 33 bytes, hex prefix `01`. A token carries the short id, the first 8 bytes. `resolveKeysetId` maps that prefix to one full id from `GET /v1/keysets`.
+- `keyset`: version-01 id, 33 bytes, hex prefix `01`. `cashuA` carries the short id, the first 8 bytes. `encodeTokenV4` writes the id it is given. `resolveKeysetId` maps an 8-byte `01` id to one full id from `GET /v1/keysets`.
 - `mint allowlist`: `settlement.cashu.mints` on Node, `CASHU_MINTS` on the worker. `guardMintUrl` refuses anything else. Empty means receive is off.
 - `change`: leftover when the source is larger than the `creqA` amount. `cashuPayer` passes it to `onChange` as a `cashuB` string.
 - `conservation`: sats the mint signed equal stored proofs plus pending outputs plus recorded losses. `abort()` runs only when restore is empty and every input is `UNSPENT`.

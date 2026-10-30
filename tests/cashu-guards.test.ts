@@ -42,8 +42,39 @@ test("5ef8dbd refused cashuA again, in Node, PHP, and the payer", () => {
 test("b73440c aborted and lost outputs the mint still held", () => {
   const src = git("b73440c:packages/settlement-ln/src/cashu-receive.ts");
   const hits = conservationHits(src);
-  assert.ok(hits.some((h) => h.rule.startsWith("more than one abort")));
+  assert.ok(hits.some((h) => h.rule.includes("not gated")));
   assert.ok(hits.some((h) => h.rule.startsWith("lose()")));
+});
+
+test("a cashuB check that is not startsWith, and a cashuA refusal that is not one line, are still gates", () => {
+  const tsCases = [
+    `if (body.token.slice(0, 6) !== "cashuB") throw new Error("malformed");`,
+    `if (/^cashuB/.test(header)) return header; throw new Error("malformed");`,
+    `if (header.indexOf("cashuB") !== 0) return null;`,
+    `if (presented.kind === "a")\n  return { error: "malformed" };`,
+    `if (token.startsWith("cashuA")) return null;`,
+    `if (s.startsWith("cashuB") && !s.startsWith("cashuA")) return s;`,
+  ];
+  for (const src of tsCases) assert.ok(tokenHits("fixture.ts", src).length > 0, src);
+  assert.ok(tokenHits("fixture.php", `if (substr($payment, 0, 6) === 'cashuB') return $payment;`).length > 0);
+  assert.ok(tokenHits("fixture.php", `if (str_starts_with($token, 'cashuA')) return null;`).some((h) => h.rule.includes("cashuA")));
+});
+
+test("abort.bind and an abort() outside cashu-receive.ts are still unguarded", () => {
+  const src = `function pay() {\n  const drop = store.abort.bind(store);\n  if (bad) drop(id);\n}\n`;
+  assert.ok(conservationHits(src, "packages/other.ts").some((h) => h.rule.includes("not gated")));
+});
+
+test("extra parentheses or a broken if still count as the empty-restore guard", () => {
+  const wrapped = `function f() { if ((empty && !unclear && state === "unspent")) { store.abort(id); } }`;
+  const broken = `function f() {\n  if (\n    empty &&\n    !unclear &&\n    state === "unspent"\n  ) { store.abort(id); }\n}`;
+  assert.deepEqual(conservationHits(wrapped), []);
+  assert.deepEqual(conservationHits(broken), []);
+});
+
+test("a sweeper may abort after tryRestore is none and tryCheck is unspent", () => {
+  const src = `async function recoverSaved() {\n  for (const pending of rows) {\n    const restored = await this.tryRestore(pending);\n    if (restored.kind !== "none") continue;\n    if ((await this.tryCheck(pending)) === "unspent") await store.abort(pending.id);\n  }\n}\n`;
+  assert.deepEqual(conservationHits(src), []);
 });
 
 test("f626e44 aborted on a mint refusal instead of an empty restore", () => {
