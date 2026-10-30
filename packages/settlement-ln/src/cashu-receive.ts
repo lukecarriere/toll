@@ -8,12 +8,18 @@ import {
 } from "../../protocol/src/index.ts";
 import { CASHU_UNIT, decodeToken, encodePaymentRequest, type DecodedToken } from "./cashu.ts";
 import { blindMessage, deriveKeysetIdV2, inputFee, resolveKeysetId, secretMark, secretY, splitAmount, unblind } from "./cashu-crypto.ts";
-import { type MintGuard, guardMintUrl, mintFetch, mintKey } from "./cashu-net.ts";
-import { FileProofStore, type PendingOutput, type PendingSwap, type ProofStore, type StoredProof } from "./cashu-store.ts";
+import { type MintGuard, MINT_CALL_TIMEOUT_MS, guardMintUrl, mintFetch, mintKey } from "./cashu-net.ts";
+import { FileProofStore, type PendingOutput, type PendingSwap, type ProofSnapshot, type ProofStore, type StoredProof } from "./cashu-store.ts";
 import type { CashuOffer, Paid, PaidClass, PaidProof, SettlementEngine } from "./engine.ts";
 
 const SEAL_PREFIX = "toll-cashu-recv-v1.";
 const MAX_TOKEN = 16384;
+/** Worst-case mint calls inside complete(): two swaps, two key fetches, two restores, one checkstate. */
+export const COMPLETE_MINT_CALLS = 7;
+/** Room for the gaps between those calls. Not a second copy of the 10s floor. */
+export const LEASE_MARGIN_MS = 300;
+/** How long an owner's lease lasts. Derived, so a shorter mint timeout cannot keep a 10s floor. */
+export const LEASE_MS = COMPLETE_MINT_CALLS * MINT_CALL_TIMEOUT_MS + LEASE_MARGIN_MS;
 
 interface Caveats {
   v: 1;
@@ -46,17 +52,52 @@ type RestoreOutcome =
   | { kind: "inconclusive" };
 
 /**
- * A mint error code is a label for the caller after the outputs are already resolved.
- * 11000 is not a NUT code. 11002, 11003, and 11004 mean a swap may already be signed.
+ * A label for the caller after the outputs are already resolved.
+ * Any 4xx other than 429 is a refusal, including a body that is not JSON.
+ * 11001 is replay. 429 and 5xx stay an outage. A code never decides whether the row is deleted.
  */
 function messageFor(outcome: SwapOutcome): "bad_solution" | "replay" | "store_unavailable" {
   if (outcome.kind !== "http") return "store_unavailable";
   if (outcome.status === 429 || outcome.status < 400 || outcome.status >= 500) return "store_unavailable";
   let code = Number.NaN;
-  try { code = Number(JSON.parse(outcome.text)?.code); } catch { return "store_unavailable"; }
-  if (!Number.isSafeInteger(code) || code <= 0) return "store_unavailable";
+  try { code = Number(JSON.parse(outcome.text)?.code); } catch { /* a 4xx that is not JSON is still a refusal */ }
   if (code === 11001) return "replay";
   return "bad_solution";
+}
+
+/** Field names, counts, and state labels. Values that could be a proof stay out. */
+function responseShape(text: string): { keys: string[]; outputs: number | null; signatures: number | null; sig: string[] | null; states: number | null; state: string[] | null } {
+  const empty: { keys: string[]; outputs: number | null; signatures: number | null; sig: string[] | null; states: number | null; state: string[] | null } = { keys: [], outputs: null, signatures: null, sig: null, states: null, state: null };
+  let parsed: unknown;
+  try { parsed = text === "" ? undefined : JSON.parse(text); } catch { return empty; }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return empty;
+  const obj = parsed as Record<string, unknown>;
+  const shape = { ...empty, keys: Object.keys(obj).slice(0, 12) };
+  if (Array.isArray(obj.outputs)) shape.outputs = obj.outputs.length;
+  if (Array.isArray(obj.signatures)) {
+    shape.signatures = obj.signatures.length;
+    shape.sig = obj.signatures.slice(0, 8).map((row) => {
+      if (row === null) return "null";
+      if (!row || typeof row !== "object") return typeof row;
+      const c = (row as { C_?: unknown; c_?: unknown }).C_ ?? (row as { c_?: unknown }).c_;
+      if (c === null) return "null";
+      return typeof c === "string" ? "string" : typeof c;
+    });
+  }
+  if (Array.isArray(obj.states)) {
+    shape.states = obj.states.length;
+    shape.state = obj.states.slice(0, 8).map((row) => {
+      if (!row || typeof row !== "object") return typeof row;
+      const st = (row as { state?: unknown }).state;
+      if (st === "UNSPENT" || st === "PENDING" || st === "SPENT") return st;
+      return typeof st;
+    });
+  }
+  return shape;
+}
+
+function noteInconclusive(check: "restore" | "checkstate", status: number, text: string): void {
+  console.log(JSON.stringify({ event: "mint_inconclusive", check, status, shape: responseShape(text) }));
 }
 
 async function seal(secret: string, c: Caveats): Promise<string> {
@@ -122,6 +163,10 @@ export class CashuReceiveEngine implements SettlementEngine {
   private store: ProofStore;
   private beforeSwap?: () => Promise<void> | void;
   private afterSwap?: () => Promise<void> | void;
+  /** Set for the request inside complete(). Null for prepare and for a sweeper. */
+  private leaseCtx: { id: string; owner: string; deadline: number } | null = null;
+  /** recoverSaved is on this engine. Its mint calls must not renew the owner's lease. */
+  private sweeping = false;
 
   constructor(o: ReceiveEngineOptions) {
     if (!o.secret || o.secret.length < 16) throw new Error("cashu engine: secret too short");
@@ -136,6 +181,14 @@ export class CashuReceiveEngine implements SettlementEngine {
 
   private async useStore(): Promise<ProofStore> {
     return this.store;
+  }
+
+  /** Renew the owner's lease, or stop when the next mint call would pass the deadline. */
+  private async renewLease(): Promise<void> {
+    const ctx = this.leaseCtx;
+    if (!ctx || this.sweeping) return;
+    if (Date.now() + MINT_CALL_TIMEOUT_MS > ctx.deadline) throw new TollError("store_unavailable");
+    await (await this.useStore()).lease(ctx.id, ctx.owner, ctx.deadline);
   }
 
   async offer(o: { site: string; cls: PaidClass; amount_msat: number; now: number; ttl_s?: number }): Promise<CashuOffer> {
@@ -206,18 +259,50 @@ export class CashuReceiveEngine implements SettlementEngine {
   }
 
   /**
-   * NUT-09 then NUT-07 for swaps that were saved and not finished. Stores proofs. Does not grant a gate.
+   * NUT-09 then NUT-07 for swaps that were saved and not finished. Stores proofs, or deletes the row
+   * when restore is empty and every input is unspent. Does not grant a gate.
    * `skip` leaves that input set for the request in progress, which grants the gate itself.
+   * A signature the mint already returned is stored immediately. A row with a live lease
+   * is not deleted: the owner renews it before each mint call and complete() stops at the
+   * same deadline. A row with no lease, or an expired one, may be deleted.
    */
   async recoverSaved(skip?: string[]): Promise<void> {
     const store = await this.useStore();
     const snap = await store.read();
+    const now = Date.now();
+    const outer = this.sweeping;
+    this.sweeping = true;
+    try {
+      await this.sweep(store, snap, skip, now);
+    } finally {
+      this.sweeping = outer;
+    }
+  }
+
+  private async sweep(store: ProofStore, snap: ProofSnapshot, skip: string[] | undefined, now: number): Promise<void> {
     for (const pending of snap.pending) {
       if (skip && sameMarks(pending.marks, skip)) continue;
       const restored = await this.tryRestore(pending);
-      if (restored.kind === "proofs") await store.commit({ id: pending.id, proofs: restored.proofs, marks: pending.marks });
-      // A restore that did not return our signatures is inconclusive. Leave the row.
+      if (restored.kind === "proofs") {
+        await store.commit({ id: pending.id, proofs: restored.proofs, marks: pending.marks });
+        continue;
+      }
+      // The owner renews this before every mint call. A live lease is still that request.
+      if (typeof pending.leaseExp === "number" && pending.leaseExp > now) continue;
+      const empty = restored.kind === "none";
+      const unclear = restored.kind === "inconclusive";
+      await this.abortIfUntaken(pending, empty, unclear);
     }
+  }
+
+  /** One abort. The condition is the empty-restore and all-UNSPENT gate. */
+  private async abortIfUntaken(pending: PendingSwap, empty: boolean, unclear: boolean): Promise<boolean> {
+    const state = await this.tryCheck(pending);
+    if (empty && !unclear && state === "unspent") {
+      await (await this.useStore()).abort(pending.id);
+      return true;
+    }
+    return false;
   }
 
   private async proofsDurable(proofs: StoredProof[]): Promise<boolean> {
@@ -278,6 +363,16 @@ export class CashuReceiveEngine implements SettlementEngine {
   }
 
   private async complete(pending: PendingSwap): Promise<StoredProof[]> {
+    const deadline = Date.now() + LEASE_MS;
+    this.leaseCtx = { id: pending.id, owner: "own_" + randomHex(8), deadline };
+    try {
+      return await this.finish(pending);
+    } finally {
+      this.leaseCtx = null;
+    }
+  }
+
+  private async finish(pending: PendingSwap): Promise<StoredProof[]> {
     const outcome = await this.postSwap(pending);
     if (this.afterSwap) await this.afterSwap();
     if (outcome.kind === "sigs") {
@@ -296,18 +391,14 @@ export class CashuReceiveEngine implements SettlementEngine {
     if (second.kind === "proofs") return second.proofs;
     const empty = first.kind === "none" || second.kind === "none";
     const unclear = first.kind === "inconclusive" || second.kind === "inconclusive";
-    const state = await this.tryCheck(pending);
     const notice = messageFor(outcome.kind === "http" ? outcome : again);
     // CASHU_GUARD abort-only-empty-restore: a mint code never deletes the outputs.
-    // Abort only when restore returned zero signatures and every input is UNSPENT.
-    if (empty && !unclear && state === "unspent") {
-      await (await this.useStore()).abort(pending.id);
-      throw new TollError(notice);
-    }
+    if (await this.abortIfUntaken(pending, empty, unclear)) throw new TollError(notice);
     throw new TollError("store_unavailable");
   }
 
   private async postSwap(pending: PendingSwap): Promise<SwapOutcome> {
+    await this.renewLease();
     const body = {
       inputs: pending.inputs.map((p) => ({ amount: p.amount, id: p.id, secret: p.secret, C: p.C })),
       outputs: pending.outputs.map((b) => ({ amount: b.amount, id: b.id, B_: b.B_ })),
@@ -338,21 +429,27 @@ export class CashuReceiveEngine implements SettlementEngine {
    * failure is inconclusive and must not delete the row.
    */
   private async tryRestore(pending: PendingSwap): Promise<RestoreOutcome> {
+    await this.renewLease();
     let r: { status: number; text: string };
     try {
       const body = { outputs: pending.outputs.map((b) => ({ amount: b.amount, id: b.id, B_: b.B_ })) };
       r = await mintFetch(pending.mint, "/v1/restore", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }, this.guard, this.mints);
     } catch {
       // CASHU_GUARD transport-not-4xx: a dropped connection is not a conclusive empty restore.
+      noteInconclusive("restore", 0, "");
       return { kind: "inconclusive" };
     }
-    if (r.status !== 200) return { kind: "inconclusive" };
+    const inconclusive = (): RestoreOutcome => {
+      noteInconclusive("restore", r.status, r.text);
+      return { kind: "inconclusive" };
+    };
+    if (r.status !== 200) return inconclusive();
     let parsed: unknown;
-    try { parsed = JSON.parse(r.text); } catch { return { kind: "inconclusive" }; }
+    try { parsed = JSON.parse(r.text); } catch { return inconclusive(); }
     const outputs = parsed && typeof parsed === "object" ? (parsed as { outputs?: unknown; signatures?: unknown }).outputs : undefined;
     const rows = parsed && typeof parsed === "object" ? (parsed as { signatures?: unknown }).signatures : undefined;
     // CASHU_GUARD inconclusive-restore: only paired arrays are an answer. Empty arrays mean zero signatures.
-    if (!Array.isArray(outputs) || !Array.isArray(rows) || outputs.length !== rows.length) return { kind: "inconclusive" };
+    if (!Array.isArray(outputs) || !Array.isArray(rows) || outputs.length !== rows.length) return inconclusive();
     if (outputs.length === 0) return { kind: "none" };
     const got: ({ amount: number; C_: string } | undefined)[] = new Array(pending.outputs.length);
     let usable = 0;
@@ -367,25 +464,31 @@ export class CashuReceiveEngine implements SettlementEngine {
       got[idx] = { amount, C_ };
       usable++;
     }
-    if (usable === 0) return { kind: "inconclusive" };
-    if (usable !== pending.outputs.length || got.some((g) => !g)) return { kind: "inconclusive" };
+    if (usable === 0) return inconclusive();
+    if (usable !== pending.outputs.length || got.some((g) => !g)) return inconclusive();
     const proofs = await this.unblindOutputs(pending, got as { amount: number; C_: string }[]);
-    if (!proofs) return { kind: "inconclusive" };
+    if (!proofs) return inconclusive();
     return { kind: "proofs", proofs };
   }
 
   private async tryCheck(pending: PendingSwap): Promise<"spent" | "unspent" | "pending" | "unknown"> {
+    await this.renewLease();
     let r: { status: number; text: string };
     try {
       const body = { Ys: pending.inputs.map((p) => secretY(p.secret)) };
       r = await mintFetch(pending.mint, "/v1/checkstate", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }, this.guard, this.mints);
     } catch {
+      noteInconclusive("checkstate", 0, "");
       return "unknown";
     }
-    if (r.status !== 200) return "unknown";
+    const unknown = (): "unknown" => {
+      noteInconclusive("checkstate", r.status, r.text);
+      return "unknown";
+    };
+    if (r.status !== 200) return unknown();
     let states: unknown;
-    try { states = JSON.parse(r.text).states; } catch { return "unknown"; }
-    if (!Array.isArray(states) || states.length !== pending.inputs.length) return "unknown";
+    try { states = JSON.parse(r.text).states; } catch { return unknown(); }
+    if (!Array.isArray(states) || states.length !== pending.inputs.length) return unknown();
     let spent = 0;
     let unspent = 0;
     let waiting = 0;
@@ -399,10 +502,11 @@ export class CashuReceiveEngine implements SettlementEngine {
     if (waiting > 0) return "pending";
     if (spent === pending.inputs.length) return "spent";
     if (unspent === pending.inputs.length) return "unspent";
-    return "unknown";
+    return unknown();
   }
 
   private async unblindOutputs(pending: PendingSwap, signatures: { amount: number; C_: string }[]): Promise<StoredProof[] | null> {
+    await this.renewLease();
     const id = pending.outputs[0]?.id;
     if (!id) return null;
     let keys: Record<string, string>;

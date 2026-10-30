@@ -9,7 +9,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fromB64url, fromUtf8, toB64url, toHex, utf8 } from "../packages/protocol/src/bytes.ts";
 import { normalizeConfig } from "../packages/server-node/src/index.ts";
-import { decodeToken, decodeTokenV4, encodeTokenV3, encodeTokenV4, CashuReceiveEngine, assertProductionMint, guardMintUrl, mintFetch, resolveKeysetId, deriveKeysetIdV2, startKeysetMint, blockedAddress } from "../packages/settlement-ln/src/index.ts";
+import { decodeToken, decodeTokenV4, encodeTokenV3, encodeTokenV4, CashuReceiveEngine, COMPLETE_MINT_CALLS, LEASE_MARGIN_MS, LEASE_MS, MINT_CALL_TIMEOUT_MS, assertProductionMint, guardMintUrl, mintFetch, resolveKeysetId, deriveKeysetIdV2, startKeysetMint, blockedAddress } from "../packages/settlement-ln/src/index.ts";
 import { FileProofStore, type PendingSwap, type ProofStore, type StoredProof } from "../packages/settlement-ln/src/cashu-store.ts";
 import { TollError } from "../packages/protocol/src/errors.ts";
 import { cashuPayer, createAgent } from "../packages/agent/src/index.ts";
@@ -253,6 +253,13 @@ function looseStore(): ProofStore & { begins: () => number } {
     async read() { return { proofs: proofs.slice(), spent: spent.slice(), pending: pending.slice(), losses }; },
     books: async () => books(),
     async begin(p) { begins++; pending.push(p); return p; },
+    async lease(id, owner, exp) {
+      const row = pending.find((p) => p.id === id);
+      if (!row || (row.owner !== undefined && row.owner !== owner)) return;
+      if (row.at === undefined) row.at = Date.now();
+      row.owner = owner;
+      row.leaseExp = exp;
+    },
     async commit(o) {
       proofs = proofs.concat(o.proofs);
       for (const h of o.marks) if (!spent.includes(h)) spent.push(h);
@@ -358,6 +365,257 @@ test("verifyPaid's replay check alone blocks a second swap when the store would 
     assert.equal(store.begins(), begins);
     assert.equal(mint.swaps(), swaps + 1);
   } finally {
+    await mint.close();
+  }
+});
+
+function cashuAFull(mintUrl: string, keysetId: string, token: string): string {
+  const decoded = decodeToken(token);
+  const obj = {
+    token: [{
+      mint: mintUrl,
+      proofs: decoded.proofs.map((p) => ({ amount: p.amount, id: keysetId, secret: p.secret, C: toHex(p.C) })),
+    }],
+    unit: decoded.unit,
+  };
+  return "cashuA" + toB64url(utf8(JSON.stringify(obj)));
+}
+
+test("a plain 422 from the mint is a refusal, and the pending swap is aborted when nothing was spent", async () => {
+  const mint = await startKeysetMint();
+  const dir = mkdtempSync(join(tmpdir(), "toll-cashu-422-"));
+  const store = new FileProofStore(join(dir, "proofs.json"));
+  const engine = new CashuReceiveEngine({ secret: "cashu-receive-test-secret", mints: [mint.url], store, loopbackHttp: true });
+  const now = Math.floor(Date.now() / 1000);
+  mint.setFault("/v1/swap", "plain-422");
+  try {
+    const offer = await engine.offer({ site: "s", cls: "write", amount_msat: 10000, now });
+    const token = cashuAFull(mint.url, mint.keysetId, mint.token(10));
+    assert.equal(decodeToken(token).proofs[0].id.length, 33);
+    const signed = mint.signedSats();
+    await assert.rejects(
+      () => engine.verifyPaid({ site: "s", now, firstUse: async () => true, proof: { kind: "cashu", offer_id: offer.id, credential: offer.credential, token } }),
+      (e: unknown) => e instanceof TollError && e.code === "bad_solution",
+    );
+    const mid = await store.read();
+    assert.equal(mid.pending.length, 0);
+    const books = await store.books();
+    assert.equal(books.pending, 0);
+    assert.equal(books.stored, 0);
+    assert.equal(books.losses, 0);
+    assert.equal(books.inSats, books.stored + books.pending + books.losses);
+    assert.equal(mint.signedSats(), signed);
+  } finally {
+    await mint.close();
+  }
+});
+
+test("the next payment clears a pending swap the mint never took", async () => {
+  const mint = await startKeysetMint();
+  const dir = mkdtempSync(join(tmpdir(), "toll-cashu-sweep-"));
+  const store = new FileProofStore(join(dir, "proofs.json"));
+  const secret = "cashu-receive-test-secret";
+  const stuck = new CashuReceiveEngine({
+    secret, mints: [mint.url], store, loopbackHttp: true,
+    beforeSwap: () => { throw new TollError("store_unavailable"); },
+  });
+  const now = Math.floor(Date.now() / 1000);
+  const firstUse = async () => true;
+  try {
+    const offer = await stuck.offer({ site: "s", cls: "write", amount_msat: 10000, now });
+    const token = cashuAFull(mint.url, mint.keysetId, mint.token(10));
+    await assert.rejects(
+      () => stuck.verifyPaid({ site: "s", now, firstUse, proof: { kind: "cashu", offer_id: offer.id, credential: offer.credential, token } }),
+      (e: unknown) => e instanceof TollError && e.code === "store_unavailable",
+    );
+    assert.equal((await store.read()).pending.length, 1);
+    const next = new CashuReceiveEngine({ secret, mints: [mint.url], store, loopbackHttp: true });
+    const offer2 = await next.offer({ site: "s", cls: "write", amount_msat: 10000, now });
+    const token2 = cashuAFull(mint.url, mint.keysetId, mint.token(10));
+    await next.verifyPaid({ site: "s", now, firstUse, proof: { kind: "cashu", offer_id: offer2.id, credential: offer2.credential, token: token2 } });
+    const end = await store.books();
+    assert.equal(end.pending, 0);
+    assert.equal(end.stored, 10);
+    assert.equal(end.losses, 0);
+    assert.equal(end.inSats, end.stored + end.pending + end.losses);
+    assert.equal(end.inSats, mint.signedSats());
+  } finally {
+    await mint.close();
+  }
+});
+
+test("a sweep does not delete a swap the mint has not answered yet", async () => {
+  const mint = await startKeysetMint();
+  const dir = mkdtempSync(join(tmpdir(), "toll-cashu-inflight-"));
+  const store = new FileProofStore(join(dir, "proofs.json"));
+  let release = () => {};
+  const held = new Promise<void>((resolve) => { release = resolve; });
+  let heldSwap = false;
+  const engine = new CashuReceiveEngine({
+    secret: "cashu-receive-test-secret",
+    mints: [mint.url],
+    store,
+    loopbackHttp: true,
+    fetch: async (input, init) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+      if (url.includes("/v1/swap") && !heldSwap) {
+        heldSwap = true;
+        await held;
+      }
+      return fetch(input, init);
+    },
+  });
+  const now = Math.floor(Date.now() / 1000);
+  const firstUse = async () => true;
+  try {
+    const offer = await engine.offer({ site: "s", cls: "write", amount_msat: 10000, now });
+    const token = cashuAFull(mint.url, mint.keysetId, mint.token(10));
+    const paid = engine.verifyPaid({ site: "s", now, firstUse, proof: { kind: "cashu", offer_id: offer.id, credential: offer.credential, token } });
+    const deadline = Date.now() + 5_000;
+    let row = (await store.read()).pending[0];
+    while (!row?.leaseExp) {
+      if (Date.now() > deadline) throw new Error("the pending swap was not saved");
+      await new Promise((r) => setTimeout(r, 5));
+      row = (await store.read()).pending[0];
+    }
+    assert.equal(LEASE_MS, COMPLETE_MINT_CALLS * MINT_CALL_TIMEOUT_MS + LEASE_MARGIN_MS);
+    assert.ok(typeof row.leaseExp === "number" && row.leaseExp - Date.now() > 10_000);
+    await engine.recoverSaved();
+    release();
+    let error: unknown = null;
+    try { await paid; } catch (e) { error = e; }
+    const books = await store.books();
+    assert.equal(mint.signedSats(), 10);
+    assert.equal(books.stored + books.pending + books.losses, mint.signedSats());
+    assert.equal(books.stored, 10);
+    assert.equal(books.pending, 0);
+    assert.equal(error, null);
+  } finally {
+    release();
+    await mint.close();
+  }
+});
+
+test("seven mint calls still inside complete() survive a sweep at the old 10s floor and just before the lease ends", async () => {
+  const mint = await startKeysetMint();
+  const dir = mkdtempSync(join(tmpdir(), "toll-cashu-seven-"));
+  const store = new FileProofStore(join(dir, "proofs.json"));
+  const hold = MINT_CALL_TIMEOUT_MS - 10;
+  const epsilon = LEASE_MARGIN_MS + COMPLETE_MINT_CALLS * 10 + 1;
+  assert.equal(LEASE_MS, COMPLETE_MINT_CALLS * MINT_CALL_TIMEOUT_MS + LEASE_MARGIN_MS);
+  assert.ok(LEASE_MS > 10_000, "a 1s mint timeout does not cover seven calls past the old floor");
+  assert.ok(6 * hold < 10_000 && 10_000 < 7 * hold);
+  assert.ok(10_000 < LEASE_MS - epsilon && LEASE_MS - epsilon < 7 * hold);
+  let phase = false;
+  let n = 0;
+  let sweeping = false;
+  const failures: string[] = [];
+  const engine = new CashuReceiveEngine({
+    secret: "cashu-receive-test-secret",
+    mints: [mint.url],
+    store,
+    loopbackHttp: true,
+    fetch: async (input, init) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+      const path = new URL(url).pathname;
+      if (path.endsWith("/v1/swap")) phase = true;
+      const counted = phase && (path.endsWith("/v1/swap") || path.includes("/v1/keys/") || path.endsWith("/v1/restore") || path.endsWith("/v1/checkstate"));
+      if (!counted) return fetch(input, init);
+      if (sweeping) return reply(path, init);
+      n++;
+      const call = n;
+      if (call < 7) {
+        await new Promise((r) => setTimeout(r, hold));
+        return reply(path, init);
+      }
+      if (call !== 7) failures.push("call " + call);
+      const row = (await store.read()).pending[0];
+      if (!row?.at) failures.push("row missing before the old floor");
+      const floorAt = (row?.at ?? Date.now()) + 10_000;
+      await new Promise((r) => setTimeout(r, Math.max(0, floorAt - Date.now())));
+      sweeping = true;
+      await engine.recoverSaved();
+      sweeping = false;
+      if ((await store.read()).pending.length !== 1) failures.push("swept at the old 10s floor");
+      const leased = (await store.read()).pending[0];
+      if (typeof leased?.leaseExp !== "number") failures.push("no lease");
+      else {
+        const beforeExpiry = leased.leaseExp - epsilon;
+        if (beforeExpiry <= Date.now()) failures.push("lease expiry is not ahead of the owner");
+        else {
+          await new Promise((r) => setTimeout(r, beforeExpiry - Date.now()));
+          sweeping = true;
+          await engine.recoverSaved();
+          sweeping = false;
+          if ((await store.read()).pending.length !== 1) failures.push("swept at lease expiry minus epsilon");
+          if (Date.now() >= leased.leaseExp) failures.push("sweep ran after the lease expired");
+        }
+      }
+      return reply(path, init);
+    },
+  });
+  const now = Math.floor(Date.now() / 1000);
+  try {
+    const offer = await engine.offer({ site: "s", cls: "write", amount_msat: 10000, now });
+    const token = cashuAFull(mint.url, mint.keysetId, mint.token(10));
+    await assert.rejects(
+      () => engine.verifyPaid({ site: "s", now, firstUse: async () => true, proof: { kind: "cashu", offer_id: offer.id, credential: offer.credential, token } }),
+      (e: unknown) => e instanceof TollError && (e.code === "bad_solution" || e.code === "store_unavailable"),
+    );
+    assert.equal(n, 7, "complete() did not make seven mint calls");
+    assert.deepEqual(failures, []);
+    const end = await store.books();
+    assert.equal(end.stored + end.pending + end.losses, mint.signedSats());
+    assert.equal(mint.signedSats(), 0);
+    assert.equal(end.pending, 0);
+  } finally {
+    await mint.close();
+  }
+
+  function reply(path: string, init: RequestInit | undefined): Response {
+    const reqBody = typeof init?.body === "string" ? JSON.parse(init.body) as { outputs?: { amount: number }[]; Ys?: string[] } : {};
+    const headers = { "content-type": "application/json" };
+    if (path.endsWith("/v1/swap")) {
+      const signatures = (reqBody.outputs ?? []).map((o) => ({ amount: o.amount, C_: "02" + "ab".repeat(32) }));
+      return new Response(JSON.stringify({ signatures }), { status: 200, headers });
+    }
+    if (path.includes("/v1/keys/")) return new Response("no", { status: 500 });
+    if (path.endsWith("/v1/restore")) return new Response(JSON.stringify({ outputs: [], signatures: [] }), { status: 200, headers });
+    const states = (reqBody.Ys ?? []).map((Y) => ({ Y, state: "UNSPENT" }));
+    return new Response(JSON.stringify({ states }), { status: 200, headers });
+  }
+});
+
+test("a 200 restore body that is not a signature list is logged without secrets", async () => {
+  const mint = await startKeysetMint();
+  const dir = mkdtempSync(join(tmpdir(), "toll-cashu-shape-"));
+  const store = new FileProofStore(join(dir, "proofs.json"));
+  const lines: string[] = [];
+  const orig = console.log;
+  console.log = (...a: unknown[]) => { lines.push(a.map((x) => typeof x === "string" ? x : JSON.stringify(x)).join(" ")); orig(...a); };
+  const engine = new CashuReceiveEngine({ secret: "cashu-receive-test-secret", mints: [mint.url], store, loopbackHttp: true });
+  const now = Math.floor(Date.now() / 1000);
+  mint.setFault("/v1/swap", "refuse");
+  mint.setFault("/v1/restore", "malformed");
+  try {
+    const offer = await engine.offer({ site: "s", cls: "write", amount_msat: 10000, now });
+    const token = cashuAFull(mint.url, mint.keysetId, mint.token(10));
+    const secret = decodeToken(token).proofs[0].secret;
+    await assert.rejects(
+      () => engine.verifyPaid({ site: "s", now, firstUse: async () => true, proof: { kind: "cashu", offer_id: offer.id, credential: offer.credential, token } }),
+      (e: unknown) => e instanceof TollError && e.code === "store_unavailable",
+    );
+    const notes = lines.flatMap((line) => { try { return [JSON.parse(line)]; } catch { return []; } })
+      .filter((row) => row.event === "mint_inconclusive" && row.check === "restore");
+    assert.ok(notes.length > 0);
+    assert.equal(notes[0].status, 200);
+    assert.ok(Array.isArray(notes[0].shape?.keys) && notes[0].shape.keys.includes("wat"));
+    const blob = lines.join("\n");
+    assert.equal(blob.includes(secret), false);
+    assert.equal(/"C"\s*:/.test(blob), false);
+    assert.equal(blob.includes("cashuA"), false);
+  } finally {
+    console.log = orig;
     await mint.close();
   }
 });

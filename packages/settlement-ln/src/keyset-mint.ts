@@ -26,7 +26,8 @@ export interface KeysetMint {
    * `/v1/checkstate`, `/v1/info`). `null` clears it. Modes: network, 500, empty, malformed,
    * bad-reply (swap spends, body has no C_), uppercase (swap spends, C_ is uppercase),
    * drop-after (swap spends, then the socket closes), pending, unspent, spent, unknown
-   * (checkstate), zero (restore returns an empty signature list). A signed reply set with
+   * (checkstate), zero (restore returns an empty signature list), plain-422 (swap answers
+   * 422 text and does not spend). A signed reply set with
    * `setSignedReply` replaces the 200 after the mint signs.
    */
   setFault: (path: string | null, mode: string | null) => void;
@@ -91,6 +92,13 @@ export async function startKeysetMint(): Promise<KeysetMint> {
       if (req.method === "GET" && (path === "/v1/keys" || path === "/v1/keys/" + keysetId)) return json(res, 200, { keysets: [{ ...keysetRow(keysetId), keys: pubs }] });
       if (req.method === "POST" && path === "/v1/swap") {
         if (fault === "refuse") return json(res, 400, { detail: "refused", code: 11002 });
+        if (fault === "plain-422") {
+          await readJson(req);
+          const raw = "Failed to deserialize";
+          res.writeHead(422, { "content-type": "text/plain; charset=utf-8", "content-length": Buffer.byteLength(raw) });
+          res.end(raw);
+          return;
+        }
         swaps++;
         const body = await readJson(req);
         const inputs = Array.isArray(body?.inputs) ? body.inputs : null;
