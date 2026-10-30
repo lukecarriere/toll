@@ -174,6 +174,33 @@ test("a payment is accepted, the input is marked spent, and a replay is rejected
   assert.equal(held.body.stored, after.body.stored);
 });
 
+test("parallel receives that share an input: one 200 from the durable object, the rest 4xx, no 500", async () => {
+  const before = await call("/v1/test/cashu-books");
+  const signedBefore = mint.signedSats();
+  const eight = decodeToken(retarget(mint.token(8), MINT));
+  const two = decodeToken(retarget(mint.token(2), MINT));
+  const searchTok = encodeTokenV4({ mint: MINT, unit: eight.unit, proofs: eight.proofs });
+  const writeTok = encodeTokenV4({ mint: MINT, unit: eight.unit, proofs: [...eight.proofs, ...two.proofs] });
+  const N = 8;
+  const results = await Promise.all(Array.from({ length: N }, (_, i) => call(i === 0 ? "/demo/contact" : "/search", {
+    method: "POST",
+    headers: { accept: "application/json", "content-type": "application/json", "toll-client": "agent", "x-cashu": i === 0 ? writeTok : searchTok },
+    body: "{}",
+  })));
+  const ok = results.filter((r) => r.status === 200);
+  const crashed = results.filter((r) => r.status >= 500);
+  assert.equal(crashed.length, 0, JSON.stringify(results.map((r) => [r.status, r.body?.error])));
+  assert.equal(ok.length, 1, JSON.stringify(results.map((r) => [r.status, r.body?.error])));
+  for (const r of results) if (r.status !== 200) assert.ok(r.status >= 400 && r.status < 500, String(r.status));
+  assert.equal(typeof ok[0].body.pass, "string");
+  const after = await call("/v1/test/cashu-books");
+  booksOk(after.body);
+  const signed = mint.signedSats() - signedBefore;
+  assert.equal(after.body.pending, before.body.pending);
+  assert.equal(after.body.stored - before.body.stored, signed);
+  assert.equal(after.body.inSats - before.body.inSats, signed);
+});
+
 test("an unlisted mint is refused and not fetched", async () => {
   await call("/v1/test/mint-fetches");
   const denied = await call("/demo/contact", {
