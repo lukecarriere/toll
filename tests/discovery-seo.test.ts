@@ -9,7 +9,6 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { chromium } from "playwright";
 import { wwwRedirect, workerHandles } from "../packages/edge-cf/src/host-redirect.ts";
-// @ts-ignore plain JS build script
 import { build, cliSiteRaw, discoveryFiles, pagePath, HOME, PAGES, DOC_PAGES, LEGAL_PAGES } from "../website/build.mjs";
 
 const SITE = "https://site.example";
