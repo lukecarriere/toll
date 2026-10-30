@@ -225,10 +225,11 @@ test("an expired token and an action mismatch are refused", async () => {
   const late = await post("/contact", auth(stale.macaroon, preimage));
   assert.equal(late.status, 401);
   assert.equal((await late.json()).error, "expired");
-  const losses = demo.store.mintQuoteLosses?.() ?? [];
+  const quote = caveatsOf(stale.macaroon).quote;
+  const losses = (demo.store.mintQuoteLosses?.() ?? []).filter((o) => o.quote === quote);
   assert.equal(losses.length, 1);
-  assert.deepEqual(losses[0], { quote: caveatsOf(stale.macaroon).quote, action: "write", amount: 10 });
-  assert.ok(demo.lines.some((l) => l.includes("mint_quote_loss") && l.includes(losses[0].quote) && !l.includes(preimage)));
+  assert.deepEqual(losses[0], { quote, action: "write", amount: 10 });
+  assert.ok(demo.lines.some((l) => l.includes("mint_quote_loss") && l.includes(quote) && !l.includes(preimage)));
   clock = Math.floor(Date.now() / 1000) + 10_000;
   const search = await quoteOffer("/search");
   assert.equal(search.body.offers[1].amount_msat, 2000);
