@@ -3,14 +3,14 @@
 // suite does not spend and does not need the public mint to be up.
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
-import { execFileSync, spawn, type ChildProcess } from "node:child_process";
+import { execFileSync, spawn, spawnSync, type ChildProcess } from "node:child_process";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
 import { fileURLToPath } from "node:url";
-import { fromB64url, toHex } from "../packages/protocol/src/bytes.ts";
+import { fromB64url, toB64url, toHex, utf8 } from "../packages/protocol/src/bytes.ts";
 import { cborDecode } from "../packages/settlement-ln/src/cbor.ts";
 import { decodePaymentRequest, decodeToken, decodeTokenV4, encodeTokenV3, encodeTokenV4 } from "../packages/settlement-ln/src/cashu.ts";
 import { CashuReceiveEngine } from "../packages/settlement-ln/src/cashu-receive.ts";
@@ -27,7 +27,21 @@ const UNLISTED = "https://evil.example/Bitcoin";
 
 let wr: ChildProcess;
 let base = "";
+let wrLog = "";
 let mint: Awaited<ReturnType<typeof startKeysetMint>>;
+
+/** cashuA whose keyset id is the mint's full 33-byte id, the shape a wallet sends as-is. */
+function cashuA(token: string): string {
+  const decoded = decodeToken(token);
+  const obj = {
+    token: [{
+      mint: MINT,
+      proofs: decoded.proofs.map((p) => ({ amount: p.amount, id: mint.keysetId, secret: p.secret, C: toHex(p.C) })),
+    }],
+    unit: decoded.unit,
+  };
+  return "cashuA" + toB64url(utf8(JSON.stringify(obj)));
+}
 
 function retarget(token: string, mintUrl: string): string {
   const decoded = decodeTokenV4(token);
@@ -58,13 +72,13 @@ before(async () => {
     env: { ...process.env, WRANGLER_SEND_METRICS: "false", CI: "1" },
     stdio: ["ignore", "pipe", "pipe"],
   });
-  let log = "";
+  wrLog = "";
   await new Promise<void>((resolve, reject) => {
-    const t = setTimeout(() => reject(new Error("wrangler dev did not start:\n" + log)), 90_000);
-    const on = (c: Buffer) => { log += c.toString(); if (/Ready on http/.test(log)) { clearTimeout(t); resolve(); } };
+    const t = setTimeout(() => reject(new Error("wrangler dev did not start:\n" + wrLog)), 90_000);
+    const on = (c: Buffer) => { wrLog += c.toString(); if (/Ready on http/.test(wrLog)) { clearTimeout(t); resolve(); } };
     wr.stdout!.on("data", on);
     wr.stderr!.on("data", on);
-    wr.on("exit", (code) => { clearTimeout(t); reject(new Error("wrangler dev exited " + code + "\n" + log)); });
+    wr.on("exit", (code) => { clearTimeout(t); reject(new Error("wrangler dev exited " + code + "\n" + wrLog)); });
   });
   wr.removeAllListeners("exit");
   base = `http://127.0.0.1:${free}`;
@@ -720,6 +734,68 @@ function looseStore(): ProofStore & { begins: () => number } {
     async lose(_o: { id: string; marks: string[] }) { throw new Error("lose"); },
   };
 }
+
+test("a cashuA redeem whose mint refuses in plain text is not an outage, and the swap is not left pending", async () => {
+  const before = await books();
+  const denied = await call("/demo/contact", {
+    method: "POST",
+    headers: { accept: "application/json", "content-type": "application/json", "toll-client": "agent" },
+    body: "{}",
+  });
+  assert.equal(denied.status, 402, denied.text);
+  const offer = denied.body.offers[0];
+  const token = cashuA(mint.token(10));
+  assert.equal(decodeToken(token).proofs[0].id.length, 33);
+  const signed = mint.signedSats();
+  mint.setFault("/v1/swap", "plain-422");
+  try {
+    const redeem = await call("/v1/redeem", {
+      method: "POST",
+      headers: { "content-type": "application/json", "toll-client": "agent" },
+      body: JSON.stringify({ offer_id: offer.id, kind: "cashu", token, credential: offer.credential }),
+    });
+    assert.equal(redeem.status, 401, redeem.text);
+    assert.equal(redeem.body.error, "bad_solution");
+    const after = await books();
+    booksOk(after);
+    assert.equal(after.pending, before.pending);
+    assert.equal(after.stored, before.stored);
+    assert.equal(after.losses, before.losses);
+    assert.equal(mint.signedSats(), signed);
+    holds(after);
+    assert.match(wrLog, /"event":"mint"/);
+    assert.equal(wrLog.includes(decodeToken(token).proofs[0].secret), false);
+  } finally {
+    mint.setFault(null, null);
+  }
+});
+
+test("a cashuA swap the mint never took is cleared on the next request", async () => {
+  const before = await books();
+  const crashed = await pay(cashuA(mint.token(10)), "crash-before-swap");
+  assert.equal(crashed.status, 503, crashed.text);
+  assert.equal(crashed.body.error, "store_unavailable");
+  const mid = await books();
+  booksOk(mid);
+  assert.equal(mid.pending, before.pending + 10);
+  assert.equal(mid.stored, before.stored);
+  const paid = await pay(cashuA(mint.token(10)));
+  assert.equal(paid.status, 200, paid.text);
+  const after = await books();
+  booksOk(after);
+  holds(after);
+  assert.equal(after.pending, before.pending);
+  assert.equal(after.stored, before.stored + 10);
+  assert.equal(after.losses, before.losses);
+});
+
+test("check-live-state.sh sends the agent header, expects 402, and reads the gate tool", async () => {
+  const r = spawnSync("sh", [ROOT + "scripts/check-live-state.sh", base], { encoding: "utf8" });
+  assert.equal(r.status, 0, (r.stdout ?? "") + (r.stderr ?? ""));
+  assert.match(r.stdout ?? "", /gate_form_write/);
+  assert.match(r.stdout ?? "", /cashu/);
+  assert.match(r.stdout ?? "", /\b402\b/);
+});
 
 test("a visitor without a payment still clears the work check", async () => {
   const denied = await call("/demo/contact", {

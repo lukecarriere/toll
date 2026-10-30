@@ -362,6 +362,81 @@ test("verifyPaid's replay check alone blocks a second swap when the store would 
   }
 });
 
+function cashuAFull(mintUrl: string, keysetId: string, token: string): string {
+  const decoded = decodeToken(token);
+  const obj = {
+    token: [{
+      mint: mintUrl,
+      proofs: decoded.proofs.map((p) => ({ amount: p.amount, id: keysetId, secret: p.secret, C: toHex(p.C) })),
+    }],
+    unit: decoded.unit,
+  };
+  return "cashuA" + toB64url(utf8(JSON.stringify(obj)));
+}
+
+test("a plain 422 from the mint is a refusal, and the pending swap is aborted when nothing was spent", async () => {
+  const mint = await startKeysetMint();
+  const dir = mkdtempSync(join(tmpdir(), "toll-cashu-422-"));
+  const store = new FileProofStore(join(dir, "proofs.json"));
+  const engine = new CashuReceiveEngine({ secret: "cashu-receive-test-secret", mints: [mint.url], store, loopbackHttp: true });
+  const now = Math.floor(Date.now() / 1000);
+  mint.setFault("/v1/swap", "plain-422");
+  try {
+    const offer = await engine.offer({ site: "s", cls: "write", amount_msat: 10000, now });
+    const token = cashuAFull(mint.url, mint.keysetId, mint.token(10));
+    assert.equal(decodeToken(token).proofs[0].id.length, 33);
+    const signed = mint.signedSats();
+    await assert.rejects(
+      () => engine.verifyPaid({ site: "s", now, firstUse: async () => true, proof: { kind: "cashu", offer_id: offer.id, credential: offer.credential, token } }),
+      (e: unknown) => e instanceof TollError && e.code === "bad_solution",
+    );
+    const mid = await store.read();
+    assert.equal(mid.pending.length, 0);
+    const books = await store.books();
+    assert.equal(books.pending, 0);
+    assert.equal(books.stored, 0);
+    assert.equal(books.losses, 0);
+    assert.equal(books.inSats, books.stored + books.pending + books.losses);
+    assert.equal(mint.signedSats(), signed);
+  } finally {
+    await mint.close();
+  }
+});
+
+test("the next payment clears a pending swap the mint never took", async () => {
+  const mint = await startKeysetMint();
+  const dir = mkdtempSync(join(tmpdir(), "toll-cashu-sweep-"));
+  const store = new FileProofStore(join(dir, "proofs.json"));
+  const secret = "cashu-receive-test-secret";
+  const stuck = new CashuReceiveEngine({
+    secret, mints: [mint.url], store, loopbackHttp: true,
+    beforeSwap: () => { throw new TollError("store_unavailable"); },
+  });
+  const now = Math.floor(Date.now() / 1000);
+  const firstUse = async () => true;
+  try {
+    const offer = await stuck.offer({ site: "s", cls: "write", amount_msat: 10000, now });
+    const token = cashuAFull(mint.url, mint.keysetId, mint.token(10));
+    await assert.rejects(
+      () => stuck.verifyPaid({ site: "s", now, firstUse, proof: { kind: "cashu", offer_id: offer.id, credential: offer.credential, token } }),
+      (e: unknown) => e instanceof TollError && e.code === "store_unavailable",
+    );
+    assert.equal((await store.read()).pending.length, 1);
+    const next = new CashuReceiveEngine({ secret, mints: [mint.url], store, loopbackHttp: true });
+    const offer2 = await next.offer({ site: "s", cls: "write", amount_msat: 10000, now });
+    const token2 = cashuAFull(mint.url, mint.keysetId, mint.token(10));
+    await next.verifyPaid({ site: "s", now, firstUse, proof: { kind: "cashu", offer_id: offer2.id, credential: offer2.credential, token: token2 } });
+    const end = await store.books();
+    assert.equal(end.pending, 0);
+    assert.equal(end.stored, 10);
+    assert.equal(end.losses, 0);
+    assert.equal(end.inSats, end.stored + end.pending + end.losses);
+    assert.equal(end.inSats, mint.signedSats());
+  } finally {
+    await mint.close();
+  }
+});
+
 test("NUT-07 PENDING is not UNSPENT, so the blinded outputs stay", async () => {
   const mint = await startKeysetMint();
   const dir = mkdtempSync(join(tmpdir(), "toll-cashu-pending-"));
