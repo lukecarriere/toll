@@ -1,4 +1,6 @@
-# toll-site: the static site plus the work-only demo.
+# toll-site: the static site, the work check, and Cashu receive.
+# The allowlist is the only mint the worker will call. Do not deploy from an agent;
+# deploy happens after an independent verifier passes.
 # From a clean checkout, after `npm ci` and `npm run build`:
 #   npx wrangler deploy
 # Production is lessspam.dev and www.lessspam.dev, attached as Workers custom domains (Cloudflare
@@ -26,6 +28,8 @@ run_worker_first = [ "/v1/*", "/toll/v1/*", "/demo/*", "/.well-known/toll.json",
 TOLL_SITE_URL = "https://lessspam.dev"
 SITE_ID = "site_demo"
 WRITE_PATHS = '["/demo/contact"]'
+# Cashu receive. The path is part of the mint. No new binding: proofs live in TOLL_STORE.
+CASHU_MINTS = '["https://mint.minibits.cash/Bitcoin"]'
 # SITE_SECRET is a Worker secret (local: .dev.vars, copied from .dev.vars.example). Never commit it.
 
 [[durable_objects.bindings]]

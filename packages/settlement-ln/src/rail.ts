@@ -6,6 +6,7 @@
 // Proof of payment is checked by the settlement engine (stub here; the L402 proxy later). This file
 // holds no macaroon or invoice logic of its own.
 import { TollError, hmacSha256, toHex, utf8, type ActionClass } from "../../protocol/src/index.ts";
+import { asCashuPayment } from "./cashu.ts";
 import type { Offer, Paid, PaidClass, PaidProof, SettlementEngine } from "./engine.ts";
 import { type FxSource, fresh, offerUsd } from "./fx.ts";
 import { type Balance, MemoryLedger, usdDisplay } from "./ledger.ts";
@@ -111,16 +112,17 @@ export function createSettlementRail(o: RailOptions) {
    * Verify a paid redeem and book it.
    * Lightning: `{ offer_id, kind: "ln402", preimage, macaroon }`. The stub engine checks the preimage
    * locally, so a payment made before an outage still redeems during it.
-   * Cashu: `{ offer_id, kind: "cashu", token, credential }`. The engine must call the mint; a mint
-   * outage throws `store_unavailable` and no pass is minted.
+   * Cashu: `{ offer_id, kind: "cashu", token, credential }`. `token` is `cashuA` or `cashuB`. The
+   * engine must call the mint; a mint outage throws `store_unavailable` and no pass is minted.
    */
   async function redeemPaid(body: any): Promise<Paid & { fee_msat: number; net_msat: number }> {
     if (!body || typeof body.offer_id !== "string" || (body.kind !== "ln402" && body.kind !== "cashu")) throw new TollError("malformed");
     const now = o.now();
     let proof: PaidProof;
     if (body.kind === "cashu") {
-      if (typeof body.token !== "string" || typeof body.credential !== "string" || !body.token.startsWith("cashuB")) throw new TollError("malformed");
-      proof = { kind: "cashu", offer_id: body.offer_id, credential: body.credential, token: body.token };
+      const token = typeof body.token === "string" ? asCashuPayment(body.token) : null;
+      if (!token || typeof body.credential !== "string") throw new TollError("malformed");
+      proof = { kind: "cashu", offer_id: body.offer_id, credential: body.credential, token };
     } else if (typeof body.preimage !== "string" || typeof body.macaroon !== "string") {
       throw new TollError("malformed");
     } else {

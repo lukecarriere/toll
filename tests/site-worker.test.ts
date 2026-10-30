@@ -106,6 +106,8 @@ test("wrangler.toml: assets, sqlite durable object, workers_dev, production cust
   assert.equal([...toml.matchAll(/pattern\s*=/g)].length, 2);
   assert.doesNotMatch(toml, /\[\[routes\]\]|zone_id|zone_name/m);
   assert.match(toml, /^TOLL_SITE_URL = "https:\/\/lessspam\.dev"$/m);
+  assert.match(toml, /^CASHU_MINTS = '\["https:\/\/mint\.minibits\.cash\/Bitcoin"\]'$/m);
+  assert.equal((toml.match(/\[\[durable_objects\.bindings\]\]/g) ?? []).length, 1, "no new durable object binding");
   assert.doesNotMatch(toml, /^\s*(SITE_SECRET|TOLL_TEST_HOOKS|STORE_FAIL)\s*=/m);
   record("wrangler.toml checks", "name, main, assets.run_worker_first, new_sqlite_classes, workers_dev, preview_urls; two custom domains, no zone routes, no secret");
 });
@@ -175,7 +177,7 @@ async function solved(action = "write", path = "/demo/contact") {
   return { challenge, payload };
 }
 
-test("replayed challenge is 401; a spent pass is rejected; price is stub; paid redeem is 400", async () => {
+test("replayed challenge is 401; a spent pass is rejected; price is cashu; a lightning redeem is 400", async () => {
   const { challenge, payload } = await solved();
   const ok = curlShow("POST /v1/redeem", "/v1/redeem", ["-X", "POST", "-H", "content-type: application/json", "-d", payload]);
   assert.equal(ok.status, 200);
@@ -200,8 +202,9 @@ test("replayed challenge is 401; a spent pass is rejected; price is stub; paid r
   const price = curlShow("GET /v1/price?action=write", "/v1/price?action=write");
   assert.equal(price.status, 200);
   const pj = JSON.parse(price.body);
-  assert.equal(pj.status, "stub");
-  assert.equal(pj.amount_msat, null);
+  assert.equal(pj.status, "cashu");
+  assert.equal(pj.amount_msat, 10000);
+  assert.equal(pj.usd, null);
   assert.equal(pj.basis, "current");
   const paid = curlShow("POST /v1/redeem paid", "/v1/redeem", ["-X", "POST", "-H", "content-type: application/json", "-d", JSON.stringify({ offer_id: "off_x", kind: "ln402", preimage: "00" })]);
   assert.equal(paid.status, 400);

@@ -321,7 +321,8 @@ $r = run_case('refusal', $both + ['agent' => 1, 'x_cashu' => 'cashuBexampletoken
 [$st, $body] = $r['result'];
 check('refusal: an X-Cashu retry is forwarded and comes back as a settle pass', $st === 200 && $body['rail'] === 'settle' && $body['cls'] === 'write' && is_string($body['pass']) && $body['pass'] !== '' && ($r['calls'][0]['url'] ?? '') === 'http://127.0.0.1:9/v1/owner/cashu' && ($r['calls'][0]['body']['token'] ?? '') === 'cashuBexampletoken' && ($r['calls'][0]['body']['action'] ?? '') === 'write', ['status' => $st, 'rail' => $body['rail'] ?? null, 'url' => $r['calls'][0]['url'] ?? null]);
 $r = run_case('refusal', $both + ['agent' => 1, 'x_cashu' => 'cashuAexample']);
-check('refusal: an older cashuA string is malformed and is not forwarded', $r['result'][0] === 400 && $r['result'][1]['error'] === 'malformed' && $r['calls'] === [], $r['result']);
+[$st, $body] = $r['result'];
+check('refusal: a cashuA string is forwarded and comes back as a settle pass', $st === 200 && $body['rail'] === 'settle' && $body['cls'] === 'write' && is_string($body['pass']) && $body['pass'] !== '' && ($r['calls'][0]['url'] ?? '') === 'http://127.0.0.1:9/v1/owner/cashu' && ($r['calls'][0]['body']['token'] ?? '') === 'cashuAexample' && ($r['calls'][0]['body']['action'] ?? '') === 'write', ['status' => $st, 'rail' => $body['rail'] ?? null, 'url' => $r['calls'][0]['url'] ?? null]);
 $r = run_case('comment', $both + ['agent' => 1, 'uri' => '/wp-comments-post.php']);
 check('comments still get the same 402 (shared refusal)', $r['sent'] !== null && $is402($r['sent']) && str_contains($r['sent']['body']['challenge_url'], 'path=%2Fwp-comments-post.php'), $r['sent']);
 

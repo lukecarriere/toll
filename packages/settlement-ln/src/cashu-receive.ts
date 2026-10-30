@@ -1,13 +1,15 @@
-// Production Cashu receive. A cashuB token is swapped at an allowlisted mint into proofs this
-// process keeps. Short version-01 keyset ids are mapped with the mint's keyset list first.
+// Production Cashu receive. A cashuA or cashuB token is swapped at an allowlisted mint into proofs
+// this process keeps. Short version-01 keyset ids are mapped with the mint's keyset list first.
+// Blinded outputs are durable before POST /v1/swap. A crash there is recovered with NUT-09
+// restore and NUT-07 checkstate. The gate is granted only after the new proofs are stored.
 // The test engine (cashu-engine.ts) is unchanged and still talks only to a loopback http mint.
 import {
   type ActionClass, TollError, canonicalJson, fromB64url, fromUtf8, hmacSha256, hmacVerify, randomBytes, randomHex, sha256, toB64url, toHex, utf8,
 } from "../../protocol/src/index.ts";
-import { CASHU_UNIT, decodeTokenV4, encodePaymentRequest, type DecodedToken } from "./cashu.ts";
-import { blindMessage, deriveKeysetIdV2, inputFee, resolveKeysetId, secretMark, splitAmount, unblind } from "./cashu-crypto.ts";
+import { CASHU_UNIT, decodeToken, encodePaymentRequest, type DecodedToken } from "./cashu.ts";
+import { blindMessage, deriveKeysetIdV2, inputFee, resolveKeysetId, secretMark, secretY, splitAmount, unblind } from "./cashu-crypto.ts";
 import { type MintGuard, guardMintUrl, mintFetch, mintKey } from "./cashu-net.ts";
-import { FileProofStore, type StoredProof } from "./cashu-store.ts";
+import { FileProofStore, type PendingOutput, type PendingSwap, type ProofStore, type StoredProof } from "./cashu-store.ts";
 import type { CashuOffer, Paid, PaidClass, PaidProof, SettlementEngine } from "./engine.ts";
 
 const SEAL_PREFIX = "toll-cashu-recv-v1.";
@@ -33,6 +35,30 @@ interface KeysetInfo {
   keys?: Record<string, string>;
 }
 
+type SwapOutcome =
+  | { kind: "sigs"; signatures: { amount: number; C_: string }[] }
+  | { kind: "http"; status: number; text: string }
+  | { kind: "unknown" };
+
+type RestoreOutcome =
+  | { kind: "proofs"; proofs: StoredProof[] }
+  | { kind: "none" }
+  | { kind: "inconclusive" };
+
+/**
+ * A mint error code is a label for the caller after the outputs are already resolved.
+ * 11000 is not a NUT code. 11002, 11003, and 11004 mean a swap may already be signed.
+ */
+function messageFor(outcome: SwapOutcome): "bad_solution" | "replay" | "store_unavailable" {
+  if (outcome.kind !== "http") return "store_unavailable";
+  if (outcome.status === 429 || outcome.status < 400 || outcome.status >= 500) return "store_unavailable";
+  let code = Number.NaN;
+  try { code = Number(JSON.parse(outcome.text)?.code); } catch { return "store_unavailable"; }
+  if (!Number.isSafeInteger(code) || code <= 0) return "store_unavailable";
+  if (code === 11001) return "replay";
+  return "bad_solution";
+}
+
 async function seal(secret: string, c: Caveats): Promise<string> {
   const payload = toB64url(utf8(canonicalJson(c)));
   const mac = await hmacSha256(secret, utf8(SEAL_PREFIX + payload));
@@ -51,10 +77,41 @@ async function open(secret: string, credential: string): Promise<Caveats> {
   return c;
 }
 
+function sameMarks(a: string[], b: string[]): boolean {
+  if (a.length !== b.length) return false;
+  const set = new Set(b);
+  return a.every((h) => set.has(h));
+}
+
+function hexR(r: bigint): string {
+  return r.toString(16).padStart(64, "0");
+}
+
+function parseR(h: string): bigint {
+  if (!/^[0-9a-f]{64}$/.test(h)) throw new TollError("store_unavailable");
+  return BigInt("0x" + h);
+}
+
+/** `C_` or `c_`, either hex case. Null when the signature is not usable. */
+function signatureC(sig: unknown, amount: number): string | null {
+  if (!sig || typeof sig !== "object") return null;
+  const row = sig as { amount?: unknown; C_?: unknown; c_?: unknown };
+  const raw = row.C_ ?? row.c_;
+  if (row.amount !== amount || typeof raw !== "string") return null;
+  // CASHU_GUARD c-case
+  const C_ = raw.toLowerCase();
+  if (!/^[0-9a-f]+$/.test(C_) || C_.length % 2 !== 0) return null;
+  return C_;
+}
+
 export interface ReceiveEngineOptions extends MintGuard {
   secret: string;
   mints: string[];
-  store: string | FileProofStore;
+  store: string | ProofStore;
+  /** Runs after the pending swap is durable and before POST /v1/swap. Tests use it to crash there. */
+  beforeSwap?: () => Promise<void> | void;
+  /** Runs after the swap response is in hand and before the proofs are stored. */
+  afterSwap?: () => Promise<void> | void;
 }
 
 export class CashuReceiveEngine implements SettlementEngine {
@@ -62,7 +119,9 @@ export class CashuReceiveEngine implements SettlementEngine {
   private secret: string;
   readonly mints: string[];
   private guard: MintGuard;
-  private store: FileProofStore;
+  private store: ProofStore;
+  private beforeSwap?: () => Promise<void> | void;
+  private afterSwap?: () => Promise<void> | void;
 
   constructor(o: ReceiveEngineOptions) {
     if (!o.secret || o.secret.length < 16) throw new Error("cashu engine: secret too short");
@@ -70,13 +129,19 @@ export class CashuReceiveEngine implements SettlementEngine {
     this.secret = o.secret;
     this.mints = o.mints.map((m) => mintKey(m));
     this.guard = { loopbackHttp: o.loopbackHttp, lookup: o.lookup, fetch: o.fetch };
+    this.beforeSwap = o.beforeSwap;
+    this.afterSwap = o.afterSwap;
     this.store = typeof o.store === "string" ? new FileProofStore(o.store) : o.store;
+  }
+
+  private async useStore(): Promise<ProofStore> {
+    return this.store;
   }
 
   async offer(o: { site: string; cls: PaidClass; amount_msat: number; now: number; ttl_s?: number }): Promise<CashuOffer> {
     if (!Number.isSafeInteger(o.amount_msat) || o.amount_msat <= 0 || o.amount_msat % 1000 !== 0) throw new Error("offer amount must be a positive whole number of 1,000 msat");
     const live = await this.liveMints();
-    if (live.length === 0) throw new Error("mint unavailable");
+    if (live.length === 0) throw new TollError("store_unavailable");
     const ttl = Math.min(o.ttl_s ?? 120, 120);
     const id = "off_" + randomHex(12);
     const amount = o.amount_msat / 1000;
@@ -95,14 +160,14 @@ export class CashuReceiveEngine implements SettlementEngine {
     if (o.now > c.exp) throw new TollError("expired");
     if (c.amount * 1000 !== c.amount_msat) throw new TollError("bad_sig");
     let token: DecodedToken;
-    try { token = decodeTokenV4(o.proof.token); } catch { throw new TollError("malformed"); }
+    try { token = decodeToken(o.proof.token); } catch { throw new TollError("malformed"); }
     if (token.proofs.length > 32) throw new TollError("malformed");
     if (token.unit !== CASHU_UNIT) throw new TollError("malformed");
     let mint: string;
     try { mint = mintKey(token.mint); } catch { throw new TollError("malformed"); }
     const sealed = c.mints.map((m) => { try { return mintKey(m); } catch { return ""; } });
+    // CASHU_GUARD allowlist: a V3 token and a V4 token must name a mint on the offer and the allowlist before any request.
     if (!sealed.includes(mint)) throw new TollError("malformed");
-    // Allowlist and https/SSRF before any request. A removed check would call a mint that is not listed.
     try { await guardMintUrl(mint, this.mints, this.guard); } catch (e) {
       if (e instanceof TollError) throw e;
       throw new TollError("malformed");
@@ -110,14 +175,25 @@ export class CashuReceiveEngine implements SettlementEngine {
     const sum = token.proofs.reduce((n, p) => n + p.amount, 0);
     if (!Number.isSafeInteger(sum) || sum < c.amount) throw new TollError("malformed");
     const marks = token.proofs.map((p) => secretMark(p.secret));
-    const received = await this.store.transaction(async (s) => {
-      if (marks.some((h) => s.spent.has(h))) throw new TollError("replay");
-      const proofs = await this.swapIn(mint, token);
-      s.addProofs(proofs);
-      s.addSpent(marks);
-      return proofs;
-    });
-    if (received.reduce((n, p) => n + p.amount, 0) <= 0) throw new TollError("store_unavailable");
+    const store = await this.useStore();
+    // Other in-flight swaps are recovered here. This token's pending swap is finished below, so a
+    // retry still receives the gate once its proofs are stored.
+    await this.recoverSaved(marks);
+    const snap = await store.read();
+    // CASHU_GUARD replay: a spent input is refused from the store, before another swap.
+    if (marks.some((h) => snap.spent.includes(h))) throw new TollError("replay");
+    let pending = snap.pending.find((p) => sameMarks(p.marks, marks) && p.mint === mint);
+    if (!pending) {
+      const prepared = await this.prepare(mint, token, marks);
+      // CASHU_GUARD persist-before-swap: outputs and secrets are durable before the mint is asked to swap.
+      pending = await store.begin(prepared);
+    }
+    if (this.beforeSwap) await this.beforeSwap();
+    const proofs = await this.complete(pending);
+    // CASHU_GUARD grant-only-stored: the pass is minted only after this returns and the read-back matches.
+    await store.commit({ id: pending.id, proofs, marks: pending.marks });
+    if (!(await this.proofsDurable(proofs))) throw new TollError("store_unavailable");
+    if (proofs.reduce((n, p) => n + p.amount, 0) <= 0) throw new TollError("store_unavailable");
     const ttl = Math.max(1, c.exp - o.now + 60);
     if (!(await o.firstUse("offer:" + c.offer_id, ttl))) throw new TollError("replay");
     const ref = toHex(await sha256(utf8(marks.slice().sort().join("\n"))));
@@ -127,6 +203,29 @@ export class CashuReceiveEngine implements SettlementEngine {
 
   async healthy(): Promise<boolean> {
     return (await this.liveMints()).length > 0;
+  }
+
+  /**
+   * NUT-09 then NUT-07 for swaps that were saved and not finished. Stores proofs. Does not grant a gate.
+   * `skip` leaves that input set for the request in progress, which grants the gate itself.
+   */
+  async recoverSaved(skip?: string[]): Promise<void> {
+    const store = await this.useStore();
+    const snap = await store.read();
+    for (const pending of snap.pending) {
+      if (skip && sameMarks(pending.marks, skip)) continue;
+      const restored = await this.tryRestore(pending);
+      if (restored.kind === "proofs") await store.commit({ id: pending.id, proofs: restored.proofs, marks: pending.marks });
+      // A restore that did not return our signatures is inconclusive. Leave the row.
+    }
+  }
+
+  private async proofsDurable(proofs: StoredProof[]): Promise<boolean> {
+    const store = await this.useStore();
+    const snap = await store.read();
+    const want = proofs.reduce((n, p) => n + p.amount, 0);
+    const got = snap.proofs.filter((p) => proofs.some((q) => q.secret === p.secret)).reduce((n, p) => n + p.amount, 0);
+    return got === want && want > 0;
   }
 
   private async liveMints(): Promise<string[]> {
@@ -142,7 +241,7 @@ export class CashuReceiveEngine implements SettlementEngine {
     return out;
   }
 
-  private async swapIn(mint: string, token: DecodedToken): Promise<StoredProof[]> {
+  private async prepare(mint: string, token: DecodedToken, marks: string[]): Promise<PendingSwap> {
     const listed = await this.keysets(mint);
     const known = listed.map((k) => k.id);
     let proofs: { amount: number; secret: string; id: string; C: string }[];
@@ -155,35 +254,170 @@ export class CashuReceiveEngine implements SettlementEngine {
     const fees = inputFee(proofs.map((p) => byId.get(p.id)?.input_fee_ppk ?? 0));
     const outAmount = proofs.reduce((n, p) => n + p.amount, 0) - fees;
     const active = listed.find((k) => k.active && k.unit === CASHU_UNIT);
-    if (!active) throw new TollError("store_unavailable");
+    if (!active || outAmount <= 0) throw new TollError("store_unavailable");
     const keys = await this.keys(mint, active.id);
     const derived = deriveKeysetIdV2(keys, active.unit, active.input_fee_ppk, active.final_expiry);
     if (derived !== active.id.toLowerCase()) throw new TollError("bad_solution");
     const denoms = Object.keys(keys).map(Number);
     const amounts = splitAmount(outAmount, denoms);
     if (!amounts) throw new TollError("bad_solution");
-    const blinded = amounts.map((amount) => ({ amount, ...blindMessage(toHex(randomBytes(32))) }));
-    const body = {
-      inputs: proofs.map((p) => ({ amount: p.amount, id: p.id, secret: p.secret, C: p.C })),
-      outputs: blinded.map((b) => ({ amount: b.amount, id: active.id, B_: b.B_ })),
-    };
-    const r = await mintFetch(mint, "/v1/swap", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }, this.guard, this.mints);
-    if (r.status !== 200) {
-      let code = 0;
-      try { code = Number(JSON.parse(r.text).code); } catch { /* not JSON */ }
-      if (code === 11001) throw new TollError("replay");
-      if (r.status >= 500 || code === 0) throw new TollError("store_unavailable");
-      throw new TollError("bad_solution");
-    }
-    let signatures: { amount?: number; C_?: string }[];
-    try { signatures = JSON.parse(r.text).signatures; } catch { throw new TollError("store_unavailable"); }
-    if (!Array.isArray(signatures) || signatures.length !== blinded.length) throw new TollError("store_unavailable");
-    return blinded.map((b, i) => {
-      const sig = signatures[i];
-      if (!sig || sig.amount !== b.amount || typeof sig.C_ !== "string") throw new TollError("store_unavailable");
-      const C = unblind(sig.C_, b.r, keys[String(b.amount)]);
-      return { mint, unit: "sat" as const, amount: b.amount, id: active.id.toLowerCase(), secret: b.secret, C };
+    const outputs: PendingOutput[] = amounts.map((amount) => {
+      const blinded = blindMessage(toHex(randomBytes(32)));
+      return { amount, id: active.id.toLowerCase(), secret: blinded.secret, r: hexR(blinded.r), B_: blinded.B_ };
     });
+    return {
+      id: "pend_" + randomHex(8),
+      mint,
+      unit: "sat",
+      inSats: proofs.reduce((n, p) => n + p.amount, 0),
+      outSats: outputs.reduce((n, p) => n + p.amount, 0),
+      marks,
+      inputs: proofs,
+      outputs,
+    };
+  }
+
+  private async complete(pending: PendingSwap): Promise<StoredProof[]> {
+    const outcome = await this.postSwap(pending);
+    if (this.afterSwap) await this.afterSwap();
+    if (outcome.kind === "sigs") {
+      const proofs = await this.unblindOutputs(pending, outcome.signatures);
+      if (proofs) return proofs;
+    }
+    const first = await this.tryRestore(pending);
+    if (first.kind === "proofs") return first.proofs;
+    // The swap did not return signatures. Post the same blinded outputs once more, then restore again.
+    const again = await this.postSwap(pending);
+    if (again.kind === "sigs") {
+      const proofs = await this.unblindOutputs(pending, again.signatures);
+      if (proofs) return proofs;
+    }
+    const second = await this.tryRestore(pending);
+    if (second.kind === "proofs") return second.proofs;
+    const empty = first.kind === "none" || second.kind === "none";
+    const unclear = first.kind === "inconclusive" || second.kind === "inconclusive";
+    const state = await this.tryCheck(pending);
+    const notice = messageFor(outcome.kind === "http" ? outcome : again);
+    // CASHU_GUARD abort-only-empty-restore: a mint code never deletes the outputs.
+    // Abort only when restore returned zero signatures and every input is UNSPENT.
+    if (empty && !unclear && state === "unspent") {
+      await (await this.useStore()).abort(pending.id);
+      throw new TollError(notice);
+    }
+    throw new TollError("store_unavailable");
+  }
+
+  private async postSwap(pending: PendingSwap): Promise<SwapOutcome> {
+    const body = {
+      inputs: pending.inputs.map((p) => ({ amount: p.amount, id: p.id, secret: p.secret, C: p.C })),
+      outputs: pending.outputs.map((b) => ({ amount: b.amount, id: b.id, B_: b.B_ })),
+    };
+    let r: { status: number; text: string };
+    try {
+      r = await mintFetch(pending.mint, "/v1/swap", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }, this.guard, this.mints);
+    } catch {
+      // CASHU_GUARD transport-not-4xx: a dropped connection is not a mint 4xx.
+      return { kind: "unknown" };
+    }
+    if (r.status !== 200) return { kind: "http", status: r.status, text: r.text };
+    let rows: unknown;
+    try { rows = JSON.parse(r.text).signatures; } catch { return { kind: "unknown" }; }
+    if (!Array.isArray(rows) || rows.length !== pending.outputs.length) return { kind: "unknown" };
+    const signatures: { amount: number; C_: string }[] = [];
+    for (let i = 0; i < pending.outputs.length; i++) {
+      const C_ = signatureC(rows[i], pending.outputs[i].amount);
+      if (!C_) return { kind: "unknown" };
+      signatures.push({ amount: pending.outputs[i].amount, C_ });
+    }
+    return { kind: "sigs", signatures };
+  }
+
+  /**
+   * NUT-09. Proofs when every blinded output has a signature. `none` only for a 200 whose
+   * outputs and signatures are both empty. A null signature, a partial list, or a transport
+   * failure is inconclusive and must not delete the row.
+   */
+  private async tryRestore(pending: PendingSwap): Promise<RestoreOutcome> {
+    let r: { status: number; text: string };
+    try {
+      const body = { outputs: pending.outputs.map((b) => ({ amount: b.amount, id: b.id, B_: b.B_ })) };
+      r = await mintFetch(pending.mint, "/v1/restore", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }, this.guard, this.mints);
+    } catch {
+      // CASHU_GUARD transport-not-4xx: a dropped connection is not a conclusive empty restore.
+      return { kind: "inconclusive" };
+    }
+    if (r.status !== 200) return { kind: "inconclusive" };
+    let parsed: unknown;
+    try { parsed = JSON.parse(r.text); } catch { return { kind: "inconclusive" }; }
+    const outputs = parsed && typeof parsed === "object" ? (parsed as { outputs?: unknown; signatures?: unknown }).outputs : undefined;
+    const rows = parsed && typeof parsed === "object" ? (parsed as { signatures?: unknown }).signatures : undefined;
+    // CASHU_GUARD inconclusive-restore: only paired arrays are an answer. Empty arrays mean zero signatures.
+    if (!Array.isArray(outputs) || !Array.isArray(rows) || outputs.length !== rows.length) return { kind: "inconclusive" };
+    if (outputs.length === 0) return { kind: "none" };
+    const got: ({ amount: number; C_: string } | undefined)[] = new Array(pending.outputs.length);
+    let usable = 0;
+    for (let i = 0; i < rows.length; i++) {
+      const out = outputs[i] as { amount?: unknown; B_?: unknown };
+      const B_ = typeof out?.B_ === "string" ? out.B_ : "";
+      const amount = typeof out?.amount === "number" ? out.amount : Number.NaN;
+      const C_ = signatureC(rows[i], amount);
+      if (!C_ || !B_) continue;
+      const idx = pending.outputs.findIndex((b) => b.B_ === B_ && b.amount === amount);
+      if (idx < 0 || got[idx]) continue;
+      got[idx] = { amount, C_ };
+      usable++;
+    }
+    if (usable === 0) return { kind: "inconclusive" };
+    if (usable !== pending.outputs.length || got.some((g) => !g)) return { kind: "inconclusive" };
+    const proofs = await this.unblindOutputs(pending, got as { amount: number; C_: string }[]);
+    if (!proofs) return { kind: "inconclusive" };
+    return { kind: "proofs", proofs };
+  }
+
+  private async tryCheck(pending: PendingSwap): Promise<"spent" | "unspent" | "pending" | "unknown"> {
+    let r: { status: number; text: string };
+    try {
+      const body = { Ys: pending.inputs.map((p) => secretY(p.secret)) };
+      r = await mintFetch(pending.mint, "/v1/checkstate", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }, this.guard, this.mints);
+    } catch {
+      return "unknown";
+    }
+    if (r.status !== 200) return "unknown";
+    let states: unknown;
+    try { states = JSON.parse(r.text).states; } catch { return "unknown"; }
+    if (!Array.isArray(states) || states.length !== pending.inputs.length) return "unknown";
+    let spent = 0;
+    let unspent = 0;
+    let waiting = 0;
+    for (const row of states) {
+      const state = row && typeof row === "object" ? (row as { state?: unknown }).state : undefined;
+      if (state === "SPENT") spent++;
+      else if (state === "PENDING") waiting++;
+      // CASHU_GUARD pending-not-unspent: PENDING is not an unspent input.
+      else if (state === "UNSPENT") unspent++;
+    }
+    if (waiting > 0) return "pending";
+    if (spent === pending.inputs.length) return "spent";
+    if (unspent === pending.inputs.length) return "unspent";
+    return "unknown";
+  }
+
+  private async unblindOutputs(pending: PendingSwap, signatures: { amount: number; C_: string }[]): Promise<StoredProof[] | null> {
+    const id = pending.outputs[0]?.id;
+    if (!id) return null;
+    let keys: Record<string, string>;
+    try { keys = await this.keys(pending.mint, id); } catch { return null; }
+    try {
+      return pending.outputs.map((b, i) => {
+        const sig = signatures[i];
+        const pub = keys[String(b.amount)];
+        if (!sig || !pub) throw new Error("sig");
+        const C = unblind(sig.C_, parseR(b.r), pub);
+        return { mint: pending.mint, unit: "sat" as const, amount: b.amount, id: b.id, secret: b.secret, C };
+      });
+    } catch {
+      return null;
+    }
   }
 
   private async keysets(mint: string): Promise<KeysetInfo[]> {

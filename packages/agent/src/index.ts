@@ -51,7 +51,7 @@ export interface AgentOptions {
   issuer?: string;
   /**
    * Pay an offer and return the proof string. For `ln402`, the 64-hex preimage. For `cashu`, the
-   * `cashuB` token from the test mint (`testMintPayer`). Throw to decline.
+   * `cashuA` or `cashuB` token (`cashuPayer`, `testMintPayer`). Throw to decline.
    */
   pay?: (offer: AgentOffer) => Promise<string>;
   /** Fall back to doing the work when it cannot pay (or no offer is available). Default true. */
@@ -68,7 +68,7 @@ export interface AgentResult {
   offer?: AgentOffer;
   /** Set when the offer was `ln402`. */
   preimage?: string;
-  /** Set when the offer was `cashu`: the `cashuB` token that was redeemed. */
+  /** Set when the offer was `cashu`: the `cashuA` or `cashuB` token that was redeemed. */
   token?: string;
   pass?: string;
   /** Status of the gate response before the retry (402 or 403), when there was one. */
@@ -143,7 +143,7 @@ export function createAgent(o: AgentOptions) {
         let proof: string | undefined;
         try {
           const raw = await o.pay(offer);
-          // A cashuB token is case-sensitive. Only a 64-hex preimage is lowercased.
+          // A cashu token is case-sensitive. Only a 64-hex preimage is lowercased.
           proof = offer.kind === "cashu" ? raw.trim() : raw.toLowerCase();
         } catch (e) {
           if (!(canWork && gate.challenge_url)) throw e; // declined, and no way to do the work instead

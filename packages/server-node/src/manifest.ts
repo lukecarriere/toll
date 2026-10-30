@@ -8,7 +8,7 @@ import type { ActionClass } from "../../protocol/src/index.ts";
 export const MANIFEST_DESCRIPTION = "A small check for writes. Heavy clients do work on each write, or pay in test mode. Page views stay free. Does not identify the caller.";
 export const NOT_FOR = ["page views", "crawler blocking", "citation licensing"] as const;
 export const PAID_CLASSES = ["write", "search", "account", "admin"] as const;
-export type PriceStatus = "test" | "stub";
+export type PriceStatus = "test" | "stub" | "cashu";
 
 /** Tool names and descriptions (PM copy, verbatim). The description is the ranking signal. */
 export const TOOLS = [
@@ -78,10 +78,10 @@ export function price(amount_msat: number | null, usd: string | null | undefined
 const FREE = (status: PriceStatus) => price(0, "0.0000", status);
 
 /** What the agent can actually complete. x402 is not wired (docs/adapters.md "Agent discovery"). */
-export function payment(status: PriceStatus, paid: boolean) {
-  return paid
-    ? { status: "stub" as const, protocol: "HTTP 402", methods: [{ kind: "ln402", status }], x402: { status: "stub" as const } }
-    : { status: "stub" as const, protocol: "none", methods: [] as { kind: string; status: PriceStatus }[], x402: { status: "stub" as const } };
+export function payment(status: PriceStatus, paid: boolean, method: "ln402" | "cashu" = "ln402") {
+  if (!paid) return { status: "stub" as const, protocol: "none", methods: [] as { kind: string; status: PriceStatus }[], x402: { status: "stub" as const } };
+  if (method === "cashu") return { status: "cashu" as const, protocol: "HTTP 402", methods: [{ kind: "cashu", status: "cashu" as const }], x402: { status: "stub" as const } };
+  return { status: "stub" as const, protocol: "HTTP 402", methods: [{ kind: "ln402", status }], x402: { status: "stub" as const } };
 }
 
 export type PriceTable = Partial<Record<Exclude<ActionClass, "read">, { amount_msat: number; usd: string | undefined }>> | null;
@@ -94,7 +94,7 @@ export type LoadPricing = Partial<Record<Exclude<ActionClass, "read">, boolean>>
  * status "stub". `api` is the /v1 facade base (Node and edge `<origin>/v1`, WordPress
  * `<home>/wp-json/toll/v1`).
  */
-export function buildManifest(o: { api: string; docs: string | null; status: PriceStatus; prices: PriceTable; loadPricing?: LoadPricing }) {
+export function buildManifest(o: { api: string; docs: string | null; status: PriceStatus; prices: PriceTable; loadPricing?: LoadPricing; method?: "ln402" | "cashu" }) {
   const paid = !!o.prices;
   const canRise = paid && PAID_CLASSES.some((c) => !!o.prices?.[c] && o.loadPricing?.[c] === true);
   const by_action: Record<string, Price & { basis: "base" }> = {};
@@ -112,7 +112,7 @@ export function buildManifest(o: { api: string; docs: string | null; status: Pri
     not_for: [...NOT_FOR],
     tools: [
       { ...tool("price_write_action"), input_schema: INPUT_SCHEMAS.price_write_action, endpoint: o.api + "/price?action={action}", price: base(FREE(o.status)), payment: payment(o.status, false) },
-      { ...tool("gate_form_write"), input_schema: INPUT_SCHEMAS.gate_form_write, endpoint: o.api + "/challenge?action={action}&path={path}&client=agent", price: { ...by_action.write, ...(canRise ? { note: BASE_PRICE_NOTE } : {}), by_action }, payment: payment(o.status, paid) },
+      { ...tool("gate_form_write"), input_schema: INPUT_SCHEMAS.gate_form_write, endpoint: o.api + "/challenge?action={action}&path={path}&client=agent", price: { ...by_action.write, ...(canRise ? { note: BASE_PRICE_NOTE } : {}), by_action }, payment: payment(o.status, paid, o.method ?? "ln402") },
       { ...tool("verify_write_pass"), input_schema: INPUT_SCHEMAS.verify_write_pass, endpoint: o.api + "/siteverify", price: base(FREE(o.status)), payment: payment(o.status, false) },
     ],
   };

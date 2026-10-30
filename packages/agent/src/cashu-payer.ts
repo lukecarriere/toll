@@ -1,14 +1,14 @@
-// Pay a Toll creqA from a cashuB token or from proofs you already hold.
-// An exact amount is sent as it is. A larger amount is swapped at the mint first; the change,
-// when there is any, is handed to `onChange` as a cashuB string.
+// Pay a Toll creqA from a cashuA or cashuB token, or from proofs you already hold.
+// An exact amount is sent as it arrived. A larger amount is swapped at the mint first; that
+// payment and any change are cashuB strings.
 import { AgentError, type AgentOffer } from "./index.ts";
-import { CASHU_UNIT, decodePaymentRequest, decodeTokenV4, encodeTokenV4, type CashuProof } from "../../settlement-ln/src/cashu.ts";
+import { CASHU_UNIT, decodePaymentRequest, decodeToken, encodeTokenV4, type CashuProof } from "../../settlement-ln/src/cashu.ts";
 import { blindMessage, deriveKeysetIdV2, inputFee, resolveKeysetId, shortKeysetId, splitAmount, unblind } from "../../settlement-ln/src/cashu-crypto.ts";
 import { type MintGuard, mintFetch, mintKey } from "../../settlement-ln/src/cashu-net.ts";
 import { fromHex, randomBytes, toHex } from "../../protocol/src/bytes.ts";
 
 export interface CashuPaySource {
-  /** A cashuB string. */
+  /** A cashuA or cashuB string. */
   token?: string;
   /** Proofs already held. `id` is the full or short keyset id, hex. `mint` is required with this form. */
   proofs?: { amount: number; secret: string; id: string; C: string }[];
@@ -88,9 +88,10 @@ export function cashuPayer(source: CashuPaySource, opts: CashuPayerOptions = {})
 }
 
 function load(source: CashuPaySource): { mint: string; proofs: Held[] } {
-  if (typeof source.token === "string" && source.token.startsWith("cashuB")) {
-    let t: ReturnType<typeof decodeTokenV4>;
-    try { t = decodeTokenV4(source.token); } catch { throw new AgentError("pay", "token"); }
+  if (typeof source.token === "string") {
+    let t: ReturnType<typeof decodeToken>;
+    try { t = decodeToken(source.token); } catch { throw new AgentError("pay", "token"); }
+    if (t.unit !== CASHU_UNIT) throw new AgentError("pay", "token");
     let mint: string;
     try { mint = mintKey(t.mint); } catch { throw new AgentError("pay", "token"); }
     return { mint, proofs: t.proofs.map((p) => ({ mint, amount: p.amount, secret: p.secret, id: p.id, C: p.C })) };

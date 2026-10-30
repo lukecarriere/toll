@@ -1,6 +1,6 @@
 # Cashu receive
 
-A Toll issuer can take a `cashuB` payment and keep the proofs. The allowlist defaults to empty, so this journey does not call a public mint. The check is the loopback suite inside `npm test`.
+A Toll issuer can take a `cashuA` or `cashuB` payment and keep the proofs. Change is `cashuB`. The allowlist defaults to empty, so this journey does not call a public mint. The check is the loopback suite inside `npm test`.
 
 ## Sub-features
 
@@ -21,7 +21,7 @@ Preconditions:
 
 - `npm test` has passed. That run includes `tests/settlement-cashu.test.ts`, `tests/settlement-cashu-receive.test.ts`, and `php tests/php/run-cashu-relay.php`.
 
-- **Loopback receive.** Those files are the drive. A 402 carries `X-Cashu: creqA…`. A `cashuB` token from the loopback version-01 mint comes back as a pass with `n = 1` and a 60 second lifetime. The same token is `401` `replay`. With the mint stopped, the agent gets `403` `toll_required` and a work challenge.
+- **Loopback receive.** Those files are the drive. A 402 carries `X-Cashu: creqA…`. A `cashuA` token and a `cashuB` token from the loopback version-01 mint each come back as a pass with `n = 1` and a 60 second lifetime. The same token is `401` `replay`. An unlisted mint is refused. A short keyset id is mapped before the swap. With the mint stopped, the agent gets `403` `toll_required` and a work challenge. `node scripts/mutate-cashu-token.mjs` kills a cashuA path that skips the allowlist and a cashuA path that skips the replay check.
 - **Default demo.** Doctor still expects `"settlement":"stub"`. The demo does not set the allowlist.
 
 ## Gotchas

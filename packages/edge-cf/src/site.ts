@@ -3,7 +3,7 @@
 // answers Accepted and never stores, echoes, emails or logs the text.
 import { TollError } from "../../protocol/src/index.ts";
 import { createEdgeHandler, type EdgeEnv } from "./handler.ts";
-import { DurableObjectStore, storeFailSlot, TollStoreDO, type TollDoStub } from "./do-store.ts";
+import { DurableObjectStore, DurableProofStore, storeFailSlot, TollStoreDO, type TollDoStub } from "./do-store.ts";
 
 export { TollStoreDO };
 
@@ -42,6 +42,7 @@ const handler = createEdgeHandler<SiteEnv>({
   // A stub from one request cannot be used on the next (Workers I/O isolation).
   freshStore: true,
   store: storeFor,
+  proofStore: (env) => new DurableProofStore(stub(env)),
   preserveFields: false,
   async forward(req, env, url) {
     // In-worker origin. The body is not read, stored, echoed or logged.

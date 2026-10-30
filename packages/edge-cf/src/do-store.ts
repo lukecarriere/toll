@@ -6,6 +6,10 @@ import { DurableObject } from "cloudflare:workers";
 import { AsyncLocalStorage } from "node:async_hooks";
 import { TollError } from "../../protocol/src/index.ts";
 import type { TollStore } from "../../server-node/src/stores.ts";
+import { CashuReceiveEngine } from "../../settlement-ln/src/cashu-receive.ts";
+import { parseCashuMints } from "../../settlement-ln/src/cashu-net.ts";
+import type { CashuBooks, PendingSwap, ProofSnapshot, ProofStore, StoredProof } from "../../settlement-ln/src/cashu-store.ts";
+import { cashuFaultSlot, cashuFetch, type CashuEnv } from "./cashu-edge.ts";
 
 /** Set true for the current request to make every store call fail closed. Unset: the store works. */
 export const storeFailSlot = new AsyncLocalStorage<boolean>();
@@ -22,6 +26,10 @@ export class TollStoreDO extends DurableObject {
     this.sql.exec("CREATE TABLE IF NOT EXISTS kv (k TEXT PRIMARY KEY, v TEXT NOT NULL, exp INTEGER NOT NULL)");
     this.sql.exec("CREATE TABLE IF NOT EXISTS win (k TEXT PRIMARY KEY, start INTEGER NOT NULL, n INTEGER NOT NULL)");
     this.sql.exec("CREATE TABLE IF NOT EXISTS day (d TEXT PRIMARY KEY, accepted INTEGER NOT NULL, rejected INTEGER NOT NULL)");
+    this.sql.exec("CREATE TABLE IF NOT EXISTS cashu_proof (secret TEXT PRIMARY KEY, mint TEXT NOT NULL, unit TEXT NOT NULL, amount INTEGER NOT NULL, keyset TEXT NOT NULL, c TEXT NOT NULL)");
+    this.sql.exec("CREATE TABLE IF NOT EXISTS cashu_spent (h TEXT PRIMARY KEY)");
+    this.sql.exec("CREATE TABLE IF NOT EXISTS cashu_pending (id TEXT PRIMARY KEY, body TEXT NOT NULL)");
+    this.sql.exec("CREATE TABLE IF NOT EXISTS cashu_meta (k TEXT PRIMARY KEY, n INTEGER NOT NULL)");
   }
 
   private now() {
@@ -143,6 +151,179 @@ export class TollStoreDO extends DurableObject {
     if (!row) return { accepted: 0, rejected: 0 };
     return { accepted: num(row.accepted), rejected: num(row.rejected) };
   }
+
+  private envOf(): CashuEnv {
+    return (this.env ?? {}) as CashuEnv;
+  }
+
+  private lossN(): number {
+    const rows = this.sql.exec("SELECT n FROM cashu_meta WHERE k = 'losses'").toArray();
+    return rows.length ? num(rows[0].n) : 0;
+  }
+
+  private addLoss(n: number): void {
+    if (!n) return;
+    this.sql.exec("INSERT INTO cashu_meta (k, n) VALUES ('losses', ?) ON CONFLICT(k) DO UPDATE SET n = n + ?", n, n);
+  }
+
+  private pendingRows(): PendingSwap[] {
+    const out: PendingSwap[] = [];
+    for (const row of this.sql.exec("SELECT body FROM cashu_pending").toArray()) {
+      const body = JSON.parse(String(row.body)) as PendingSwap;
+      if (body && typeof body.id === "string" && Array.isArray(body.outputs)) out.push(body);
+    }
+    return out;
+  }
+
+  private proofRows(): StoredProof[] {
+    return this.sql.exec("SELECT mint, unit, amount, keyset, secret, c FROM cashu_proof").toArray().map((r) => ({
+      mint: String(r.mint),
+      unit: "sat" as const,
+      amount: num(r.amount),
+      id: String(r.keyset),
+      secret: String(r.secret),
+      C: String(r.c),
+    }));
+  }
+
+  private spentRows(): string[] {
+    return this.sql.exec("SELECT h FROM cashu_spent").toArray().map((r) => String(r.h));
+  }
+
+  cashuRead(): ProofSnapshot {
+    return { proofs: this.proofRows(), spent: this.spentRows(), pending: this.pendingRows(), losses: this.lossN() };
+  }
+
+  cashuBooks(): CashuBooks {
+    const snap = this.cashuRead();
+    const stored = snap.proofs.reduce((n, p) => n + p.amount, 0);
+    const pending = snap.pending.reduce((n, p) => n + p.outSats, 0);
+    return { stored, pending, losses: snap.losses, spent: snap.spent.length, inSats: stored + pending + snap.losses };
+  }
+
+  /** Persist a pending swap. Throws replay when an input is already spent. Returns the row that owns those inputs. */
+  beginPending(p: PendingSwap): PendingSwap {
+    for (const h of p.marks) {
+      if (this.sql.exec("SELECT h FROM cashu_spent WHERE h = ?", h).toArray().length) throw new TollError("replay");
+    }
+    for (const existing of this.pendingRows()) {
+      if (existing.marks.some((h) => p.marks.includes(h))) return existing;
+    }
+    this.sql.exec("INSERT INTO cashu_pending (id, body) VALUES (?, ?)", p.id, JSON.stringify(p));
+    this.addLoss(p.inSats - p.outSats);
+    return p;
+  }
+
+  commitPending(o: { id: string; proofs: StoredProof[]; marks: string[] }): void {
+    const rows = this.sql.exec("SELECT body FROM cashu_pending WHERE id = ?", o.id).toArray();
+    if (!rows.length) {
+      if (o.marks.length > 0 && o.marks.every((h) => this.sql.exec("SELECT h FROM cashu_spent WHERE h = ?", h).toArray().length > 0)) return;
+      throw new TollError("store_unavailable");
+    }
+    const pending = JSON.parse(String(rows[0].body)) as PendingSwap;
+    const got = o.proofs.reduce((n, p) => n + p.amount, 0);
+    if (got !== pending.outSats) throw new TollError("store_unavailable");
+    for (const p of o.proofs) {
+      this.sql.exec(
+        "INSERT INTO cashu_proof (secret, mint, unit, amount, keyset, c) VALUES (?, ?, ?, ?, ?, ?)",
+        p.secret, p.mint, p.unit, p.amount, p.id, p.C,
+      );
+    }
+    for (const h of o.marks) this.sql.exec("INSERT INTO cashu_spent (h) VALUES (?) ON CONFLICT(h) DO NOTHING", h);
+    this.sql.exec("DELETE FROM cashu_pending WHERE id = ?", o.id);
+  }
+
+  abortPending(id: string): void {
+    const rows = this.sql.exec("SELECT body FROM cashu_pending WHERE id = ?", id).toArray();
+    if (!rows.length) return;
+    const pending = JSON.parse(String(rows[0].body)) as PendingSwap;
+    const fee = pending.inSats - pending.outSats;
+    if (fee) this.sql.exec("UPDATE cashu_meta SET n = ? WHERE k = 'losses'", Math.max(0, this.lossN() - fee));
+    this.sql.exec("DELETE FROM cashu_pending WHERE id = ?", id);
+  }
+
+  losePending(o: { id: string; marks: string[] }): void {
+    const rows = this.sql.exec("SELECT body FROM cashu_pending WHERE id = ?", o.id).toArray();
+    if (!rows.length) return;
+    const pending = JSON.parse(String(rows[0].body)) as PendingSwap;
+    this.addLoss(pending.outSats);
+    this.sql.exec("DELETE FROM cashu_pending WHERE id = ?", o.id);
+    for (const h of o.marks) this.sql.exec("INSERT INTO cashu_spent (h) VALUES (?) ON CONFLICT(h) DO NOTHING", h);
+  }
+
+  /** One DO call. The worker's ProofStore uses these so every proof write is serialised on this instance. */
+  async cashuBegin(p: PendingSwap): Promise<{ ok: true; pending: PendingSwap } | { ok: false; error: "replay" }> {
+    try {
+      const pending = this.beginPending(p);
+      try { await this.armAlarm(); } catch { /* a later request still recovers */ }
+      return { ok: true, pending };
+    } catch (e) {
+      if (e instanceof TollError && e.code === "replay") return { ok: false, error: "replay" };
+      throw e;
+    }
+  }
+
+  async cashuCommit(o: { id: string; proofs: StoredProof[]; marks: string[] }): Promise<{ ok: true } | { ok: false; error: "store_unavailable" }> {
+    try {
+      this.commitPending(o);
+      return { ok: true };
+    } catch (e) {
+      if (e instanceof TollError) return { ok: false, error: "store_unavailable" };
+      throw e;
+    }
+  }
+
+  async cashuAbort(id: string): Promise<{ ok: true }> {
+    this.abortPending(id);
+    return { ok: true };
+  }
+
+  async cashuLose(o: { id: string; marks: string[] }): Promise<{ ok: true }> {
+    this.losePending(o);
+    return { ok: true };
+  }
+
+  /** NUT-09 / NUT-07 for swaps saved before the mint call. Does not grant a gate. */
+  async cashuRecover(): Promise<{ ok: true }> {
+    const env = this.envOf();
+    const mints = parseCashuMints(env.CASHU_MINTS, env.TOLL_TEST_HOOKS === "1");
+    if (!mints.length || !this.pendingRows().length) return { ok: true };
+    const engine = new CashuReceiveEngine({
+      secret: "durable-object-recover-1",
+      mints,
+      store: this.localStore(),
+      lookup: env.TOLL_TEST_HOOKS === "1" ? async () => ["1.1.1.1"] : undefined,
+      fetch: cashuFetch(env, mints),
+    });
+    await engine.recoverSaved();
+    if (!this.pendingRows().length) {
+      try { await this.ctx.storage.deleteAlarm?.(); } catch { /* alarm is optional */ }
+    }
+    return { ok: true };
+  }
+
+  async alarm(): Promise<void> {
+    await this.cashuRecover();
+    if (this.pendingRows().length) {
+      try { await this.armAlarm(); } catch { /* next request recovers */ }
+    }
+  }
+
+  private async armAlarm(): Promise<void> {
+    await this.ctx.storage.setAlarm?.(Date.now() + 60_000);
+  }
+
+  /** In-object store for alarm recovery. The request path uses RPC so the mint call stays outside the DO. */
+  private localStore(): ProofStore {
+    return {
+      read: async () => this.cashuRead(),
+      books: async () => this.cashuBooks(),
+      begin: async (p) => this.beginPending(p),
+      commit: async (o) => { this.commitPending(o); },
+      abort: async (id) => { this.abortPending(id); },
+      lose: async (o) => { this.losePending(o); },
+    };
+  }
 }
 
 export interface TollDoStub {
@@ -156,12 +337,55 @@ export interface TollDoStub {
   windowCount(key: string, window_s: number): Promise<number>;
   note(kind: string): Promise<{ accepted: number; rejected: number }>;
   counts(): Promise<{ accepted: number; rejected: number }>;
+  cashuRead(): Promise<ProofSnapshot>;
+  cashuBooks(): Promise<CashuBooks>;
+  cashuBegin(p: PendingSwap): Promise<{ ok: true; pending: PendingSwap } | { ok: false; error: "replay" }>;
+  cashuCommit(o: { id: string; proofs: StoredProof[]; marks: string[] }): Promise<{ ok: true } | { ok: false; error: "store_unavailable" }>;
+  cashuAbort(id: string): Promise<{ ok: true }>;
+  cashuLose(o: { id: string; marks: string[] }): Promise<{ ok: true }>;
+  cashuRecover(): Promise<{ ok: true }>;
 }
 
 /**
  * Worker-side TollStore over one Durable Object stub. Each method is one RPC.
  * Fails closed on any error, and when this request's fail slot is set.
  */
+/** ProofStore over the one TollStoreDO instance. Each call is one RPC, so writes cannot race across isolates. */
+export class DurableProofStore implements ProofStore {
+  private stub: TollDoStub;
+  constructor(stub: TollDoStub) { this.stub = stub; }
+  async read() {
+    if (storeFailSlot.getStore() === true) throw new TollError("store_unavailable");
+    return this.stub.cashuRead();
+  }
+  async books() {
+    if (storeFailSlot.getStore() === true) throw new TollError("store_unavailable");
+    return this.stub.cashuBooks();
+  }
+  async begin(p: PendingSwap) {
+    if (storeFailSlot.getStore() === true) throw new TollError("store_unavailable");
+    const r = await this.stub.cashuBegin(p);
+    if (!r.ok) throw new TollError(r.error);
+    return r.pending;
+  }
+  async commit(o: { id: string; proofs: StoredProof[]; marks: string[] }) {
+    if (storeFailSlot.getStore() === true) throw new TollError("store_unavailable");
+    // CASHU_GUARD grant-only-stored: a test fault drops the write. The engine then refuses the gate.
+    if (cashuFaultSlot.getStore() === "drop-commit") return;
+    const r = await this.stub.cashuCommit(o);
+    if (!r.ok) throw new TollError(r.error);
+  }
+  async abort(id: string) {
+    if (storeFailSlot.getStore() === true) throw new TollError("store_unavailable");
+    await this.stub.cashuAbort(id);
+  }
+  async lose(o: { id: string; marks: string[] }) {
+    if (storeFailSlot.getStore() === true) throw new TollError("store_unavailable");
+    await this.stub.cashuLose(o);
+  }
+  recover() { return this.stub.cashuRecover(); }
+}
+
 export class DurableObjectStore implements TollStore {
   private stub: TollDoStub;
   constructor(stub: TollDoStub) {

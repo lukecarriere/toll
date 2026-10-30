@@ -6,7 +6,7 @@ import { readFileSync, existsSync, statSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { type ActionClass, TollError, isActionClass, timingSafeEqual, utf8, verifyPassToken, classCovers, clientIp as resolveClientIp } from "../../protocol/src/index.ts";
-import { l402Challenge, paymentRequired, presentedCashu, StubSettler } from "../../settlement-ln/src/index.ts";
+import { asCashuPayment, l402Challenge, paymentRequired, presentedCashu, StubSettler } from "../../settlement-ln/src/index.ts";
 import type { Toll } from "./toll.ts";
 import { buildManifest, agentsPointer, priceBody, PAID_CLASSES } from "./manifest.ts";
 
@@ -355,9 +355,9 @@ export function tollRouter(toll: Toll) {
         }
         if (path === "/v1/owner/cashu" && req.method === "POST") {
           const body = await readBody(req);
-          const presented = typeof body?.token === "string" ? body.token : "";
+          const presented = asCashuPayment(typeof body?.token === "string" ? body.token : "");
           const action = body?.action;
-          if (!presented.startsWith("cashuB") || presented.length > 16384 || !isActionClass(action) || action === "read") return send(res, 400, { error: "malformed" });
+          if (!presented || presented.length > 16384 || !isActionClass(action) || action === "read") return send(res, 400, { error: "malformed" });
           try {
             const r = await toll.bookPresentedCashu(presented, action, body?.net);
             toll.metrics.emit("owner_redeem", { cls: r.cls, amount_msat: r.amount_msat });
@@ -495,15 +495,14 @@ async function reject(toll: Toll, req: Req, res: ServerResponse, action: ActionC
 }
 
 /**
- * Agent retry with a test-mint token in `X-Cashu` (NUT-24). Returns the pass response, or null when
- * this request is not that retry. Older `cashuA` tokens are refused. The work challenge is unchanged
- * when no token is presented.
+ * Agent retry with a token in `X-Cashu` (NUT-24). `cashuA` and `cashuB` both pay. Returns the pass
+ * response, or null when this request is not that retry. A `creqA` string is not a payment. The
+ * work challenge is unchanged when no token is presented.
  */
 async function cashuPassResponse(toll: Toll, header: string | string[] | undefined, agent: boolean, action: ActionClass, ip: string | null): Promise<{ status: number; body: unknown } | null> {
   if (!agent || !toll.config.settlement.cashu?.enabled) return null;
   const presented = presentedCashu(header);
   if (!presented) return null;
-  if (presented.kind === "a") return { status: 400, body: { error: "malformed" } };
   try {
     const r = await toll.redeemPresentedToken(presented.token, { action, ip });
     return { status: 200, body: { pass: r.pass, exp: r.exp, cls: r.cls, rail: r.rail } };

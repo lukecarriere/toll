@@ -2,8 +2,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { normalizeConfig } from "../packages/server-node/src/index.ts";
-import { decodePaymentRequest, decodeTokenV4, encodeTokenV4, startTestMint } from "../packages/settlement-ln/src/index.ts";
-import { fromB64url, fromUtf8, randomBytes } from "../packages/protocol/src/bytes.ts";
+import { asCashuPayment, decodePaymentRequest, decodeToken, decodeTokenV4, encodeTokenV3, encodeTokenV4, startTestMint } from "../packages/settlement-ln/src/index.ts";
+import { fromB64url, fromUtf8, randomBytes, toB64url, toHex, utf8 } from "../packages/protocol/src/bytes.ts";
 import { createAgent, solveWork, testMintPayer } from "../packages/agent/src/index.ts";
 import { startDemo, drain } from "./helpers.ts";
 
@@ -45,11 +45,44 @@ test("config refuses the Cashu option outside test mode and refuses a non-loopba
   assert.equal(normalizeConfig({ ...base, settlement: { enabled: true } }).settlement.cashu, undefined);
 });
 
+const SPEC_TOKEN_V3 = "cashuAeyJ0b2tlbiI6W3sibWludCI6Imh0dHBzOi8vODMzMy5zcGFjZTozMzM4IiwicHJvb2ZzIjpbeyJhbW91bnQiOjIsImlkIjoiMDA5YTFmMjkzMjUzZTQxZSIsInNlY3JldCI6IjQwNzkxNWJjMjEyYmU2MWE3N2UzZTZkMmFlYjRjNzI3OTgwYmRhNTFjZDA2YTZhZmMyOWUyODYxNzY4YTc4MzciLCJDIjoiMDJiYzkwOTc5OTdkODFhZmIyY2M3MzQ2YjVlNDM0NWE5MzQ2YmQyYTUwNmViNzk1ODU5OGE3MmYwY2Y4NTE2M2VhIn0seyJhbW91bnQiOjgsImlkIjoiMDA5YTFmMjkzMjUzZTQxZSIsInNlY3JldCI6ImZlMTUxMDkzMTRlNjFkNzc1NmIwZjhlZTBmMjNhNjI0YWNhYTNmNGUwNDJmNjE0MzNjNzI4YzcwNTdiOTMxYmUiLCJDIjoiMDI5ZThlNTA1MGI4OTBhN2Q2YzA5NjhkYjE2YmMxZDVkNWZhMDQwZWExZGUyODRmNmVjNjlkNjEyOTlmNjcxMDU5In1dfV0sInVuaXQiOiJzYXQiLCJtZW1vIjoiVGhhbmsgeW91LiJ9";
+
 test("NUT-00 cashuB example decodes", () => {
   const t = decodeTokenV4(SPEC_TOKEN);
   assert.equal(t.mint, "http://localhost:3338");
   assert.equal(t.unit, "sat");
   assert.deepEqual(t.proofs.map((p) => p.amount), [1, 2, 1]);
+});
+
+test("NUT-00 cashuA decodes, a short keyset id is kept, and one mint split across entries is merged", () => {
+  const t = decodeToken(SPEC_TOKEN_V3);
+  assert.equal(t.unit, "sat");
+  assert.deepEqual(t.proofs.map((p) => p.amount), [2, 8]);
+  assert.equal(t.proofs[0].id.length, 8);
+  assert.equal(t.proofs[0].id[0], 0x00);
+  assert.equal(asCashuPayment("creqAabc"), null);
+  assert.equal(asCashuPayment("cashu:" + SPEC_TOKEN_V3), SPEC_TOKEN_V3);
+  assert.throws(() => decodeToken("cashuAeyJ0b2tlbiI6W119"), /token/);
+  const one = decodeToken(encodeTokenV3({ mint: "http://127.0.0.1:9/Bitcoin", unit: "sat", proofs: t.proofs }));
+  assert.equal(one.proofs.length, 2);
+  assert.equal(one.proofs[0].id.length, 8);
+  const split = "cashuA" + toB64url(utf8(JSON.stringify({
+    token: t.proofs.map((p) => ({ mint: "http://127.0.0.1:9/Bitcoin/", proofs: [{ amount: p.amount, id: toHex(p.id), secret: p.secret, C: toHex(p.C) }] })),
+  })));
+  const merged = decodeToken(split);
+  assert.equal(merged.mint, "http://127.0.0.1:9/Bitcoin");
+  assert.equal(merged.unit, "sat");
+  assert.deepEqual(merged.proofs.map((p) => p.amount), [2, 8]);
+  const mixed = "cashuA" + toB64url(utf8(JSON.stringify({
+    token: [
+      { mint: "http://127.0.0.1:9/Bitcoin", proofs: [{ amount: 2, id: toHex(t.proofs[0].id), secret: "a", C: toHex(t.proofs[0].C) }] },
+      { mint: "http://127.0.0.1:8/Bitcoin", proofs: [{ amount: 8, id: toHex(t.proofs[1].id), secret: "b", C: toHex(t.proofs[1].C) }] },
+    ],
+    unit: "sat",
+  })));
+  assert.throws(() => decodeToken(mixed), /token/);
+  const usd = encodeTokenV3({ mint: "http://127.0.0.1:9", unit: "usd", proofs: [t.proofs[0]] });
+  assert.equal(decodeToken(usd).unit, "usd");
 });
 
 test("agent 402 carries an X-Cashu payment request; a test-mint token yields a 1-use 60s pass; replay is 401; a down mint falls back to work", async () => {
@@ -91,9 +124,12 @@ test("agent 402 carries an X-Cashu payment request; a test-mint token yields a 1
     assert.equal(body.offers[0].mint, mint.url);
     assert.equal(req.i, body.offers[0].id);
 
-    const legacy = await post({ "toll-client": "agent", "x-cashu": "cashuAeyJ0b2tlbiI6W119" });
-    assert.equal(legacy.status, 400);
-    assert.equal((await legacy.json()).error, "malformed");
+    const garbage = await post({ "toll-client": "agent", "x-cashu": "cashuAeyJ0b2tlbiI6W119" });
+    assert.equal(garbage.status, 400);
+    assert.equal((await garbage.json()).error, "malformed");
+    const notAPayment = await post({ "toll-client": "agent", "x-cashu": header! });
+    assert.equal(notAPayment.status, 402);
+    await drain(notAPayment);
 
     const swapsBefore = mint.swaps();
     const token = await testMintPayer(mint.url)(body.offers[0]);
@@ -142,6 +178,24 @@ test("agent 402 carries an X-Cashu payment request; a test-mint token yields a 1
     const unknown = await post({ "toll-client": "agent", "x-cashu": forged });
     assert.equal(unknown.status, 401);
     assert.equal((await unknown.json()).error, "bad_solution");
+
+    const mintedV3 = await testMintPayer(mint.url)(body.offers[0]);
+    const v3 = encodeTokenV3(decodeToken(mintedV3));
+    assert.ok(v3.startsWith("cashuA"));
+    const paidV3 = await post({ "toll-client": "agent", "x-cashu": v3 });
+    assert.equal(paidV3.status, 200);
+    assert.equal((await paidV3.json()).rail, "settle");
+    const againV3 = await post({ "toll-client": "agent", "x-cashu": v3 });
+    assert.equal(againV3.status, 401);
+    assert.equal((await againV3.json()).error, "replay");
+    const rawUsd = decodeToken(await testMintPayer(mint.url)(body.offers[0]));
+    const usd = await post({ "toll-client": "agent", "x-cashu": encodeTokenV3({ ...rawUsd, unit: "usd" }) });
+    assert.equal(usd.status, 400);
+    assert.equal((await usd.json()).error, "malformed");
+    const rawOther = decodeToken(await testMintPayer(mint.url)(body.offers[0]));
+    const otherMint = await post({ "toll-client": "agent", "x-cashu": encodeTokenV3({ ...rawOther, mint: "http://127.0.0.1:9" }) });
+    assert.equal(otherMint.status, 400);
+    assert.equal((await otherMint.json()).error, "malformed");
 
     const agent = createAgent({ base: S.url, pay: testMintPayer(mint.url) });
     const viaAgent = await agent.fetch("/contact", { method: "POST", headers: { "content-type": "application/json" }, body: "{}" });

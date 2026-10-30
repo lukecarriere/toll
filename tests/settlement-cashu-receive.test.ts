@@ -7,9 +7,11 @@ import type { AddressInfo } from "node:net";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { fromB64url, fromUtf8 } from "../packages/protocol/src/bytes.ts";
+import { fromB64url, fromUtf8, toB64url, toHex, utf8 } from "../packages/protocol/src/bytes.ts";
 import { normalizeConfig } from "../packages/server-node/src/index.ts";
-import { decodeTokenV4, CashuReceiveEngine, assertProductionMint, guardMintUrl, mintFetch, resolveKeysetId, deriveKeysetIdV2, startKeysetMint, blockedAddress } from "../packages/settlement-ln/src/index.ts";
+import { decodeToken, decodeTokenV4, encodeTokenV3, encodeTokenV4, CashuReceiveEngine, assertProductionMint, guardMintUrl, mintFetch, resolveKeysetId, deriveKeysetIdV2, startKeysetMint, blockedAddress } from "../packages/settlement-ln/src/index.ts";
+import { FileProofStore, type PendingSwap, type ProofStore, type StoredProof } from "../packages/settlement-ln/src/cashu-store.ts";
+import { TollError } from "../packages/protocol/src/errors.ts";
 import { cashuPayer, createAgent } from "../packages/agent/src/index.ts";
 import { startDemo, drain } from "./helpers.ts";
 
@@ -91,7 +93,7 @@ test("a version-01 token swaps into stored proofs; replay, allowlist, and a down
   spy("log"); spy("info"); spy("warn"); spy("error"); spy("debug");
   const S = await startDemo({
     work: { standard: { cost: 500 } },
-    settlement: { enabled: true, backend: "stub", fee_bps: 1000, fx: { source: "fixed", usd_per_btc: 100000 }, cashu: { enabled: true, mint: mint.url } },
+    settlement: { enabled: true, backend: "stub", fee_bps: 1000, fx: { source: "fixed", usd_per_btc: 100000 }, owner_key: "owner-test-key-0123456789abcdef", cashu: { enabled: true, mint: mint.url } },
   }, { settlement: { engine: engine() } });
   const post = (headers: Record<string, string>) =>
     fetch(S.url + "/contact", { method: "POST", headers: { accept: "application/json", "content-type": "application/json", ...headers }, body: "{}" });
@@ -139,8 +141,10 @@ test("a version-01 token swaps into stored proofs; replay, allowlist, and a down
     }, { settlement: { engine: new CashuReceiveEngine({ secret, mints: [mint.url], store: empty, loopbackHttp: true }) } });
     try {
       const other = await fetch(S3.url + "/contact", { method: "POST", headers: { accept: "application/json", "content-type": "application/json", "toll-client": "agent", "x-cashu": paidToken }, body: "{}" });
-      assert.equal(other.status, 401);
-      assert.equal((await other.json()).error, "replay");
+      assert.equal(other.status, 503);
+      assert.equal((await other.json()).error, "unavailable");
+      const kept = JSON.parse(readFileSync(empty, "utf8"));
+      assert.equal(kept.pending.length, 1, "11001 keeps the blinded outputs");
       assert.ok(mint.swaps() > remembered, "with an empty store the mint's spent state still refuses");
     } finally {
       await S3.close();
@@ -175,6 +179,51 @@ test("a version-01 token swaps into stored proofs; replay, allowlist, and a down
     assert.equal(via.via, "paid");
     assert.equal(via.response.status, 200);
 
+    const sourceA = encodeTokenV3(decodeToken(mint.token(10)));
+    const deniedA = await post({ "toll-client": "agent" });
+    assert.equal(deniedA.status, 402);
+    const bodyA = await deniedA.json();
+    const sentA = await cashuPayer({ token: sourceA })(bodyA.offers[0]);
+    assert.equal(sentA, sourceA);
+    const swapsA = mint.swaps();
+    const paidA = await post({ "toll-client": "agent", "x-cashu": sentA });
+    assert.equal(paidA.status, 200);
+    await drain(paidA);
+    assert.equal(mint.lastInputIds()[0].length, 66);
+    assert.ok(mint.lastInputIds()[0].startsWith(toHex(decodeToken(sourceA).proofs[0].id)));
+    const replayA = await post({ "toll-client": "agent", "x-cashu": sentA });
+    assert.equal(replayA.status, 401);
+    assert.equal((await replayA.json()).error, "replay");
+    assert.equal(mint.swaps(), swapsA + 1);
+
+    let changeA = "";
+    const biggerA = cashuPayer({ token: encodeTokenV3(decodeToken(mint.token(16))) }, { onChange: (t) => { changeA = t; } });
+    const deniedChange = await post({ "toll-client": "agent" });
+    const bodyChange = await deniedChange.json();
+    const splitA = await biggerA(bodyChange.offers[0]);
+    assert.ok(splitA.startsWith("cashuB"));
+    assert.ok(changeA.startsWith("cashuB"));
+
+    const agentA = createAgent({ base: S.url, pay: cashuPayer({ token: encodeTokenV3(decodeToken(mint.token(10))) }) });
+    const viaA = await agentA.fetch("/contact", { method: "POST", headers: { "content-type": "application/json" }, body: "{}" });
+    await drain(viaA.response);
+    assert.equal(viaA.via, "paid");
+    assert.equal(viaA.response.status, 200);
+    assert.ok(viaA.token?.startsWith("cashuA"));
+
+    const foreign = encodeTokenV3({ ...decodeToken(mint.token(10)), mint: "https://evil.example/Bitcoin" });
+    const refusedA = await post({ "toll-client": "agent", "x-cashu": foreign });
+    assert.equal(refusedA.status, 400);
+    assert.equal((await refusedA.json()).error, "malformed");
+
+    const booked = await fetch(S.url + "/v1/owner/cashu", {
+      method: "POST",
+      headers: { "content-type": "application/json", authorization: "Bearer owner-test-key-0123456789abcdef" },
+      body: JSON.stringify({ token: encodeTokenV3(decodeToken(mint.token(10))), action: "write" }),
+    });
+    assert.equal(booked.status, 200);
+    assert.equal((await booked.json()).ok, true);
+
     mint.setDown(true);
     const down = await post({ "toll-client": "agent" });
     assert.equal(down.status, 403);
@@ -183,6 +232,157 @@ test("a version-01 token swaps into stored proofs; replay, allowlist, and a down
     assert.ok(downBody.challenge?.work);
   } finally {
     await S.close();
+    await mint.close();
+  }
+});
+
+/** A store that records spent inputs but will begin a second swap of them. The engine check is the only replay block. */
+function looseStore(): ProofStore & { begins: () => number } {
+  let proofs: StoredProof[] = [];
+  let spent: string[] = [];
+  let pending: PendingSwap[] = [];
+  let losses = 0;
+  let begins = 0;
+  const books = () => {
+    const stored = proofs.reduce((n, p) => n + p.amount, 0);
+    const pendingSats = pending.reduce((n, p) => n + p.outSats, 0);
+    return { stored, pending: pendingSats, losses, spent: spent.length, inSats: stored + pendingSats + losses };
+  };
+  return {
+    begins: () => begins,
+    async read() { return { proofs: proofs.slice(), spent: spent.slice(), pending: pending.slice(), losses }; },
+    books: async () => books(),
+    async begin(p) { begins++; pending.push(p); return p; },
+    async commit(o) {
+      proofs = proofs.concat(o.proofs);
+      for (const h of o.marks) if (!spent.includes(h)) spent.push(h);
+      pending = pending.filter((p) => p.id !== o.id);
+    },
+    async abort(id) { pending = pending.filter((p) => p.id !== id); },
+    async lose(o) {
+      pending = pending.filter((p) => p.id !== o.id);
+      for (const h of o.marks) if (!spent.includes(h)) spent.push(h);
+    },
+  };
+}
+
+function encodeEntries(t: { mint: string; unit: string; proofs: { amount: number; secret: string; id: Uint8Array; C: Uint8Array }[] }): string {
+  const token = t.proofs.map((p) => ({
+    mint: t.mint,
+    proofs: [{ amount: p.amount, id: toHex(p.id).slice(0, 16), secret: p.secret, C: toHex(p.C) }],
+  }));
+  return "cashuA" + toB64url(utf8(JSON.stringify({ token, unit: t.unit })));
+}
+
+test("cashuA guard: a V3 token pays, replay and an unlisted mint are refused, and both encoders pay", async () => {
+  const mint = await startKeysetMint();
+  const store = looseStore();
+  const fetched: string[] = [];
+  const engine = new CashuReceiveEngine({
+    secret: "cashu-receive-test-secret",
+    mints: [mint.url],
+    store,
+    loopbackHttp: true,
+    fetch: async (input, init) => {
+      const href = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+      fetched.push(href);
+      return fetch(input, init);
+    },
+  });
+  const now = Math.floor(Date.now() / 1000);
+  const firstUse = async () => true;
+  const pay = async (token: string) => {
+    const offer = await engine.offer({ site: "s", cls: "write", amount_msat: 10000, now });
+    return engine.verifyPaid({ site: "s", now, firstUse, proof: { kind: "cashu", offer_id: offer.id, credential: offer.credential, token } });
+  };
+  try {
+    const raw = decodeToken(mint.token(10));
+    const v3 = encodeTokenV3(raw);
+    assert.equal(decodeToken(v3).proofs[0].id.length, 8);
+    assert.equal(decodeToken(v3).proofs[0].id[0], 0x01);
+    const swaps = mint.swaps();
+    const paid = await pay(v3);
+    assert.equal(paid.amount_msat, 10000);
+    const short = toHex(decodeToken(v3).proofs[0].id);
+    assert.equal(short.length, 16);
+    assert.ok(mint.lastInputIds()[0].startsWith(short));
+    assert.equal(mint.lastInputIds()[0].length, 66);
+    const begins = store.begins();
+    await assert.rejects(() => pay(v3), (e: unknown) => e instanceof TollError && e.code === "replay");
+    assert.equal(store.begins(), begins);
+    assert.equal(mint.swaps(), swaps + 1);
+    await assert.rejects(() => pay(encodeTokenV4(raw)), (e: unknown) => e instanceof TollError && e.code === "replay");
+
+    const split = decodeToken(mint.token(10));
+    assert.ok(split.proofs.length > 1);
+    const multi = encodeEntries(split);
+    assert.ok(decodeToken(multi).proofs.length > 1);
+    await pay(multi);
+    await pay(encodeTokenV4(decodeToken(mint.token(10))));
+
+    const wrong = encodeTokenV3({ ...decodeToken(mint.token(10)), unit: "usd" });
+    await assert.rejects(() => pay(wrong), (e: unknown) => e instanceof TollError && e.code === "malformed");
+    await assert.rejects(() => pay("cashuAeyJ0b2tlbiI6W119"), (e: unknown) => e instanceof TollError && e.code === "malformed");
+    const offer = await engine.offer({ site: "s", cls: "write", amount_msat: 10000, now });
+    await assert.rejects(
+      () => engine.verifyPaid({ site: "s", now, firstUse, proof: { kind: "cashu", offer_id: offer.id, credential: offer.credential, token: offer.request } }),
+      (e: unknown) => e instanceof TollError && e.code === "malformed",
+    );
+
+    fetched.length = 0;
+    const foreign = encodeTokenV3({ ...decodeToken(mint.token(10)), mint: "http://127.0.0.1:1/Bitcoin" });
+    await assert.rejects(() => pay(foreign), (e: unknown) => e instanceof TollError && e.code === "malformed");
+    assert.equal(fetched.some((u) => u.includes("127.0.0.1:1")), false);
+  } finally {
+    await mint.close();
+  }
+});
+
+test("verifyPaid's replay check alone blocks a second swap when the store would accept the inputs", async () => {
+  const mint = await startKeysetMint();
+  const store = looseStore();
+  const engine = new CashuReceiveEngine({ secret: "cashu-receive-test-secret", mints: [mint.url], store, loopbackHttp: true });
+  const now = Math.floor(Date.now() / 1000);
+  const firstUse = async () => true;
+  try {
+    const offer = await engine.offer({ site: "s", cls: "write", amount_msat: 10000, now });
+    const token = mint.token(10);
+    const swaps = mint.swaps();
+    await engine.verifyPaid({ site: "s", now, firstUse, proof: { kind: "cashu", offer_id: offer.id, credential: offer.credential, token } });
+    assert.equal(mint.swaps(), swaps + 1);
+    const begins = store.begins();
+    await assert.rejects(
+      () => engine.verifyPaid({ site: "s", now, firstUse, proof: { kind: "cashu", offer_id: offer.id, credential: offer.credential, token } }),
+      (e: unknown) => e instanceof TollError && e.code === "replay",
+    );
+    assert.equal(store.begins(), begins);
+    assert.equal(mint.swaps(), swaps + 1);
+  } finally {
+    await mint.close();
+  }
+});
+
+test("NUT-07 PENDING is not UNSPENT, so the blinded outputs stay", async () => {
+  const mint = await startKeysetMint();
+  const dir = mkdtempSync(join(tmpdir(), "toll-cashu-pending-"));
+  const store = new FileProofStore(join(dir, "proofs.json"));
+  const engine = new CashuReceiveEngine({ secret: "cashu-receive-test-secret", mints: [mint.url], store, loopbackHttp: true });
+  const now = Math.floor(Date.now() / 1000);
+  mint.setFault("/v1/swap", "refuse");
+  mint.setFault("/v1/checkstate", "pending");
+  try {
+    const offer = await engine.offer({ site: "s", cls: "write", amount_msat: 10000, now });
+    const token = mint.token(10);
+    await assert.rejects(
+      () => engine.verifyPaid({ site: "s", now, firstUse: async () => true, proof: { kind: "cashu", offer_id: offer.id, credential: offer.credential, token } }),
+      (e: unknown) => e instanceof TollError && e.code === "store_unavailable",
+    );
+    const mid = await store.read();
+    assert.equal(mid.pending.length, 1);
+    assert.equal(mid.pending[0].outSats, 10);
+    assert.equal(mid.spent.length, 0);
+  } finally {
+    mint.setFault(null, null);
     await mint.close();
   }
 });

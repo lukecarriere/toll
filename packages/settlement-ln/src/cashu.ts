@@ -1,6 +1,7 @@
-// NUT-24 payment requests (NUT-18 `creqA`) and NUT-00 V4 tokens (`cashuB`).
-// `cashuA` (V3) is recognised only so a caller can refuse it. This build does not mint or accept it.
-import { fromB64url, toB64url, toHex } from "../../protocol/src/bytes.ts";
+// NUT-24 payment requests (NUT-18 `creqA`) and NUT-00 tokens.
+// `cashuA` (V3 JSON) and `cashuB` (V4 CBOR) are both payments. Change is encoded as `cashuB`.
+// A `creqA` string is a request, not a payment.
+import { fromB64url, fromHex, fromUtf8, toB64url, toHex, utf8 } from "../../protocol/src/bytes.ts";
 import { cborDecode, cborEncode, type Cbor } from "./cbor.ts";
 
 /** Request unit for this test rail. Amounts are whole units of 1,000 msat (settlement.md Q3). */
@@ -82,7 +83,9 @@ export function encodeTokenV4(t: { mint: string; unit: string; proofs: CashuProo
 export function decodeTokenV4(s: string): DecodedToken {
   if (!s.startsWith("cashuB")) throw new Error("not a cashuB token");
   const v = cborDecode(b64(s.slice(6)));
-  if (!isObj(v) || typeof v.m !== "string" || typeof v.u !== "string" || !Array.isArray(v.t)) throw new Error("token");
+  if (!isObj(v) || typeof v.m !== "string" || !Array.isArray(v.t)) throw new Error("token");
+  if (v.u !== undefined && typeof v.u !== "string") throw new Error("token");
+  const unit = typeof v.u === "string" && v.u !== "" ? v.u : CASHU_UNIT;
   const proofs: CashuProof[] = [];
   for (const group of v.t) {
     if (!isObj(group) || !(group.i instanceof Uint8Array) || !Array.isArray(group.p)) throw new Error("token");
@@ -92,18 +95,105 @@ export function decodeTokenV4(s: string): DecodedToken {
     }
   }
   if (proofs.length === 0) throw new Error("token");
-  return { mint: stripMint(v.m), unit: v.u, proofs };
+  return { mint: stripMint(v.m), unit, proofs };
 }
 
 /**
- * What a client put in `X-Cashu` on a retry. `b` is a V4 token. `a` is the older V3 token, which
- * this build refuses. A payment request (`creqA`) is not a payment.
+ * `cashuA` + base64url(JSON). One mint. Keyset ids are the short form (first 8 bytes, 16 hex chars).
+ * Several proofs from that mint may be split across `token` entries; decode merges those.
  */
-export function presentedCashu(header: string | string[] | null | undefined): { kind: "a" } | { kind: "b"; token: string } | null {
+export function encodeTokenV3(t: { mint: string; unit: string; proofs: CashuProof[] }): string {
+  if (t.proofs.length === 0) throw new Error("token");
+  const proofs = t.proofs.map((p) => ({
+    amount: p.amount,
+    id: toHex(p.id).slice(0, 16),
+    secret: p.secret,
+    C: toHex(p.C),
+  }));
+  const obj = { token: [{ mint: stripMint(t.mint), proofs }], unit: t.unit };
+  return "cashuA" + toB64url(utf8(JSON.stringify(obj)));
+}
+
+function proofFromV3(p: unknown): CashuProof {
+  if (!p || typeof p !== "object" || Array.isArray(p)) throw new Error("token");
+  const row = p as Record<string, unknown>;
+  const C = row.C ?? row.c;
+  if (typeof row.amount !== "number" || !Number.isSafeInteger(row.amount) || row.amount <= 0) throw new Error("token");
+  if (typeof row.secret !== "string" || typeof row.id !== "string" || typeof C !== "string") throw new Error("token");
+  const idHex = row.id.toLowerCase();
+  const cHex = C.toLowerCase();
+  if (!/^[0-9a-f]+$/.test(idHex) || idHex.length % 2 !== 0) throw new Error("token");
+  if (!/^[0-9a-f]+$/.test(cHex) || cHex.length % 2 !== 0 || cHex.length === 0) throw new Error("token");
+  const id = fromHex(idHex);
+  // 8 bytes: short version-01 id, or a legacy version-00 id. 33 bytes: the full version-01 id.
+  if (id.length !== 8 && id.length !== 33) throw new Error("token");
+  return { amount: row.amount, secret: row.secret, id, C: fromHex(cHex) };
+}
+
+/** `cashuA` + base64url(JSON). Entries from one mint are merged. Two mints in one string are refused. */
+export function decodeTokenV3(s: string): DecodedToken {
+  if (!s.startsWith("cashuA")) throw new Error("not a cashuA token");
+  let v: unknown;
+  try { v = JSON.parse(fromUtf8(b64(s.slice(6)))); } catch { throw new Error("token"); }
+  if (!v || typeof v !== "object" || Array.isArray(v)) throw new Error("token");
+  const obj = v as Record<string, unknown>;
+  if (!Array.isArray(obj.token) || obj.token.length === 0) throw new Error("token");
+  if (obj.unit !== undefined && typeof obj.unit !== "string") throw new Error("token");
+  let mint = "";
+  let unit = typeof obj.unit === "string" ? obj.unit : "";
+  const proofs: CashuProof[] = [];
+  for (const entry of obj.token) {
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) throw new Error("token");
+    const row = entry as Record<string, unknown>;
+    if (typeof row.mint !== "string" || !Array.isArray(row.proofs)) throw new Error("token");
+    const m = stripMint(row.mint);
+    if (m === "") throw new Error("token");
+    if (!mint) mint = m;
+    else if (mint !== m) throw new Error("token");
+    if (row.unit !== undefined && typeof row.unit !== "string") throw new Error("token");
+    if (typeof row.unit === "string") {
+      if (unit !== "" && unit !== row.unit) throw new Error("token");
+      if (unit === "") unit = row.unit;
+    }
+    for (const p of row.proofs) proofs.push(proofFromV3(p));
+  }
+  if (proofs.length === 0) throw new Error("token");
+  if (unit === "") unit = CASHU_UNIT;
+  return { mint, unit, proofs };
+}
+
+/** A V3 or V4 payment. A URI prefix (`cashu:`, `cashu://`, `web+cashu://`) is stripped first. */
+export function decodeToken(s: string): DecodedToken {
+  const token = asCashuPayment(s);
+  if (!token) throw new Error("token");
+  return token.startsWith("cashuA") ? decodeTokenV3(token) : decodeTokenV4(token);
+}
+
+const URI_PREFIXES = ["web+cashu://", "cashu://", "cashu:"];
+
+/**
+ * The payment string inside a header or redeem field. Null when it is not a V3 or V4 token.
+ * A payment request (`creqA`) is not a payment.
+ */
+export function asCashuPayment(header: string): string | null {
+  let t = header.trim();
+  for (;;) {
+    const prefix = URI_PREFIXES.find((p) => t.startsWith(p));
+    if (!prefix) break;
+    t = t.slice(prefix.length).trim();
+  }
+  if (t.startsWith("cashuA") || t.startsWith("cashuB")) return t;
+  return null;
+}
+
+/**
+ * What a client put in `X-Cashu` on a retry. `a` is a V3 token and `b` is a V4 token.
+ * A payment request (`creqA`) is not a payment.
+ */
+export function presentedCashu(header: string | string[] | null | undefined): { kind: "a" | "b"; token: string } | null {
   const raw = Array.isArray(header) ? header[0] : header;
   if (typeof raw !== "string") return null;
-  const t = raw.trim();
-  if (t.startsWith("cashuB")) return { kind: "b", token: t };
-  if (t.startsWith("cashuA")) return { kind: "a" };
-  return null;
+  const token = asCashuPayment(raw);
+  if (!token) return null;
+  return { kind: token.startsWith("cashuA") ? "a" : "b", token };
 }
