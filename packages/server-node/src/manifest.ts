@@ -84,10 +84,15 @@ export function payment(status: PriceStatus, paid: boolean, method: "ln402" | "c
   return { status: "stub" as const, protocol: "HTTP 402", methods: [{ kind: "ln402", status }], x402: { status: "stub" as const } };
 }
 
-/** One list on every tool. An empty list is protocol none, including when the mint is down. */
+/**
+ * One list on every tool. An empty list is protocol none, including when the mint is down.
+ * The stub row keeps the price status. Every other row reports its own method name, so a second
+ * method is not labelled cashu. The name is the value already in the list: a settlement import
+ * here would copy that package's declarations onto a public type surface.
+ */
 export function paymentFor(status: PriceStatus, paid: boolean, methods: readonly string[]) {
   if (!paid || methods.length === 0) return payment(status, false);
-  const rows = methods.map((kind) => ({ kind, status: kind === "ln402" ? status : "cashu" as const }));
+  const rows = methods.map((kind) => ({ kind, status: kind === "ln402" ? status : kind === "cashu" ? "cashu" as const : kind }));
   const top = methods.every((kind) => kind === "ln402") ? "stub" as const : "cashu" as const;
   return { status: top, protocol: "HTTP 402" as const, methods: rows, x402: { status: "stub" as const } };
 }

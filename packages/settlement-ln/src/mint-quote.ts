@@ -151,7 +151,13 @@ export async function verifyMintQuote(o: {
   const proofs = minted.status === 200 ? asProofs(minted.body.proofs, amount) : null;
   if (!proofs) throw new TollError("store_unavailable");
   // MINT_QUOTE_GUARD replay: the row, the proofs, and the single-use mark are one store call.
-  if (!(await o.claim({ quote: c.quote, action: c.cls, amount, mint: c.mint, proofs }))) throw new TollError("replay");
+  try {
+    if (!(await o.claim({ quote: c.quote, action: c.cls, amount, mint: c.mint, proofs }))) throw new TollError("replay");
+  } catch (e) {
+    if (e instanceof TollError && e.code === "replay") throw e;
+    await o.noteLoss({ quote: c.quote, action: c.cls, amount });
+    throw e;
+  }
   return { cls: c.cls, amount_msat: c.amount_msat, payment_ref: c.payment_hash };
 }
 

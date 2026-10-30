@@ -1,7 +1,7 @@
 // Loopback mint quote beside Cashu. No public mint, no funds.
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
-import { startTestMint } from "../packages/settlement-ln/src/index.ts";
+import { QUOTE_KIND, startTestMint } from "../packages/settlement-ln/src/index.ts";
 import { fromB64url, fromUtf8 } from "../packages/protocol/src/bytes.ts";
 import { startDemo, drain } from "./helpers.ts";
 
@@ -111,8 +111,23 @@ test("a foreign mint of the quote does not grant a pass", async () => {
   assert.equal(proofs.reduce((n, p) => n + p.amount, 0), 10);
   const retry = await post("/contact", auth(macaroon, await pay(invoice)));
   const body = await retry.json();
-  assert.notEqual(retry.status, 200, JSON.stringify(body));
-  assert.notEqual(body.rail, "settle");
+  assert.equal(retry.status, 401, JSON.stringify(body));
+  assert.equal(body.error, "bad_solution");
+});
+
+test("eight concurrent retries of one paid quote yield one pass and seven replays", async () => {
+  const { macaroon, invoice } = await quoteOffer("/contact");
+  const preimage = await pay(invoice);
+  const results = await Promise.all(Array.from({ length: 8 }, () => post("/contact", auth(macaroon, preimage))));
+  const rows = [];
+  for (const r of results) rows.push({ status: r.status, body: await r.json() });
+  const passed = rows.filter((r) => r.status === 200);
+  const replays = rows.filter((r) => r.status === 401 && r.body.error === "replay");
+  const internals = rows.filter((r) => r.status === 500);
+  assert.equal(passed.length, 1, JSON.stringify(rows));
+  assert.equal(passed[0].body.rail, "settle");
+  assert.equal(replays.length, 7, JSON.stringify(rows));
+  assert.equal(internals.length, 0, JSON.stringify(rows));
 });
 
 test("spending those proofs before the retry does not grant a pass", async () => {
@@ -154,6 +169,18 @@ test("a new store refuses a macaroon whose quote is already minted", async () =>
   }
 });
 
+test("the quote method is not reported as cashu", async () => {
+  const res = await fetch(demo.url + "/.well-known/toll.json");
+  const doc = await res.json();
+  assert.equal(res.status, 200);
+  for (const t of doc.tools) {
+    const quote = t.payment.methods.find((m: { kind: string }) => m.kind === QUOTE_KIND);
+    const cashu = t.payment.methods.find((m: { kind: string }) => m.kind === "cashu");
+    assert.equal(quote.status, QUOTE_KIND, t.name);
+    assert.equal(cashu.status, "cashu", t.name);
+  }
+});
+
 test("a down mint is a 403 and the manifest does not advertise pay methods", async () => {
   mint.setDown(true);
   try {
@@ -171,6 +198,26 @@ test("a down mint is a 403 and the manifest does not advertise pay methods", asy
   }
 });
 
+test("a throw after the mint signs is refused and recorded as a loss", async () => {
+  const { macaroon, invoice } = await quoteOffer("/contact");
+  const preimage = await pay(invoice);
+  const store = demo.store;
+  const orig = store.claimMintQuote!.bind(store);
+  store.claimMintQuote = async () => { throw new Error("boom"); };
+  try {
+    const retry = await post("/contact", auth(macaroon, preimage));
+    const body = await retry.json();
+    assert.equal(retry.status, 500, JSON.stringify(body));
+    assert.equal(body.error, "internal");
+    const losses = store.mintQuoteLosses?.() ?? [];
+    assert.equal(losses.length, 1, JSON.stringify(losses));
+    assert.deepEqual(losses[0], { quote: caveatsOf(macaroon).quote, action: "write", amount: 10 });
+    assert.ok(demo.lines.some((l) => l.includes("mint_quote_loss") && l.includes(losses[0].quote) && !l.includes(preimage) && !l.includes(macaroon)));
+  } finally {
+    store.claimMintQuote = orig;
+  }
+});
+
 test("an expired token and an action mismatch are refused", async () => {
   const stale = await quoteOffer("/contact");
   const preimage = await pay(stale.invoice);
@@ -178,10 +225,11 @@ test("an expired token and an action mismatch are refused", async () => {
   const late = await post("/contact", auth(stale.macaroon, preimage));
   assert.equal(late.status, 401);
   assert.equal((await late.json()).error, "expired");
-  const losses = demo.store.mintQuoteLosses?.() ?? [];
+  const quote = caveatsOf(stale.macaroon).quote;
+  const losses = (demo.store.mintQuoteLosses?.() ?? []).filter((o) => o.quote === quote);
   assert.equal(losses.length, 1);
-  assert.deepEqual(losses[0], { quote: caveatsOf(stale.macaroon).quote, action: "write", amount: 10 });
-  assert.ok(demo.lines.some((l) => l.includes("mint_quote_loss") && l.includes(losses[0].quote) && !l.includes(preimage)));
+  assert.deepEqual(losses[0], { quote, action: "write", amount: 10 });
+  assert.ok(demo.lines.some((l) => l.includes("mint_quote_loss") && l.includes(quote) && !l.includes(preimage)));
   clock = Math.floor(Date.now() / 1000) + 10_000;
   const search = await quoteOffer("/search");
   assert.equal(search.body.offers[1].amount_msat, 2000);
