@@ -21,7 +21,7 @@ import { parseCashuMints } from "../../settlement-ln/src/cashu-net.ts";
 import { parseL402Authorization, paymentHashOf, paymentRequired, presentedCashu, QUOTE_KIND, stubEngineSecret, withQuoteOffer } from "../../settlement-ln/src/index.ts";
 import type { ProofStore } from "../../settlement-ln/src/cashu-store.ts";
 import type { KVLike } from "./kv-store.ts";
-import { cashuFaultSlot, cashuFetch, mintFetches } from "./cashu-edge.ts";
+import { cashuFaultSlot, cashuFetch, holdBeforeSwap, mintFetches, releaseBeforeSwap } from "./cashu-edge.ts";
 // Widget files, bundled as text by build.mjs.
 import TOLL_JS from "../../widget/dist/toll.js";
 import TOLL_WORKER_JS from "../../widget/dist/toll.worker.js";
@@ -198,7 +198,10 @@ export function createEdgeHandler<E extends EdgeEnv>(options: EdgeOptions<E>) {
       store: proof,
       lookup: env.TOLL_TEST_HOOKS === "1" ? async () => ["1.1.1.1"] : undefined,
       fetch: fetchImpl,
-      beforeSwap: () => { if (cashuFaultSlot.getStore() === "crash-before-swap") throw new TollError("store_unavailable"); },
+      beforeSwap: async () => {
+        if (cashuFaultSlot.getStore() === "crash-before-swap") throw new TollError("store_unavailable");
+        await holdBeforeSwap();
+      },
       afterSwap: () => { if (cashuFaultSlot.getStore() === "crash-after-swap") throw new TollError("store_unavailable"); },
     }) : undefined;
     const engine = base && env.TOLL_TEST_HOOKS === "1" ? withQuoteOffer(base, { secret, mint: mints[0], fetchImpl }) : base;
@@ -351,6 +354,10 @@ export function createEdgeHandler<E extends EdgeEnv>(options: EdgeOptions<E>) {
       const proof = options.proofStore?.(env);
       if (!proof) return json({ error: "not_found" }, 404);
       return json(await proof.books());
+    }
+    if (env.TOLL_TEST_HOOKS === "1" && path === "/v1/test/release-hold" && req.method === "POST") {
+      releaseBeforeSwap();
+      return json({ ok: true });
     }
     if (env.TOLL_TEST_HOOKS === "1" && path === "/v1/test/mint-fetches" && req.method === "GET") {
       const urls = mintFetches.slice();

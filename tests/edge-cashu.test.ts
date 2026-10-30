@@ -174,6 +174,75 @@ test("a payment is accepted, the input is marked spent, and a replay is rejected
   assert.equal(held.body.stored, after.body.stored);
 });
 
+test("parallel receives that share an input: one 200 from the durable object, the rest 4xx, no 500", async () => {
+  const before = await call("/v1/test/cashu-books");
+  const signedBefore = mint.signedSats();
+  const eight = decodeToken(retarget(mint.token(8), MINT));
+  const two = decodeToken(retarget(mint.token(2), MINT));
+  const searchTok = encodeTokenV4({ mint: MINT, unit: eight.unit, proofs: eight.proofs });
+  const writeTok = encodeTokenV4({ mint: MINT, unit: eight.unit, proofs: [...eight.proofs, ...two.proofs] });
+  const N = 8;
+  const results = await Promise.all(Array.from({ length: N }, (_, i) => call(i === 0 ? "/demo/contact" : "/search", {
+    method: "POST",
+    headers: { accept: "application/json", "content-type": "application/json", "toll-client": "agent", "x-cashu": i === 0 ? writeTok : searchTok },
+    body: "{}",
+  })));
+  const ok = results.filter((r) => r.status === 200);
+  const crashed = results.filter((r) => r.status >= 500);
+  assert.equal(crashed.length, 0, JSON.stringify(results.map((r) => [r.status, r.body?.error])));
+  assert.equal(ok.length, 1, JSON.stringify(results.map((r) => [r.status, r.body?.error])));
+  for (const r of results) if (r.status !== 200) assert.ok(r.status >= 400 && r.status < 500, String(r.status));
+  assert.equal(typeof ok[0].body.pass, "string");
+  const after = await call("/v1/test/cashu-books");
+  booksOk(after.body);
+  const signed = mint.signedSats() - signedBefore;
+  assert.equal(after.body.pending, before.body.pending);
+  assert.equal(after.body.stored - before.body.stored, signed);
+  assert.equal(after.body.inSats - before.body.inSats, signed);
+});
+
+test("a claimed durable-object row keeps its lease until the mint answers", async () => {
+  const before = await books();
+  const signedBefore = mint.signedSats();
+  const parts = decodeToken(retarget(mint.token(10), MINT));
+  const shared = parts.proofs[0];
+  const large = encodeTokenV4({ mint: MINT, unit: parts.unit, proofs: parts.proofs });
+  const small = encodeTokenV4({ mint: MINT, unit: parts.unit, proofs: [shared] });
+  const held = pay(large, "hold-before-swap");
+  const deadline = Date.now() + 5_000;
+  let pending = before.pending;
+  while (pending === before.pending) {
+    if (Date.now() > deadline) throw new Error("the claim was not saved");
+    await new Promise((r) => setTimeout(r, 20));
+    pending = (await books()).pending;
+  }
+  assert.equal(pending, before.pending + 10);
+  const overlap = await call("/search", {
+    method: "POST",
+    headers: { accept: "application/json", "content-type": "application/json", "toll-client": "agent", "x-cashu": small },
+    body: "{}",
+  });
+  assert.equal(overlap.status, 401, overlap.text);
+  assert.equal(overlap.body.error, "replay");
+  const mid = await books();
+  booksOk(mid);
+  assert.equal(mid.pending, before.pending + 10, "an overlapping receive must not abort the claimed row");
+  assert.equal(mid.stored, before.stored);
+  const released = await call("/v1/test/release-hold", { method: "POST" });
+  assert.equal(released.status, 200, released.text);
+  const paid = await held;
+  assert.equal(paid.status, 200, paid.text);
+  assert.equal(typeof paid.body.pass, "string");
+  const after = await books();
+  booksOk(after);
+  holds(after);
+  const signed = mint.signedSats() - signedBefore;
+  assert.equal(after.pending, before.pending);
+  assert.equal(after.stored - before.stored, signed);
+  assert.equal(after.stored - before.stored, 10);
+  assert.equal(after.losses, before.losses);
+});
+
 test("an unlisted mint is refused and not fetched", async () => {
   await call("/v1/test/mint-fetches");
   const denied = await call("/demo/contact", {

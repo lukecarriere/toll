@@ -11,6 +11,7 @@ import { fromB64url, fromUtf8, toB64url, toHex, utf8 } from "../packages/protoco
 import { normalizeConfig } from "../packages/server-node/src/index.ts";
 import { decodeToken, decodeTokenV4, encodeTokenV3, encodeTokenV4, CashuReceiveEngine, COMPLETE_MINT_CALLS, LEASE_MARGIN_MS, LEASE_MS, MINT_CALL_TIMEOUT_MS, assertProductionMint, guardMintUrl, mintFetch, resolveKeysetId, deriveKeysetIdV2, startKeysetMint, blockedAddress } from "../packages/settlement-ln/src/index.ts";
 import { FileProofStore, type PendingSwap, type ProofStore, type StoredProof } from "../packages/settlement-ln/src/cashu-store.ts";
+import { MemoryStore } from "../packages/server-node/src/stores.ts";
 import { TollError } from "../packages/protocol/src/errors.ts";
 import { cashuPayer, createAgent } from "../packages/agent/src/index.ts";
 import { startDemo, drain } from "./helpers.ts";
@@ -641,6 +642,187 @@ test("NUT-07 PENDING is not UNSPENT, so the blinded outputs stay", async () => {
     assert.equal(mid.spent.length, 0);
   } finally {
     mint.setFault(null, null);
+    await mint.close();
+  }
+});
+
+/** One 8-unit note, and that note plus a 2-unit note. The sets share an input and are not equal. */
+function overlappingTokens(mint: Awaited<ReturnType<typeof startKeysetMint>>) {
+  const eight = decodeToken(mint.token(8));
+  const two = decodeToken(mint.token(2));
+  const small = encodeTokenV4({ mint: mint.url, unit: eight.unit, proofs: eight.proofs });
+  const large = encodeTokenV4({ mint: mint.url, unit: eight.unit, proofs: [...eight.proofs, ...two.proofs] });
+  return { small, large };
+}
+
+test("overlap guard: two receives that share an input grant one pass", async () => {
+  const mint = await startKeysetMint();
+  const dir = mkdtempSync(join(tmpdir(), "toll-overlap-"));
+  const proofs = new FileProofStore(join(dir, "proofs.json"));
+  const now = 1_790_000_000;
+  const replay = new MemoryStore(() => now);
+  const engine = new CashuReceiveEngine({ secret: "cashu-receive-test-secret", mints: [mint.url], store: proofs, loopbackHttp: true });
+  try {
+    const { small, large } = overlappingTokens(mint);
+    const search = await engine.offer({ site: "s", cls: "search", amount_msat: 2000, now });
+    const write = await engine.offer({ site: "s", cls: "write", amount_msat: 8000, now });
+    const firstUse = (key: string, ttl: number) => replay.firstUse(key, ttl);
+    const pay = (offer: { id: string; credential: string }, token: string) => engine.verifyPaid({
+      site: "s", now: now + 1, firstUse,
+      proof: { kind: "cashu", offer_id: offer.id, credential: offer.credential, token },
+    });
+    const results = await Promise.allSettled([pay(search, small), pay(write, large)]);
+    const granted = results.filter((r) => r.status === "fulfilled");
+    const books = await proofs.books();
+    assert.equal(granted.length, 1, `granted=${granted.length} signed=${mint.signedSats()} stored=${books.stored}`);
+    for (const r of results) {
+      if (r.status === "rejected") assert.ok(r.reason instanceof TollError && r.reason.code === "replay");
+    }
+    assert.equal(books.pending, 0);
+    assert.equal(books.inSats, books.stored + books.pending + books.losses);
+    assert.equal(books.stored, mint.signedSats());
+  } finally {
+    await mint.close();
+  }
+});
+
+test("overlap guard: N parallel receives that share an input grant one pass", async () => {
+  const mint = await startKeysetMint();
+  const dir = mkdtempSync(join(tmpdir(), "toll-overlap-n-"));
+  const proofs = new FileProofStore(join(dir, "proofs.json"));
+  const now = 1_790_000_000;
+  const replay = new MemoryStore(() => now);
+  const engine = new CashuReceiveEngine({ secret: "cashu-receive-test-secret", mints: [mint.url], store: proofs, loopbackHttp: true });
+  const N = 8;
+  try {
+    const { small, large } = overlappingTokens(mint);
+    const firstUse = (key: string, ttl: number) => replay.firstUse(key, ttl);
+    const offers = [];
+    for (let i = 0; i < N; i++) offers.push(await engine.offer({ site: "s", cls: i === 0 ? "write" : "search", amount_msat: i === 0 ? 8000 : 2000, now }));
+    const results = await Promise.allSettled(offers.map((offer, i) => engine.verifyPaid({
+      site: "s", now: now + 1, firstUse,
+      proof: { kind: "cashu", offer_id: offer.id, credential: offer.credential, token: i === 0 ? large : small },
+    })));
+    const granted = results.filter((r) => r.status === "fulfilled").length;
+    assert.equal(granted, 1, `granted=${granted}`);
+    for (const r of results) {
+      if (r.status === "rejected") {
+        assert.ok(r.reason instanceof TollError, "a refused receive is not a 500");
+        assert.equal(r.reason.code, "replay");
+      }
+    }
+    const books = await proofs.books();
+    assert.equal(books.pending, 0);
+    assert.equal(books.inSats, books.stored + books.pending + books.losses);
+    assert.equal(books.stored, mint.signedSats());
+  } finally {
+    await mint.close();
+  }
+});
+
+test("overlap guard: N parallel HTTP receives on the memory replay store return one 200", async () => {
+  const mint = await startKeysetMint();
+  const dir = mkdtempSync(join(tmpdir(), "toll-overlap-http-"));
+  const proofs = new FileProofStore(join(dir, "proofs.json"));
+  const engine = new CashuReceiveEngine({ secret: "cashu-receive-test-secret", mints: [mint.url], store: proofs, loopbackHttp: true });
+  const demo = await startDemo({
+    work: { standard: { cost: 500 } },
+    settlement: { enabled: true, backend: "stub", fee_bps: 1000, fx: { source: "fixed", usd_per_btc: 100000 }, cashu: { enabled: true, mint: mint.url } },
+  }, { settlement: { engine } });
+  const N = 8;
+  try {
+    const { small, large } = overlappingTokens(mint);
+    const post = async (path: string, token: string) => {
+      const r = await fetch(demo.url + path, {
+        method: "POST",
+        headers: { accept: "application/json", "content-type": "application/json", "toll-client": "agent", "x-cashu": token },
+        body: "{}",
+      });
+      const text = await r.text();
+      let body: any = {};
+      try { body = text ? JSON.parse(text) : {}; } catch { body = {}; }
+      return { status: r.status, body };
+    };
+    const results = await Promise.all(Array.from({ length: N }, (_, i) => post(i === 0 ? "/contact" : "/search", i === 0 ? large : small)));
+    const ok = results.filter((r) => r.status === 200);
+    const crashed = results.filter((r) => r.status >= 500);
+    assert.equal(crashed.length, 0, JSON.stringify(results.map((r) => r.status)));
+    assert.equal(ok.length, 1, JSON.stringify(results.map((r) => [r.status, r.body?.error])));
+    for (const r of results) if (r.status !== 200) assert.ok(r.status >= 400 && r.status < 500);
+    const books = await proofs.books();
+    assert.equal(books.pending, 0);
+    assert.equal(books.inSats, books.stored + books.pending + books.losses);
+    assert.equal(books.stored, mint.signedSats());
+    assert.equal(typeof ok[0].body.pass, "string");
+  } finally {
+    await demo.close();
+    await mint.close();
+  }
+});
+
+test("overlap guard: a claimed row keeps its lease until the mint answers", async () => {
+  const mint = await startKeysetMint();
+  const dir = mkdtempSync(join(tmpdir(), "toll-overlap-lease-"));
+  const proofs = new FileProofStore(join(dir, "proofs.json"));
+  let release = () => {};
+  const gate = new Promise<void>((resolve) => { release = resolve; });
+  let held = false;
+  const engine = new CashuReceiveEngine({
+    secret: "cashu-receive-test-secret",
+    mints: [mint.url],
+    store: proofs,
+    loopbackHttp: true,
+    beforeSwap: async () => {
+      if (!held) {
+        held = true;
+        await gate;
+      }
+    },
+  });
+  const now = 1_790_000_000;
+  const replay = new MemoryStore(() => now);
+  const firstUse = (key: string, ttl: number) => replay.firstUse(key, ttl);
+  try {
+    const eight = decodeToken(mint.token(8));
+    const two = decodeToken(mint.token(2));
+    const large = encodeTokenV4({ mint: mint.url, unit: eight.unit, proofs: [...eight.proofs, ...two.proofs] });
+    const small = encodeTokenV4({ mint: mint.url, unit: eight.unit, proofs: eight.proofs });
+    const write = await engine.offer({ site: "s", cls: "write", amount_msat: 10000, now });
+    const search = await engine.offer({ site: "s", cls: "search", amount_msat: 2000, now });
+    const first = engine.verifyPaid({
+      site: "s", now: now + 1, firstUse,
+      proof: { kind: "cashu", offer_id: write.id, credential: write.credential, token: large },
+    });
+    const deadline = Date.now() + 5_000;
+    let row = (await proofs.read()).pending[0];
+    while (!row) {
+      if (Date.now() > deadline) throw new Error("the claim was not saved");
+      await new Promise((r) => setTimeout(r, 5));
+      row = (await proofs.read()).pending[0];
+    }
+    assert.equal(row.outSats, 10);
+    assert.ok(typeof row.leaseExp === "number" && row.leaseExp > Date.now(), "the claim write leases the row");
+    const claimed = row.id;
+    await assert.rejects(
+      engine.verifyPaid({
+        site: "s", now: now + 1, firstUse,
+        proof: { kind: "cashu", offer_id: search.id, credential: search.credential, token: small },
+      }),
+      (e: unknown) => e instanceof TollError && e.code === "replay",
+    );
+    const mid = await proofs.read();
+    assert.equal(mid.pending.length, 1);
+    assert.equal(mid.pending[0].id, claimed, "an overlapping receive must not abort the claimed row");
+    release();
+    const paid = await first;
+    assert.equal(paid.amount_msat, 10000);
+    const books = await proofs.books();
+    assert.equal(books.pending, 0);
+    assert.equal(books.stored + books.pending + books.losses, mint.signedSats());
+    assert.equal(books.stored, mint.signedSats());
+    assert.equal(books.stored, 10);
+  } finally {
+    release();
     await mint.close();
   }
 });

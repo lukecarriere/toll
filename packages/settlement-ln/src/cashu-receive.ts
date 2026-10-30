@@ -3,6 +3,7 @@
 // Blinded outputs are durable before POST /v1/swap. A crash there is recovered with NUT-09
 // restore and NUT-07 checkstate. The gate is granted only after the new proofs are stored.
 // The test engine (cashu-engine.ts) is unchanged and still talks only to a loopback http mint.
+import { AsyncLocalStorage } from "node:async_hooks";
 import {
   type ActionClass, TollError, canonicalJson, fromB64url, fromUtf8, hmacSha256, hmacVerify, randomBytes, randomHex, sha256, toB64url, toHex, utf8,
 } from "../../protocol/src/index.ts";
@@ -163,10 +164,10 @@ export class CashuReceiveEngine implements SettlementEngine {
   private store: ProofStore;
   private beforeSwap?: () => Promise<void> | void;
   private afterSwap?: () => Promise<void> | void;
-  /** Set for the request inside complete(). Null for prepare and for a sweeper. */
-  private leaseCtx: { id: string; owner: string; deadline: number } | null = null;
+  /** Per request, so parallel receives on one engine do not renew each other's rows. */
+  private leaseSlot = new AsyncLocalStorage<{ id: string; owner: string; deadline: number }>();
   /** recoverSaved is on this engine. Its mint calls must not renew the owner's lease. */
-  private sweeping = false;
+  private sweepSlot = new AsyncLocalStorage<boolean>();
 
   constructor(o: ReceiveEngineOptions) {
     if (!o.secret || o.secret.length < 16) throw new Error("cashu engine: secret too short");
@@ -185,8 +186,9 @@ export class CashuReceiveEngine implements SettlementEngine {
 
   /** Renew the owner's lease, or stop when the next mint call would pass the deadline. */
   private async renewLease(): Promise<void> {
-    const ctx = this.leaseCtx;
-    if (!ctx || this.sweeping) return;
+    if (this.sweepSlot.getStore() === true) return;
+    const ctx = this.leaseSlot.getStore();
+    if (!ctx) return;
     if (Date.now() + MINT_CALL_TIMEOUT_MS > ctx.deadline) throw new TollError("store_unavailable");
     await (await this.useStore()).lease(ctx.id, ctx.owner, ctx.deadline);
   }
@@ -236,15 +238,35 @@ export class CashuReceiveEngine implements SettlementEngine {
     // CASHU_GUARD replay: a spent input is refused from the store, before another swap.
     if (marks.some((h) => snap.spent.includes(h))) throw new TollError("replay");
     let pending = snap.pending.find((p) => sameMarks(p.marks, marks) && p.mint === mint);
+    let created = false;
     if (!pending) {
       const prepared = await this.prepare(mint, token, marks);
       // CASHU_GUARD persist-before-swap: outputs and secrets are durable before the mint is asked to swap.
+      // CASHU_GUARD claim-lease: leased in the same write as the claim, before any mint call.
+      prepared.at = Date.now();
+      prepared.owner = "own_" + randomHex(8);
+      prepared.leaseExp = prepared.at + LEASE_MS;
       pending = await store.begin(prepared);
+      created = pending.id === prepared.id;
     }
-    if (this.beforeSwap) await this.beforeSwap();
+    if (this.beforeSwap) {
+      try {
+        await this.beforeSwap();
+      } catch (e) {
+        // This request stopped before the mint. Drop the lease so the next sweep can clear an unspent row.
+        if (created) await this.releaseClaim(pending);
+        throw e;
+      }
+    }
     const proofs = await this.complete(pending);
     // CASHU_GUARD grant-only-stored: the pass is minted only after this returns and the read-back matches.
-    await store.commit({ id: pending.id, proofs, marks: pending.marks });
+    try {
+      await store.commit({ id: pending.id, proofs, marks: pending.marks });
+    } catch (e) {
+      // The mint signed and the row is gone. Count the outputs so the books still match.
+      if (!(await this.proofsDurable(proofs))) await this.noteSigned(proofs, pending.marks);
+      throw e;
+    }
     if (!(await this.proofsDurable(proofs))) throw new TollError("store_unavailable");
     if (proofs.reduce((n, p) => n + p.amount, 0) <= 0) throw new TollError("store_unavailable");
     const ttl = Math.max(1, c.exp - o.now + 60);
@@ -267,16 +289,12 @@ export class CashuReceiveEngine implements SettlementEngine {
    * same deadline. A row with no lease, or an expired one, may be deleted.
    */
   async recoverSaved(skip?: string[]): Promise<void> {
-    const store = await this.useStore();
-    const snap = await store.read();
-    const now = Date.now();
-    const outer = this.sweeping;
-    this.sweeping = true;
-    try {
+    await this.sweepSlot.run(true, async () => {
+      const store = await this.useStore();
+      const snap = await store.read();
+      const now = Date.now();
       await this.sweep(store, snap, skip, now);
-    } finally {
-      this.sweeping = outer;
-    }
+    });
   }
 
   private async sweep(store: ProofStore, snap: ProofSnapshot, skip: string[] | undefined, now: number): Promise<void> {
@@ -363,13 +381,27 @@ export class CashuReceiveEngine implements SettlementEngine {
   }
 
   private async complete(pending: PendingSwap): Promise<StoredProof[]> {
+    const owner = pending.owner ?? "own_" + randomHex(8);
     const deadline = Date.now() + LEASE_MS;
-    this.leaseCtx = { id: pending.id, owner: "own_" + randomHex(8), deadline };
+    return this.leaseSlot.run({ id: pending.id, owner, deadline }, () => this.finish(pending));
+  }
+
+  /** This request stopped before the mint. An expired lease lets the next sweep clear an unspent row. */
+  private async releaseClaim(pending: PendingSwap): Promise<void> {
+    if (!pending.owner) return;
     try {
-      return await this.finish(pending);
-    } finally {
-      this.leaseCtx = null;
+      await (await this.useStore()).lease(pending.id, pending.owner, Date.now() - 1);
+    } catch {
+      /* the next sweep still sees an expired lease, or the row is already gone */
     }
+  }
+
+  /** The mint signed `proofs` and commit could not keep the row. Record that amount once. */
+  private async noteSigned(proofs: StoredProof[], marks: string[]): Promise<void> {
+    const store = await this.useStore();
+    const amount = proofs.reduce((n, p) => n + p.amount, 0);
+    if (amount <= 0) return;
+    if (store.noteSigned) await store.noteSigned(amount, marks);
   }
 
   private async finish(pending: PendingSwap): Promise<StoredProof[]> {

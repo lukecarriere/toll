@@ -8,7 +8,7 @@ import { TollError } from "../../protocol/src/index.ts";
 import type { TollStore } from "../../server-node/src/stores.ts";
 import { CashuReceiveEngine } from "../../settlement-ln/src/cashu-receive.ts";
 import { parseCashuMints } from "../../settlement-ln/src/cashu-net.ts";
-import type { CashuBooks, PendingSwap, ProofSnapshot, ProofStore, StoredProof } from "../../settlement-ln/src/cashu-store.ts";
+import { claimPending, type CashuBooks, type PendingSwap, type ProofSnapshot, type ProofStore, type StoredProof } from "../../settlement-ln/src/cashu-store.ts";
 import { cashuFaultSlot, cashuFetch, type CashuEnv } from "./cashu-edge.ts";
 
 /** Set true for the current request to make every store call fail closed. Unset: the store works. */
@@ -208,9 +208,8 @@ export class TollStoreDO extends DurableObject {
     for (const h of p.marks) {
       if (this.sql.exec("SELECT h FROM cashu_spent WHERE h = ?", h).toArray().length) throw new TollError("replay");
     }
-    for (const existing of this.pendingRows()) {
-      if (existing.marks.some((h) => p.marks.includes(h))) return existing;
-    }
+    const existing = claimPending(this.pendingRows(), p);
+    if (existing) return existing;
     this.sql.exec("INSERT INTO cashu_pending (id, body) VALUES (?, ?)", p.id, JSON.stringify(p));
     this.addLoss(p.inSats - p.outSats);
     return p;
@@ -329,6 +328,19 @@ export class TollStoreDO extends DurableObject {
     return { ok: true };
   }
 
+  async cashuNoteSigned(amount: number, marks: string[]): Promise<{ ok: true }> {
+    this.noteSignedPending(amount, marks);
+    return { ok: true };
+  }
+
+  private noteSignedPending(amount: number, marks: string[]): void {
+    if (marks.length > 0 && marks.every((h) => this.sql.exec("SELECT h FROM cashu_spent WHERE h = ?", h).toArray().length > 0)) return;
+    if (this.pendingRows().some((p) => p.marks.some((h) => marks.includes(h)))) return;
+    if (!Number.isSafeInteger(amount) || amount <= 0) return;
+    this.addLoss(amount);
+    for (const h of marks) this.sql.exec("INSERT INTO cashu_spent (h) VALUES (?) ON CONFLICT(h) DO NOTHING", h);
+  }
+
   /** NUT-09 / NUT-07 for swaps saved before the mint call. Does not grant a gate. */
   async cashuRecover(): Promise<{ ok: true }> {
     const env = this.envOf();
@@ -369,6 +381,7 @@ export class TollStoreDO extends DurableObject {
       commit: async (o) => { this.commitPending(o); },
       abort: async (id) => { this.abortPending(id); },
       lose: async (o) => { this.losePending(o); },
+      noteSigned: async (amount, marks) => { this.noteSignedPending(amount, marks); },
     };
   }
 }
@@ -391,6 +404,7 @@ export interface TollDoStub {
   cashuCommit(o: { id: string; proofs: StoredProof[]; marks: string[] }): Promise<{ ok: true } | { ok: false; error: "store_unavailable" }>;
   cashuAbort(id: string): Promise<{ ok: true }>;
   cashuLose(o: { id: string; marks: string[] }): Promise<{ ok: true }>;
+  cashuNoteSigned(amount: number, marks: string[]): Promise<{ ok: true }>;
   cashuRecover(): Promise<{ ok: true }>;
   claimMintQuote(row: { quote: string; action: string; amount: number; mint: string; proofs: { amount: number; secret: string; id: string; C: string }[] }): Promise<boolean>;
   hasMintQuote(quote: string): Promise<boolean>;
@@ -437,6 +451,10 @@ export class DurableProofStore implements ProofStore {
   async lose(o: { id: string; marks: string[] }) {
     if (storeFailSlot.getStore() === true) throw new TollError("store_unavailable");
     await this.stub.cashuLose(o);
+  }
+  async noteSigned(amount: number, marks: string[]) {
+    if (storeFailSlot.getStore() === true) throw new TollError("store_unavailable");
+    await this.stub.cashuNoteSigned(amount, marks);
   }
   recover() { return this.stub.cashuRecover(); }
 }
