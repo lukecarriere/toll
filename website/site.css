@@ -4,6 +4,8 @@
 @font-face{font-family:"Toll Sans";src:url(/fonts/public-sans/PublicSans-Latin.woff2) format("woff2");font-weight:100 900;font-display:swap}
 :root{--green:#23402F;--sign:#1F5A3E;--lane:#EEE7D7;--amber:#F2B544;--ink:#1E2024;--muted:#5E5A57;--paper:#F6F2EA;--rule:#DDD5C6}
 *{box-sizing:border-box}
+/* An author display rule must not override the HTML hidden attribute. */
+[hidden]{display:none !important}
 html,body{margin:0}
 body{background:var(--paper);color:var(--ink);font:18px/1.6 "Toll Sans",system-ui,sans-serif;-webkit-text-size-adjust:100%}
 header{border-bottom:1px solid var(--rule)}
