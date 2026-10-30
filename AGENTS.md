@@ -28,8 +28,16 @@
 
 | Rule | Enforcer | Proof |
 | --- | --- | --- |
-| `cashuA` and `cashuB` both pay. A gate cannot require only `cashuB`. | `scripts/cashu-guards.ts` | [tests/cashu-guards.test.ts](https://github.com/lukecarriere/toll/blob/cursor/repeat-mistake-enforcers-389a/tests/cashu-guards.test.ts) |
-| `abort()` runs only after an empty restore and an unspent check. | `scripts/cashu-guards.ts` | [tests/cashu-guards.test.ts](https://github.com/lukecarriere/toll/blob/cursor/repeat-mistake-enforcers-389a/tests/cashu-guards.test.ts) |
+| `cashuA` and `cashuB` both pay. A gate cannot require only `cashuB`. | `scripts/cashu-guards.ts` | [tests/cashu-guards.test.ts](https://github.com/lukecarriere/toll/blob/cursor/cashu-guard-notes-389a/tests/cashu-guards.test.ts) |
+| `abort()` runs only after an empty restore and an unspent check. | `scripts/cashu-guards.ts` | [tests/cashu-guards.test.ts](https://github.com/lukecarriere/toll/blob/cursor/cashu-guard-notes-389a/tests/cashu-guards.test.ts) |
+
+Cannot catch, in `scripts/cashu-guards.ts`:
+
+- A prefix built by concatenation or a variable (`"cashu" + "B"`, `const p = "cashuB"`).
+- `store[name](id)` when `name` is not the string `"abort"` or `"lose"`.
+- An `abort` saved in a callback and called after the guarding `if` ends.
+- A `cashuB`-only check inside `decodeTokenV3`, `decodeTokenV4`, or `testMintPayer`.
+- PHP `$fn = 'str_starts_with'` and a prefix split across concatenated strings. The TypeScript parser does not read PHP.
 
 ## Glossary
 
