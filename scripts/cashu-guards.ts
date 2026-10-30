@@ -27,6 +27,8 @@ const V4_ONLY: Readonly<Record<string, ReadonlySet<string>>> = {
 
 type Class = "bonly" | "a" | "both" | null;
 type Facts = { empty: boolean; unspent: boolean };
+type Info = { empty: boolean; unspent: boolean; notNone: boolean; blocks: boolean };
+const NONE: Info = { empty: false, unspent: false, notNone: false, blocks: false };
 
 function unwrap(e: ts.Expression): ts.Expression {
   while (ts.isParenthesizedExpression(e) || ts.isAwaitExpression(e) || ts.isAsExpression(e) || ts.isNonNullExpression(e) || ts.isSatisfiesExpression(e) || ts.isTypeAssertionExpression(e)) e = e.expression;
@@ -59,18 +61,64 @@ function kindAccess(e: ts.Expression): boolean {
   return false;
 }
 
+function callName(expr: ts.Expression): string | null {
+  expr = unwrap(expr);
+  if (ts.isPropertyAccessExpression(expr) || ts.isPropertyAccessChain(expr)) return expr.name.text;
+  if (ts.isElementAccessExpression(expr) && expr.argumentExpression) return strArg(expr.argumentExpression);
+  return null;
+}
+
+function calleeObj(expr: ts.Expression): ts.Expression | null {
+  expr = unwrap(expr);
+  if (ts.isPropertyAccessExpression(expr) || ts.isPropertyAccessChain(expr) || ts.isElementAccessExpression(expr)) return expr.expression;
+  return null;
+}
+
+function reText(e: ts.Expression | undefined): string | null {
+  if (!e) return null;
+  const n = unwrap(e);
+  return ts.isRegularExpressionLiteral(n) ? n.text : null;
+}
+
+function prefixClass(p: string | null, neg = false): Class {
+  if (p === "cashuB") return "bonly";
+  if (p === "cashuA") return neg ? "bonly" : "a";
+  return null;
+}
+
+function reClass(re: string | null, neg = false): Class {
+  if (!re) return null;
+  if (/^\/\^cashuB/.test(re)) return "bonly";
+  if (/^\/\^cashuA/.test(re)) return neg ? "bonly" : "a";
+  return null;
+}
+
+function firstElem(e: ts.Expression | undefined): ts.Expression | undefined {
+  if (!e) return undefined;
+  const n = unwrap(e);
+  if (!ts.isArrayLiteralExpression(n) || n.elements.length === 0) return undefined;
+  const el = n.elements[0];
+  return el && ts.isExpression(el) ? el : undefined;
+}
+
+/** startsWith, match, test, and String.prototype.startsWith.call / apply. */
+function callClass(e: ts.CallExpression): Class {
+  const name = callName(e.expression);
+  const obj = calleeObj(e.expression);
+  if ((name === "call" || name === "apply") && obj && callName(obj) === "startsWith") {
+    const arg = name === "call" ? e.arguments[1] : firstElem(e.arguments[1]);
+    return prefixClass(strArg(arg));
+  }
+  if (name === "startsWith") return prefixClass(strArg(e.arguments[0]));
+  if (name === "match") return reClass(reText(e.arguments[0]));
+  if (name === "test" && obj) return reClass(reText(obj));
+  return null;
+}
+
 function atomic(e: ts.Expression): Class {
-  if (ts.isCallExpression(e) && (ts.isPropertyAccessExpression(e.expression) || ts.isPropertyAccessChain(e.expression))) {
-    const name = e.expression.name.text;
-    if (name === "startsWith") {
-      const p = strArg(e.arguments[0]);
-      if (p === "cashuB") return "bonly";
-      if (p === "cashuA") return "a";
-    }
-    if (name === "test" && ts.isRegularExpressionLiteral(e.expression.expression)) {
-      if (/^\/\^cashuB/.test(e.expression.expression.text)) return "bonly";
-      if (/^\/\^cashuA/.test(e.expression.expression.text)) return "a";
-    }
+  if (ts.isCallExpression(e)) {
+    const c = callClass(e);
+    if (c) return c;
   }
   if (!ts.isBinaryExpression(e)) return null;
   const op = e.operatorToken.kind;
@@ -81,6 +129,10 @@ function atomic(e: ts.Expression): Class {
   const right = unwrap(e.right);
   if (kindAccess(left) && strArg(right) === "a") return eq ? "a" : null;
   if (kindAccess(right) && strArg(left) === "a") return eq ? "a" : null;
+  if (ts.isCallExpression(left) && callClass(left)) {
+    const rightNull = right.kind === ts.SyntaxKind.NullKeyword;
+    if (rightNull) return callClass(left) === "a" && ne ? "a" : "bonly";
+  }
   if (ts.isCallExpression(left) && (ts.isPropertyAccessExpression(left.expression) || ts.isPropertyAccessChain(left.expression))) {
     const name = left.expression.name.text;
     if (name === "indexOf" && ts.isNumericLiteral(right) && right.text === "0") {
@@ -146,6 +198,17 @@ function tokenScan(sf: ts.SourceFile, file: string): GuardHit[] {
       const c = classify(node.condition);
       if (c === "bonly" && !exempt(node)) note(node, BONLY);
       if (c === "a" && refusesExpr(node.whenTrue)) note(node, AREF);
+    } else if (ts.isSwitchStatement(node) && !exempt(node)) {
+      let hasA = false;
+      let hasB = false;
+      for (const clause of node.caseBlock.clauses) {
+        if (!ts.isCaseClause(clause)) continue;
+        const label = strArg(clause.expression);
+        if (label === "cashuA") hasA = true;
+        if (label === "cashuB") hasB = true;
+      }
+      if (hasB && !hasA) note(node, BONLY);
+      if (hasA && !hasB) note(node, AREF);
     }
     ts.forEachChild(node, rec);
   };
@@ -160,23 +223,31 @@ function refusesExpr(e: ts.Expression): boolean {
   return false;
 }
 
-function exprInfo(e: ts.Expression): { empty: boolean; unspent: boolean; notNone: boolean } {
+function exprInfo(e: ts.Expression, alias: Map<string, Info>): Info {
   e = unwrap(e);
   if (ts.isPrefixUnaryExpression(e) && e.operator === ts.SyntaxKind.ExclamationToken) {
-    const i = exprInfo(e.operand);
-    return { empty: false, unspent: false, notNone: i.empty };
+    const i = exprInfo(e.operand, alias);
+    if (i.blocks) return NONE;
+    if (i.empty) return { empty: false, unspent: i.unspent, notNone: true, blocks: false };
+    return NONE;
   }
   if (ts.isBinaryExpression(e) && e.operatorToken.kind === ts.SyntaxKind.AmpersandAmpersandToken) {
-    const l = exprInfo(e.left);
-    const r = exprInfo(e.right);
-    return { empty: l.empty || r.empty, unspent: l.unspent || r.unspent, notNone: false };
+    const l = exprInfo(e.left, alias);
+    const r = exprInfo(e.right, alias);
+    const blocks = l.blocks || r.blocks;
+    return { empty: !blocks && (l.empty || r.empty), unspent: l.unspent || r.unspent, notNone: false, blocks };
   }
   if (ts.isBinaryExpression(e) && e.operatorToken.kind === ts.SyntaxKind.BarBarToken) {
-    const l = exprInfo(e.left);
-    const r = exprInfo(e.right);
-    return { empty: l.empty || r.empty, unspent: l.unspent && r.unspent, notNone: l.notNone && r.notNone };
+    const l = exprInfo(e.left, alias);
+    const r = exprInfo(e.right, alias);
+    return { empty: (l.empty || r.empty) && !l.blocks && !r.blocks, unspent: l.unspent && r.unspent, notNone: l.notNone && r.notNone, blocks: l.blocks || r.blocks };
   }
-  if (ts.isIdentifier(e) && e.text === "empty") return { empty: true, unspent: false, notNone: false };
+  if (ts.isIdentifier(e)) {
+    const known = alias.get(e.text);
+    if (known) return known;
+    if (e.text === "empty") return { empty: true, unspent: false, notNone: false, blocks: false };
+    if (e.text === "unclear") return { empty: false, unspent: false, notNone: false, blocks: true };
+  }
   if (ts.isBinaryExpression(e)) {
     const op = e.operatorToken.kind;
     const eq = op === ts.SyntaxKind.EqualsEqualsEqualsToken || op === ts.SyntaxKind.EqualsEqualsToken;
@@ -185,11 +256,11 @@ function exprInfo(e: ts.Expression): { empty: boolean; unspent: boolean; notNone
     const lit = sides.find((s) => ts.isStringLiteral(s));
     const other = sides.find((s) => s !== lit);
     if (lit && ts.isStringLiteral(lit) && other) {
-      if (lit.text === "none" && kindAccess(other)) return eq ? { empty: true, unspent: false, notNone: false } : ne ? { empty: false, unspent: false, notNone: true } : { empty: false, unspent: false, notNone: false };
-      if (lit.text === "unspent" && eq) return { empty: false, unspent: true, notNone: false };
+      if (lit.text === "none" && kindAccess(other)) return eq ? { empty: true, unspent: false, notNone: false, blocks: false } : ne ? { empty: false, unspent: false, notNone: true, blocks: false } : NONE;
+      if (lit.text.toLowerCase() === "unspent" && eq) return { empty: false, unspent: true, notNone: false, blocks: false };
     }
   }
-  return { empty: false, unspent: false, notNone: false };
+  return NONE;
 }
 
 function boundAbort(e: ts.Expression): boolean {
@@ -219,15 +290,16 @@ export function conservationHits(text: string, file = "packages/settlement-ln/sr
       if (ts.isIdentifier(c.expression) && scope.has(c.expression.text) && c.arguments.length > 0) return "abort";
       if (ts.isCallExpression(c.expression) && boundAbort(c.expression) && c.arguments.length > 0) return "abort";
       const name = prop(c.expression);
+      if (name === "apply" && calleeObj(c.expression) && prop(calleeObj(c.expression)!) === "abort") return "abort";
       if (name === "lose") return "lose";
       if (name === "abort" && c.arguments.length > 0) return "abort";
       return null;
     };
-    const find = (n: ts.Node, facts: Facts, scope: Set<string>) => {
+    const find = (n: ts.Node, facts: Facts, scope: Set<string>, alias: Map<string, Info>) => {
       const nested = fnBody(n);
       if (nested && n !== node) {
         const next = new Set(scope);
-        stmts(ts.isBlock(nested) ? nested.statements : [ts.factory.createExpressionStatement(nested)], facts, next);
+        stmts(ts.isBlock(nested) ? nested.statements : [ts.factory.createExpressionStatement(nested)], facts, next, alias);
         return;
       }
       if (ts.isCallExpression(n)) {
@@ -235,50 +307,55 @@ export function conservationHits(text: string, file = "packages/settlement-ln/sr
         if (k === "lose") hits.push({ file, line: lineAt(sf, n), rule: LOSE });
         if (k === "abort" && !(facts.empty && facts.unspent)) hits.push({ file, line: lineAt(sf, n), rule: UNGATED });
       }
-      ts.forEachChild(n, (c) => find(c, facts, scope));
+      ts.forEachChild(n, (c) => find(c, facts, scope, alias));
     };
     const skips = (s: ts.Statement | undefined): boolean => {
       if (!s) return false;
       if (ts.isBlock(s)) return s.statements.length === 1 && skips(s.statements[0]);
       return ts.isContinueStatement(s) || ts.isReturnStatement(s) || ts.isBreakStatement(s) || ts.isThrowStatement(s);
     };
-    const stmts = (list: readonly ts.Statement[], facts: Facts, scope: Set<string>) => {
+    const stmts = (list: readonly ts.Statement[], facts: Facts, scope: Set<string>, alias: Map<string, Info>) => {
       let flowNow = facts;
       for (const s of list) {
         if (ts.isVariableStatement(s)) {
-          for (const d of s.declarationList.declarations) if (ts.isIdentifier(d.name) && d.initializer && boundAbort(d.initializer)) scope.add(d.name.text);
+          for (const d of s.declarationList.declarations) {
+            if (!ts.isIdentifier(d.name) || !d.initializer) continue;
+            if (boundAbort(d.initializer)) scope.add(d.name.text);
+            const info = exprInfo(d.initializer, alias);
+            if (info.empty || info.unspent || info.blocks || info.notNone) alias.set(d.name.text, info);
+          }
         }
         if (ts.isIfStatement(s)) {
-          const info = exprInfo(s.expression);
+          const info = exprInfo(s.expression, alias);
           if (skips(s.thenStatement) && info.notNone) {
-            if (s.elseStatement) stmts(ts.isBlock(s.elseStatement) ? s.elseStatement.statements : [s.elseStatement], flowNow, scope);
+            if (s.elseStatement) stmts(ts.isBlock(s.elseStatement) ? s.elseStatement.statements : [s.elseStatement], flowNow, scope, alias);
             flowNow = { ...flowNow, empty: true };
           } else {
-            const inner = { empty: flowNow.empty || info.empty, unspent: flowNow.unspent || info.unspent };
-            stmts(ts.isBlock(s.thenStatement) ? s.thenStatement.statements : [s.thenStatement], inner, scope);
-            if (s.elseStatement) stmts(ts.isBlock(s.elseStatement) ? s.elseStatement.statements : [s.elseStatement], flowNow, scope);
+            const inner = { empty: !info.blocks && (flowNow.empty || info.empty), unspent: flowNow.unspent || info.unspent };
+            stmts(ts.isBlock(s.thenStatement) ? s.thenStatement.statements : [s.thenStatement], inner, scope, alias);
+            if (s.elseStatement) stmts(ts.isBlock(s.elseStatement) ? s.elseStatement.statements : [s.elseStatement], flowNow, scope, alias);
           }
           continue;
         }
         if ((ts.isForStatement(s) || ts.isForInStatement(s) || ts.isForOfStatement(s) || ts.isWhileStatement(s)) && s.statement) {
-          stmts(ts.isBlock(s.statement) ? s.statement.statements : [s.statement], flowNow, scope);
+          stmts(ts.isBlock(s.statement) ? s.statement.statements : [s.statement], flowNow, scope, alias);
           continue;
         }
         if (ts.isTryStatement(s)) {
-          stmts(s.tryBlock.statements, flowNow, scope);
-          if (s.catchClause) stmts(s.catchClause.block.statements, flowNow, scope);
+          stmts(s.tryBlock.statements, flowNow, scope, alias);
+          if (s.catchClause) stmts(s.catchClause.block.statements, flowNow, scope, alias);
           continue;
         }
         if (ts.isFunctionDeclaration(s) || ts.isClassDeclaration(s)) {
           enter(s, scope);
           continue;
         }
-        find(s, flowNow, scope);
+        find(s, flowNow, scope, alias);
       }
     };
     const enter = (n: ts.Node, scope: Set<string>) => {
       if (ts.isSourceFile(n)) {
-        stmts(n.statements, { empty: false, unspent: false }, new Set(scope));
+        stmts(n.statements, { empty: false, unspent: false }, new Set(scope), new Map());
         return;
       }
       if (ts.isClassDeclaration(n)) {
@@ -286,7 +363,7 @@ export function conservationHits(text: string, file = "packages/settlement-ln/sr
         return;
       }
       const body = fnBody(n);
-      if (body && ts.isBlock(body)) stmts(body.statements, { empty: false, unspent: false }, new Set(scope));
+      if (body && ts.isBlock(body)) stmts(body.statements, { empty: false, unspent: false }, new Set(scope), new Map());
     };
     enter(node, bound);
   };
@@ -294,48 +371,69 @@ export function conservationHits(text: string, file = "packages/settlement-ln/sr
   return hits;
 }
 
-function phpCode(text: string): string {
-  let out = "";
+function blankPhp(text: string): string {
+  const out = text.split("");
   let q: string | null = null;
   for (let i = 0; i < text.length; i++) {
     const c = text[i] ?? "";
     if (q) {
-      out += c;
-      if (c === "\\") { out += text[i + 1] ?? ""; i++; continue; }
+      if (c === "\\") { i++; continue; }
       if (c === q) q = null;
       continue;
     }
-    if (c === "'" || c === "\"") { q = c; out += c; continue; }
-    if (c === "/" && text[i + 1] === "/") { while (i < text.length && text[i] !== "\n") i++; out += "\n"; continue; }
-    if (c === "#") { while (i < text.length && text[i] !== "\n") i++; out += "\n"; continue; }
-    if (c === "/" && text[i + 1] === "*") { i += 2; while (i < text.length && !(text[i] === "*" && text[i + 1] === "/")) { out += text[i] === "\n" ? "\n" : " "; i++; } i++; continue; }
-    out += c;
+    if (c === "'" || c === "\"") { q = c; continue; }
+    if ((c === "/" && text[i + 1] === "/") || c === "#") {
+      const skip = c === "#";
+      if (!skip) out[i + 1] = " ";
+      while (i < text.length && text[i] !== "\n") { out[i] = " "; i++; }
+      i--;
+      continue;
+    }
+    if (c === "/" && text[i + 1] === "*") {
+      out[i] = " ";
+      out[i + 1] = " ";
+      i += 2;
+      while (i < text.length && !(text[i] === "*" && text[i + 1] === "/")) {
+        if (text[i] !== "\n") out[i] = " ";
+        i++;
+      }
+      if (i < text.length) out[i] = " ";
+      if (text[i + 1] === "/") out[i + 1] = " ";
+    }
   }
-  return out;
+  return out.join("");
+}
+
+function phpStmt(code: string, index: number): string {
+  let s = index;
+  while (s > 0 && code[s - 1] !== ";") s--;
+  let e = index;
+  while (e < code.length && code[e] !== ";") e++;
+  return code.slice(s, e);
 }
 
 function phpHits(file: string, text: string): GuardHit[] {
   const hits: GuardHit[] = [];
-  const code = phpCode(text);
-  let line = 1;
-  for (const part of code.split(";")) {
-    const stmt = part.trim();
-    if (stmt) {
-      const a = /str_starts_with\s*\(\s*(\$\w+)\s*,\s*['"]cashuA['"]\s*\)/.exec(stmt);
-      const b = /str_starts_with\s*\(\s*\$\w+\s*,\s*['"]cashuB['"]\s*\)/.test(stmt) || /substr\s*\(\s*\$\w+\s*,\s*0\s*,\s*6\s*\)\s*===?\s*['"]cashuB['"]/.test(stmt);
-      const subA = /substr\s*\(\s*(\$\w+)\s*,\s*0\s*,\s*6\s*\)\s*===?\s*['"]cashuA['"]/.exec(stmt);
-      const who = a?.[1] ?? subA?.[1];
-      const hasA = !!who && !/!\s*(?:str_starts_with\s*\(\s*\$\w+\s*,\s*['"]cashuA['"]|substr\s*\()/.test(stmt);
-      if (b && !hasA) hits.push({ file, line, rule: BONLY });
-      if (/!\s*str_starts_with\s*\(\s*\$\w+\s*,\s*['"]cashuA['"]/.test(stmt)) hits.push({ file, line, rule: BONLY });
-      if (who && !b) {
-        const esc = who.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-        const forwards = stmt.includes(`'token' => ${who}`) || stmt.includes(`"token" => ${who}`) || new RegExp(`return\\s+${esc}\\b`).test(stmt);
-        if (!forwards) hits.push({ file, line, rule: AREF });
-      }
-      if ((/\[['"]kind['"]\]\s*===?\s*['"]a['"]/.test(stmt) || /->kind\s*===?\s*['"]a['"]/.test(stmt)) && /malformed/.test(stmt)) hits.push({ file, line, rule: AREF });
+  const code = blankPhp(text);
+  const re = /str_starts_with\s*\(\s*(\$\w+)\s*,\s*(['"])cashu([AB])\2\s*\)|substr\s*\(\s*(\$\w+)\s*,\s*0\s*,\s*6\s*\)\s*(===?|!==?)\s*(['"])cashu([AB])\6|strpos\s*\(\s*(\$\w+)\s*,\s*(['"])cashu([AB])\9\s*\)\s*(===?|!==?)\s*0|\[['"]kind['"]\]\s*===?\s*['"]a['"]|->kind\s*===?\s*['"]a['"]/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(code))) {
+    const line = code.slice(0, m.index).split("\n").length;
+    const stmt = phpStmt(code, m.index);
+    const which = m[3] || m[7] || m[10];
+    const who = m[1] || m[4] || m[8];
+    const kindA = !which && (/\[['"]kind['"]\]\s*===?\s*['"]a['"]/.test(m[0]) || /->kind\s*===?\s*['"]a['"]/.test(m[0]));
+    const negA = which === "A" && new RegExp(`!\\s*${m[0].replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`).test(stmt);
+    const stmtB = /str_starts_with\s*\(\s*\$\w+\s*,\s*['"]cashuB['"]/.test(stmt) || /substr\s*\(\s*\$\w+\s*,\s*0\s*,\s*6\s*\)\s*===?\s*['"]cashuB['"]/.test(stmt) || /strpos\s*\(\s*\$\w+\s*,\s*['"]cashuB['"]\s*\)\s*===?\s*0/.test(stmt);
+    const stmtA = /str_starts_with\s*\(\s*\$\w+\s*,\s*['"]cashuA['"]/.test(stmt) && !/!\s*str_starts_with\s*\(\s*\$\w+\s*,\s*['"]cashuA['"]/.test(stmt);
+    if (kindA && /malformed/.test(stmt)) hits.push({ file, line, rule: AREF });
+    else if (stmtA && stmtB) { /* both prefixes pay */ }
+    else if (which === "B" || negA) hits.push({ file, line, rule: BONLY });
+    else if (which === "A" && who) {
+      const esc = who.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      const forwards = stmt.includes(`'token' => ${who}`) || stmt.includes(`"token" => ${who}`) || new RegExp(`return\\s+${esc}\\b`).test(stmt);
+      if (!forwards) hits.push({ file, line, rule: AREF });
     }
-    line += part.split("\n").length - 1;
   }
   return hits;
 }
