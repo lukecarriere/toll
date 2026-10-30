@@ -3,15 +3,28 @@
 // requires: a token this process never issued, or one it already spent, is refused here.
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
-import { randomBytes, toHex } from "../../protocol/src/bytes.ts";
+import { fromHex, randomBytes, toHex } from "../../protocol/src/bytes.ts";
+import { sha256 } from "../../protocol/src/hmac.ts";
 import { CASHU_UNIT, encodeTokenV4, stripMint, type CashuProof } from "./cashu.ts";
+import { invoiceFor } from "./mint-quote.ts";
 
 interface Row { amount: number; id: string; C: string; spent: boolean }
+
+interface QuoteRow {
+  id: string;
+  amount: number;
+  preimage: string;
+  request: string;
+  state: "UNPAID" | "PAID" | "ISSUED";
+  proofs: { amount: number; secret: string; id: string; C: string }[] | null;
+}
 
 export interface TestMint {
   url: string;
   /** How many POST /v1/swap calls were attempted, including refusals. */
   swaps: () => number;
+  /** Sats minted into the caller's store after a paid quote. A replay does not add more. */
+  issuedSats: () => number;
   /** Drop connections so callers see an outage, not an error body. */
   setDown: (down: boolean) => void;
   close: () => Promise<void>;
@@ -19,7 +32,9 @@ export interface TestMint {
 
 export async function startTestMint(): Promise<TestMint> {
   const rows = new Map<string, Row>();
+  const quotes = new Map<string, QuoteRow>();
   let swaps = 0;
+  let issuedSats = 0;
   let down = false;
   let url = "";
 
@@ -31,6 +46,41 @@ export async function startTestMint(): Promise<TestMint> {
     const path = new URL(req.url ?? "/", "http://127.0.0.1").pathname;
     try {
       if (req.method === "GET" && path === "/v1/info") return json(res, 200, { name: "toll-test-mint", version: "test" });
+      if (req.method === "POST" && path === "/v1/mint/quote/bolt11") {
+        const body = await readJson(req);
+        const amount = body?.amount;
+        if (body?.unit !== CASHU_UNIT || !Number.isSafeInteger(amount) || amount <= 0 || amount > 1_000_000) return json(res, 400, { detail: "bad amount", code: 11000 });
+        const preimage = toHex(randomBytes(32));
+        const id = toHex(randomBytes(16));
+        const request = invoiceFor(amount, toHex(await sha256(fromHex(preimage))));
+        quotes.set(id, { id, amount, preimage, request, state: "UNPAID", proofs: null });
+        return json(res, 200, { quote: id, request, state: "UNPAID", expiry: Math.floor(Date.now() / 1000) + 600 });
+      }
+      const quoted = /^\/v1\/mint\/quote\/bolt11\/([0-9a-f]+)$/.exec(path);
+      if (req.method === "GET" && quoted) {
+        const q = quotes.get(quoted[1]);
+        if (!q) return json(res, 404, { detail: "unknown", code: 404 });
+        return json(res, 200, { quote: q.id, request: q.request, state: q.state, expiry: Math.floor(Date.now() / 1000) + 600 });
+      }
+      if (req.method === "POST" && path === "/test/pay") {
+        const body = await readJson(req);
+        const q = [...quotes.values()].find((row) => row.request === body?.request);
+        if (!q) return json(res, 400, { detail: "unknown", code: 11000 });
+        if (q.state === "UNPAID") q.state = "PAID";
+        return json(res, 200, { preimage: q.preimage });
+      }
+      if (req.method === "POST" && path === "/v1/mint/bolt11") {
+        const body = await readJson(req);
+        const q = quotes.get(typeof body?.quote === "string" ? body.quote : "");
+        if (!q || q.state === "UNPAID") return json(res, 400, { detail: "unpaid", code: 11000 });
+        if (!q.proofs) {
+          const proof = issue(q.amount, rows);
+          q.proofs = [{ amount: proof.amount, secret: proof.secret, id: toHex(proof.id), C: toHex(proof.C) }];
+          q.state = "ISSUED";
+          issuedSats += q.amount;
+        }
+        return json(res, 200, { proofs: q.proofs });
+      }
       if (req.method === "POST" && path === "/test/mint") {
         const body = await readJson(req);
         const amount = body?.amount;
@@ -73,6 +123,7 @@ export async function startTestMint(): Promise<TestMint> {
   return {
     url,
     swaps: () => swaps,
+    issuedSats: () => issuedSats,
     setDown: (v: boolean) => { down = v; },
     close: () => new Promise<void>((ok) => { server.closeAllConnections?.(); server.close(() => ok()); }),
   };

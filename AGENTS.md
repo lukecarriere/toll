@@ -30,6 +30,7 @@
 | --- | --- | --- |
 | `cashuA` and `cashuB` both pay. A gate cannot require only `cashuB`. | `scripts/cashu-guards.ts` | [tests/cashu-guards.test.ts](https://github.com/lukecarriere/toll/blob/cursor/cashu-guard-notes-389a/tests/cashu-guards.test.ts) |
 | `abort()` runs only after an empty restore and an unspent check. | `scripts/cashu-guards.ts` | [tests/cashu-guards.test.ts](https://github.com/lukecarriere/toll/blob/cursor/cashu-guard-notes-389a/tests/cashu-guards.test.ts) |
+| An issued quote with no store row does not pay. | `scripts/mutate-mint-quote.mjs` | [tests/settlement-mint-quote.test.ts](tests/settlement-mint-quote.test.ts) |
 
 Cannot catch, in `scripts/cashu-guards.ts`:
 
@@ -49,6 +50,7 @@ Cannot catch, in `scripts/cashu-guards.ts`:
 - `mint allowlist`: `settlement.cashu.mints` on Node, `CASHU_MINTS` on the worker. `guardMintUrl` refuses anything else. Empty means receive is off.
 - `change`: leftover when the source is larger than the `creqA` amount. `cashuPayer` passes it to `onChange` as a `cashuB` string.
 - `conservation`: sats the mint signed equal stored proofs plus pending outputs plus recorded losses. `abort()` runs only when restore is empty and every input is `UNSPENT`.
+- `l402`: the mint-quote offer beside Cashu. `kind` is `l402`. The header is `WWW-Authenticate`. The invoice form is loopback-only. Payment is the store's mint-quote row, not mint state `ISSUED`.
 
 ## Team rules
 

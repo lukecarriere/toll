@@ -33,12 +33,12 @@ export interface Running {
 }
 
 /** Start the demo app (issuer + widget + site) on a random localhost port, capturing log lines. */
-export async function startDemo(over: Record<string, any> = {}, opts: { pickCounter?: (counter_max: number) => number; settlement?: TollOptions["settlement"] } = {}): Promise<Running> {
+export async function startDemo(over: Record<string, any> = {}, opts: { pickCounter?: (counter_max: number) => number; now?: () => number; settlement?: TollOptions["settlement"] } = {}): Promise<Running> {
   const lines: string[] = [];
   const metrics = new Metrics((l) => lines.push(l));
   const store = new MemoryStore();
   const config = testConfig(over);
-  const demo = createDemo({ config, metrics, store, pickCounter: opts.pickCounter, settlement: opts.settlement });
+  const demo = createDemo({ config, metrics, store, pickCounter: opts.pickCounter, now: opts.now, settlement: opts.settlement });
   const server: Server = await new Promise((ok) => {
     const s = demo.app.listen(0, "127.0.0.1", () => ok(s));
   });

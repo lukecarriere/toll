@@ -5,7 +5,7 @@
 //   status(), balance() for health and owner screens (USD, hidden when the rate is unavailable)
 // Proof of payment is checked by the settlement engine (stub here; the L402 proxy later). This file
 // holds no macaroon or invoice logic of its own.
-import { TollError, hmacSha256, toHex, utf8, type ActionClass } from "../../protocol/src/index.ts";
+import { TollError, hmacSha256, isActionClass, toHex, utf8, type ActionClass } from "../../protocol/src/index.ts";
 import { asCashuPayment } from "./cashu.ts";
 import type { Offer, Paid, PaidClass, PaidProof, SettlementEngine } from "./engine.ts";
 import { type FxSource, fresh, offerUsd } from "./fx.ts";
@@ -22,6 +22,9 @@ export interface RailOptions {
   now: () => number;
   /** Single-use guard from the issuer's replay store (throws store_unavailable when it is down). */
   firstUse: (key: string, ttl_s: number) => Promise<boolean>;
+  hasMintQuote?: (quote: string) => Promise<boolean>;
+  claimMintQuote?: (row: { quote: string; action: string; amount: number; mint: string; proofs: { amount: number; secret: string; id: string; C: string }[] }) => Promise<boolean>;
+  noteMintQuoteLoss?: (x: { quote: string; action: string; amount: number }) => Promise<void>;
   onDegraded?: (reason: string) => void;
   onSettled?: (o: { cls: ActionClass; amount_msat: number; fee_msat: number }) => void;
 }
@@ -81,12 +84,20 @@ export function createSettlementRail(o: RailOptions) {
     }
     try {
       const { amount_msat, usd } = price(cls, mults);
-      const offer = await o.engine.offer({ site: o.site, cls, amount_msat, now, ttl_s: o.offer_ttl_s });
+      const args = { site: o.site, cls, amount_msat, now, ttl_s: o.offer_ttl_s };
+      const offer = await o.engine.offer(args);
       degraded = false;
-      const out: Offer = { ...offer };
-      if (usd) out.display = { usd, label: "per request" };
-      else delete out.display; // rate unavailable: the amount stands, the USD is omitted (Q4)
-      return [out];
+      const shown = (row: Offer): Offer => {
+        const out: Offer = { ...row };
+        if (usd) out.display = { usd, label: "per request" };
+        else delete out.display; // rate unavailable: the amount stands, the USD is omitted (Q4)
+        return out;
+      };
+      const rows = [shown(offer)];
+      if (o.engine.mintQuote) {
+        try { rows.push(shown(await o.engine.mintQuote(args))); } catch { /* Cashu still stands when the quote does not. */ }
+      }
+      return rows;
     } catch {
       markDegraded("offer_failed");
       return [];
@@ -116,7 +127,7 @@ export function createSettlementRail(o: RailOptions) {
    * engine must call the mint; a mint outage throws `store_unavailable` and no pass is minted.
    */
   async function redeemPaid(body: any): Promise<Paid & { fee_msat: number; net_msat: number }> {
-    if (!body || typeof body.offer_id !== "string" || (body.kind !== "ln402" && body.kind !== "cashu")) throw new TollError("malformed");
+    if (!body || typeof body.offer_id !== "string" || (body.kind !== "ln402" && body.kind !== "l402" && body.kind !== "cashu")) throw new TollError("malformed");
     const now = o.now();
     let proof: PaidProof;
     if (body.kind === "cashu") {
@@ -126,11 +137,14 @@ export function createSettlementRail(o: RailOptions) {
     } else if (typeof body.preimage !== "string" || typeof body.macaroon !== "string") {
       throw new TollError("malformed");
     } else {
-      proof = { kind: "ln402", offer_id: body.offer_id, credential: body.macaroon, preimage: body.preimage.toLowerCase() };
+      proof = { kind: body.kind === "l402" ? "l402" : "ln402", offer_id: body.offer_id, credential: body.macaroon, preimage: body.preimage.toLowerCase() };
     }
     let paid: Paid;
     try {
-      paid = await o.engine.verifyPaid({ site: o.site, proof, now, firstUse: o.firstUse });
+      paid = await o.engine.verifyPaid({
+        site: o.site, proof, now, action: isActionClass(body.action) ? body.action : undefined, firstUse: o.firstUse,
+        hasMintQuote: o.hasMintQuote, claimMintQuote: o.claimMintQuote, noteMintQuoteLoss: o.noteMintQuoteLoss,
+      });
     } catch (e) {
       if (e instanceof TollError && e.code === "replay") replayRejected++;
       throw e;

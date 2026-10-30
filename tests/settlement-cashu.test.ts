@@ -105,7 +105,7 @@ test("agent 402 carries an X-Cashu payment request; a test-mint token yields a 1
     assert.equal(denied.status, 402);
     const header = denied.headers.get("x-cashu");
     assert.ok(header?.startsWith("creqA"), header ?? "");
-    assert.equal(denied.headers.get("www-authenticate"), null);
+    assert.match(denied.headers.get("www-authenticate") ?? "", /^L402 macaroon="[^"]+", invoice="lnbc/);
     const body = await denied.json();
     assert.deepEqual(Object.keys(body), ["error", "challenge_url", "offers"]);
     assert.equal(body.error, "payment_required");
@@ -116,8 +116,9 @@ test("agent 402 carries an X-Cashu payment request; a test-mint token yields a 1
     assert.equal(req.a, 10);
     assert.deepEqual(req.m, [mint.url]);
     assert.equal(req.s, true);
-    assert.equal(body.offers.length, 1);
+    assert.equal(body.offers.length, 2);
     assert.equal(body.offers[0].kind, "cashu");
+    assert.equal(body.offers[1].kind, "l402");
     assert.equal(body.offers[0].request, header);
     assert.equal(body.offers[0].amount, 10);
     assert.equal(body.offers[0].amount_msat, 10000);

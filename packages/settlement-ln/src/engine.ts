@@ -40,12 +40,19 @@ export interface CashuOffer extends OfferBase {
   amount: number;
 }
 
+/** Mint-quote offer. `kind` is `l402`. The invoice is loopback-only. */
+export interface QuoteOffer extends OfferBase {
+  kind: "l402";
+  invoice: string;
+  macaroon: string;
+}
+
 /** What a client is offered on 402. */
-export type Offer = LnOffer | CashuOffer;
+export type Offer = LnOffer | CashuOffer | QuoteOffer;
 
 /** Lightning proof: `Authorization: L402 <credential>:<preimage>`. */
 export interface LnPaidProof {
-  kind?: "ln402";
+  kind?: "ln402" | "l402";
   offer_id: string;
   credential: string;
   preimage: string;
@@ -72,8 +79,16 @@ export interface SettlementEngine {
   readonly kind: "stub" | "proxy" | "cashu";
   /** Mint an offer for a class at a price Toll chose (Toll is the price source). */
   offer(o: { site: string; cls: PaidClass; amount_msat: number; now: number; ttl_s?: number }): Promise<Offer>;
-  /** Verify a paid retry. One payment -> one pass: replays are rejected. */
-  verifyPaid(o: { site: string; proof: PaidProof; now: number; firstUse: (key: string, ttl_s: number) => Promise<boolean> }): Promise<Paid>;
+  /** Verify a paid retry. One payment -> one pass: replays are rejected. `action` is the route being paid. */
+  verifyPaid(o: {
+    site: string; proof: PaidProof; now: number; action?: ActionClass;
+    firstUse: (key: string, ttl_s: number) => Promise<boolean>;
+    hasMintQuote?: (quote: string) => Promise<boolean>;
+    claimMintQuote?: (row: { quote: string; action: string; amount: number; mint: string; proofs: { amount: number; secret: string; id: string; C: string }[] }) => Promise<boolean>;
+    noteMintQuoteLoss?: (x: { quote: string; action: string; amount: number }) => Promise<void>;
+  }): Promise<Paid>;
+  /** Second offer from a NUT-04 quote on the Cashu mint. Absent when the mint is not the loopback test mint. */
+  mintQuote?(o: { site: string; cls: PaidClass; amount_msat: number; now: number; ttl_s?: number }): Promise<QuoteOffer>;
   /** Health for the degraded-mode switch (spec §8.6.8): when false, offers are [] and work still flows. */
   healthy(): Promise<boolean>;
 }
@@ -86,7 +101,7 @@ export function parseL402Authorization(header: string | undefined, offer_id: str
 
 /** `WWW-Authenticate` value for a Lightning 402 to agents (settlement.md Q2). */
 export function l402Challenge(offer: Offer): string {
-  if (offer.kind !== "ln402") throw new Error("L402 challenge requires an ln402 offer");
+  if (offer.kind !== "ln402" && offer.kind !== "l402") throw new Error("L402 challenge requires an invoice offer");
   return `L402 macaroon="${offer.macaroon}", invoice="${offer.invoice}"`;
 }
 
@@ -104,11 +119,16 @@ export function workChallengeUrl(site: string, action: string, path: string): st
  */
 export function paymentRequired(site: string, action: string, path: string, offers: Offer[]): { status: 402; headers: Record<string, string>; body: { error: "payment_required"; challenge_url: string; offers: Offer[] } } {
   if (offers.length === 0) throw new Error("a 402 needs at least one offer");
-  const first = offers[0];
-  // Cashu uses the NUT-24 header. Lightning keeps WWW-Authenticate. A 402 is one rail, not both.
-  const headers: Record<string, string> = first.kind === "cashu"
-    ? { "x-cashu": first.request, "access-control-expose-headers": "x-cashu" }
-    : { "www-authenticate": l402Challenge(first), "access-control-expose-headers": "www-authenticate" };
+  const cashu = offers.find((o) => o.kind === "cashu");
+  const ln = offers.find((o) => o.kind === "ln402" || o.kind === "l402");
+  if (!cashu && !ln) throw new Error("a 402 needs a cashu or invoice offer");
+  // Cashu stays the NUT-24 header. A mint-quote offer adds WWW-Authenticate on the same 402.
+  // Any other combination still sends the one header it always sent.
+  const headers: Record<string, string> = {};
+  const expose: string[] = [];
+  if (cashu) { headers["x-cashu"] = cashu.request; expose.push("x-cashu"); }
+  if (ln) { headers["www-authenticate"] = l402Challenge(ln); expose.push("www-authenticate"); }
+  headers["access-control-expose-headers"] = expose.join(", ");
   return {
     status: 402,
     headers,

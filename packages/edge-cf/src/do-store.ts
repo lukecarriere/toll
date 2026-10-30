@@ -30,6 +30,8 @@ export class TollStoreDO extends DurableObject {
     this.sql.exec("CREATE TABLE IF NOT EXISTS cashu_spent (h TEXT PRIMARY KEY)");
     this.sql.exec("CREATE TABLE IF NOT EXISTS cashu_pending (id TEXT PRIMARY KEY, body TEXT NOT NULL)");
     this.sql.exec("CREATE TABLE IF NOT EXISTS cashu_meta (k TEXT PRIMARY KEY, n INTEGER NOT NULL)");
+    this.sql.exec("CREATE TABLE IF NOT EXISTS cashu_mint_quote (quote TEXT PRIMARY KEY, action TEXT NOT NULL, amount INTEGER NOT NULL, mint TEXT NOT NULL, proofs TEXT NOT NULL)");
+    this.sql.exec("CREATE TABLE IF NOT EXISTS cashu_mint_loss (quote TEXT PRIMARY KEY, action TEXT NOT NULL, amount INTEGER NOT NULL)");
   }
 
   private now() {
@@ -294,6 +296,34 @@ export class TollStoreDO extends DurableObject {
     return { ok: true };
   }
 
+  /** Quote row, proofs, and the single-use mark. One call, so the SQL is one transaction. */
+  claimMintQuote(row: { quote: string; action: string; amount: number; mint: string; proofs: { amount: number; secret: string; id: string; C: string }[] }): boolean {
+    if (this.sql.exec("SELECT quote FROM cashu_mint_quote WHERE quote = ?", row.quote).toArray().length) return false;
+    this.sql.exec(
+      "INSERT INTO cashu_mint_quote (quote, action, amount, mint, proofs) VALUES (?, ?, ?, ?, ?)",
+      row.quote, row.action, row.amount, row.mint, JSON.stringify(row.proofs),
+    );
+    for (const p of row.proofs) {
+      this.sql.exec(
+        "INSERT INTO cashu_proof (secret, mint, unit, amount, keyset, c) VALUES (?, ?, 'sat', ?, ?, ?)",
+        p.secret, row.mint, p.amount, p.id, p.C,
+      );
+    }
+    const exp = this.now() + 180;
+    this.sql.exec("INSERT INTO kv (k, v, exp) VALUES (?, '1', ?)", "f:mq:" + row.quote, exp);
+    return true;
+  }
+
+  hasMintQuote(quote: string): boolean {
+    return this.sql.exec("SELECT quote FROM cashu_mint_quote WHERE quote = ?", quote).toArray().length > 0;
+  }
+
+  noteMintQuoteLoss(o: { quote: string; action: string; amount: number }): void {
+    if (this.sql.exec("SELECT quote FROM cashu_mint_loss WHERE quote = ?", o.quote).toArray().length) return;
+    this.sql.exec("INSERT INTO cashu_mint_loss (quote, action, amount) VALUES (?, ?, ?)", o.quote, o.action, o.amount);
+    this.addLoss(o.amount);
+  }
+
   async cashuLose(o: { id: string; marks: string[] }): Promise<{ ok: true }> {
     this.losePending(o);
     return { ok: true };
@@ -362,6 +392,9 @@ export interface TollDoStub {
   cashuAbort(id: string): Promise<{ ok: true }>;
   cashuLose(o: { id: string; marks: string[] }): Promise<{ ok: true }>;
   cashuRecover(): Promise<{ ok: true }>;
+  claimMintQuote(row: { quote: string; action: string; amount: number; mint: string; proofs: { amount: number; secret: string; id: string; C: string }[] }): Promise<boolean>;
+  hasMintQuote(quote: string): Promise<boolean>;
+  noteMintQuoteLoss(o: { quote: string; action: string; amount: number }): Promise<void>;
 }
 
 /**
@@ -438,5 +471,10 @@ export class DurableObjectStore implements TollStore {
   windowHit(key: string, window_s: number) { return this.run(() => this.stub.windowHit(key, window_s)); }
   windowCount(key: string, window_s: number) { return this.run(() => this.stub.windowCount(key, window_s)); }
   note(kind: "accepted" | "rejected") { return this.run(async () => { await this.stub.note(kind); }); }
+  claimMintQuote(row: { quote: string; action: string; amount: number; mint: string; proofs: { amount: number; secret: string; id: string; C: string }[] }) {
+    return this.run(() => this.stub.claimMintQuote(row));
+  }
+  hasMintQuote(quote: string) { return this.run(() => this.stub.hasMintQuote(quote)); }
+  noteMintQuoteLoss(o: { quote: string; action: string; amount: number }) { return this.run(async () => { await this.stub.noteMintQuoteLoss(o); }); }
   counts() { return this.run(() => this.stub.counts()); }
 }
