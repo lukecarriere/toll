@@ -55,6 +55,8 @@ const mutants = [
 function runConservation() {
   return spawnSync(process.execPath, ["--test", "--test-concurrency=1", "--test-name-pattern", "conservation:", "tests/edge-cashu.test.ts"], {
     encoding: "utf8",
+    // The edge log is larger than spawnSync's 1MB default, which drops the fail summary.
+    maxBuffer: 16 * 1024 * 1024,
   });
 }
 
@@ -64,6 +66,7 @@ try {
     if (!original.includes(mutant.from)) throw new Error(mutant.name + ": anchor missing");
     writeFileSync(file, original.replace(mutant.from, mutant.to));
     const result = runConservation();
+    if (result.error) throw new Error(mutant.name + ": " + result.error.message);
     const text = (result.stdout || "") + (result.stderr || "");
     const failed = result.status !== 0 && /# fail [1-9]/.test(text);
     if (failed) console.log("killed: " + mutant.name);
