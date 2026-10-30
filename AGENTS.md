@@ -1,6 +1,6 @@
 # Agent instructions
 
-- Run `npm test` before finishing a change. It builds, typechecks, runs the copy lint and the Cashu guards, and runs the Node and PHP tests.
+- Run `npm test` before finishing a change. It builds, typechecks, runs the copy lint, the Cashu guards, and the hidden-attribute check, and runs the Node and PHP tests.
 - Verify a checkout with `.cursor/skills/verify/SKILL.md`. pstack skills are vendored under `.cursor/skills/` (MIT, Lauren Tan). The reasoning budget is low. Skip `/swarm` and `/arena` unless a design is contested.
 - The copy lint keeps vendor names off public surfaces. Public strings come from `docs/copy.md`. Vendor names may appear only in `docs/adapters.md`, in package pins, and in the bundled licence notices.
 - Phase 4 stays locked. Settlement is test-only: the stub backend, no real money, and no live payouts.
@@ -23,6 +23,7 @@
 | `X-Forwarded-For` is not taken from the leftmost hop. | `tests/xff-trust.test.ts` |
 | The site-key field is `type=text` and the admin line height is at least 1.75. | `tests/wp.test.ts` |
 | pstack budget is low. Skip `/swarm` and `/arena` unless a design is contested. | `.cursor/rules/pstack-models.mdc` and this file |
+| An author `display` rule must not show an element that carries `hidden`. | `npm run lint:hidden` (`scripts/hidden-attr.ts`) |
 
 ## Rule -> enforcer
 
@@ -31,6 +32,7 @@
 | `cashuA` and `cashuB` both pay. A gate cannot require only `cashuB`. | `scripts/cashu-guards.ts` | [tests/cashu-guards.test.ts](https://github.com/lukecarriere/toll/blob/cursor/cashu-guard-notes-389a/tests/cashu-guards.test.ts) |
 | `abort()` runs only after an empty restore and an unspent check. | `scripts/cashu-guards.ts` | [tests/cashu-guards.test.ts](https://github.com/lukecarriere/toll/blob/cursor/cashu-guard-notes-389a/tests/cashu-guards.test.ts) |
 | An issued quote with no store row does not pay. | `scripts/mutate-mint-quote.mjs` | [tests/settlement-mint-quote.test.ts](tests/settlement-mint-quote.test.ts) |
+| An author `display` rule must not show an element that carries `hidden`. | `scripts/hidden-attr.ts` | [tests/hidden-attr.test.ts](tests/hidden-attr.test.ts) |
 
 Cannot catch, in `scripts/cashu-guards.ts`:
 
