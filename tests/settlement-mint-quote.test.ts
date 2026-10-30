@@ -111,8 +111,23 @@ test("a foreign mint of the quote does not grant a pass", async () => {
   assert.equal(proofs.reduce((n, p) => n + p.amount, 0), 10);
   const retry = await post("/contact", auth(macaroon, await pay(invoice)));
   const body = await retry.json();
-  assert.notEqual(retry.status, 200, JSON.stringify(body));
-  assert.notEqual(body.rail, "settle");
+  assert.equal(retry.status, 401, JSON.stringify(body));
+  assert.equal(body.error, "bad_solution");
+});
+
+test("eight concurrent retries of one paid quote yield one pass and seven replays", async () => {
+  const { macaroon, invoice } = await quoteOffer("/contact");
+  const preimage = await pay(invoice);
+  const results = await Promise.all(Array.from({ length: 8 }, () => post("/contact", auth(macaroon, preimage))));
+  const rows = [];
+  for (const r of results) rows.push({ status: r.status, body: await r.json() });
+  const passed = rows.filter((r) => r.status === 200);
+  const replays = rows.filter((r) => r.status === 401 && r.body.error === "replay");
+  const internals = rows.filter((r) => r.status === 500);
+  assert.equal(passed.length, 1, JSON.stringify(rows));
+  assert.equal(passed[0].body.rail, "settle");
+  assert.equal(replays.length, 7, JSON.stringify(rows));
+  assert.equal(internals.length, 0, JSON.stringify(rows));
 });
 
 test("spending those proofs before the retry does not grant a pass", async () => {
