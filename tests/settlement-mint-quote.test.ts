@@ -1,7 +1,7 @@
 // Loopback mint quote beside Cashu. No public mint, no funds.
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
-import { startTestMint } from "../packages/settlement-ln/src/index.ts";
+import { QUOTE_KIND, startTestMint } from "../packages/settlement-ln/src/index.ts";
 import { fromB64url, fromUtf8 } from "../packages/protocol/src/bytes.ts";
 import { startDemo, drain } from "./helpers.ts";
 
@@ -183,6 +183,26 @@ test("a down mint is a 403 and the manifest does not advertise pay methods", asy
     assert.equal(body.offers, undefined);
   } finally {
     mint.setDown(false);
+  }
+});
+
+test("a throw after the mint signs is refused and recorded as a loss", async () => {
+  const { macaroon, invoice } = await quoteOffer("/contact");
+  const preimage = await pay(invoice);
+  const store = demo.store;
+  const orig = store.claimMintQuote!.bind(store);
+  store.claimMintQuote = async () => { throw new Error("boom"); };
+  try {
+    const retry = await post("/contact", auth(macaroon, preimage));
+    const body = await retry.json();
+    assert.notEqual(retry.status, 200, JSON.stringify(body));
+    assert.notEqual(body.rail, "settle");
+    const losses = store.mintQuoteLosses?.() ?? [];
+    assert.equal(losses.length, 1, JSON.stringify(losses));
+    assert.deepEqual(losses[0], { quote: caveatsOf(macaroon).quote, action: "write", amount: 10 });
+    assert.ok(demo.lines.some((l) => l.includes("mint_quote_loss") && l.includes(losses[0].quote) && !l.includes(preimage) && !l.includes(macaroon)));
+  } finally {
+    store.claimMintQuote = orig;
   }
 });
 
