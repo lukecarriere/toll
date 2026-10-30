@@ -3,7 +3,9 @@
 import { isIP } from "node:net";
 import { TollError } from "../../protocol/src/errors.ts";
 
-const TIMEOUT_MS = 1500;
+/** One mint call, DNS included. complete() does at most COMPLETE_MINT_CALLS of these. */
+export const MINT_CALL_TIMEOUT_MS = 1500;
+const TIMEOUT_MS = MINT_CALL_TIMEOUT_MS;
 const MAX_BODY = 1_000_000;
 
 export interface MintGuard {

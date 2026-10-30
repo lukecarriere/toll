@@ -8,7 +8,7 @@ import {
 } from "../../protocol/src/index.ts";
 import { CASHU_UNIT, decodeToken, encodePaymentRequest, type DecodedToken } from "./cashu.ts";
 import { blindMessage, deriveKeysetIdV2, inputFee, resolveKeysetId, secretMark, secretY, splitAmount, unblind } from "./cashu-crypto.ts";
-import { type MintGuard, guardMintUrl, mintFetch, mintKey } from "./cashu-net.ts";
+import { type MintGuard, MINT_CALL_TIMEOUT_MS, guardMintUrl, mintFetch, mintKey } from "./cashu-net.ts";
 import { FileProofStore, type PendingOutput, type PendingSwap, type ProofStore, type StoredProof } from "./cashu-store.ts";
 import type { CashuOffer, Paid, PaidClass, PaidProof, SettlementEngine } from "./engine.ts";
 
@@ -19,6 +19,12 @@ const MAX_TOKEN = 16384;
  * may still be the request that saved it. Every sweep uses this floor, including the alarm.
  */
 export const SWEEP_MIN_AGE_MS = 10_000;
+/** Worst-case mint calls inside complete(): two swaps, two key fetches, two restores, one checkstate. */
+export const COMPLETE_MINT_CALLS = 7;
+/** Room for the gaps between those calls. Not a second copy of the 10s floor. */
+export const LEASE_MARGIN_MS = 300;
+/** How long an owner's lease lasts. Derived, so a shorter mint timeout cannot keep a 10s floor. */
+export const LEASE_MS = COMPLETE_MINT_CALLS * MINT_CALL_TIMEOUT_MS + LEASE_MARGIN_MS;
 
 interface Caveats {
   v: 1;
