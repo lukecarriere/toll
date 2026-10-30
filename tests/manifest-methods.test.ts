@@ -53,6 +53,7 @@ test("the loopback issuer toll.json and the 402 offer the same methods", async (
     const offered = body.offers.map((o: { kind: string }) => o.kind);
     assert.deepEqual(offered, ["cashu", QUOTE_KIND]);
     for (const t of doc.tools) {
+      assert.equal(t.payment.protocol, "HTTP 402");
       assert.deepEqual(t.payment.methods.map((m: { kind: string }) => m.kind), offered);
       assert.equal(t.payment.methods.find((m: { kind: string }) => m.kind === "cashu").status, "cashu");
       assert.equal(t.payment.methods.find((m: { kind: string }) => m.kind === QUOTE_KIND).status, QUOTE_KIND);
