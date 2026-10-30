@@ -34,6 +34,7 @@ async function quoteOffer(path: string) {
   assert.ok(m, www);
   assert.ok(String(denied.headers.get("x-cashu")).startsWith("creqA"));
   assert.equal(body.offers[0].kind, "cashu");
+  assert.equal(body.offers[1].kind, "l402");
   assert.equal(body.offers[1].invoice, m[2]);
   return { body, macaroon: m[1], invoice: m[2] };
 }
@@ -87,6 +88,89 @@ test("mint-quote guard: a wrong preimage is refused", async () => {
   await drain(still);
 });
 
+function caveatsOf(macaroon: string): { quote: string; exp: number } {
+  return JSON.parse(fromUtf8(fromB64url(macaroon.split(".")[0])));
+}
+
+async function mintForeign(quote: string) {
+  const r = await fetch(mint.url + "/v1/mint/bolt11", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ quote }),
+  });
+  const body = await r.json();
+  assert.equal(r.status, 200, JSON.stringify(body));
+  return body.proofs as { amount: number; secret: string; id: string; C: string }[];
+}
+
+test("a foreign mint of the quote does not grant a pass", async () => {
+  const { macaroon, invoice } = await quoteOffer("/contact");
+  const quote = caveatsOf(macaroon).quote;
+  await pay(invoice);
+  const proofs = await mintForeign(quote);
+  assert.equal(proofs.reduce((n, p) => n + p.amount, 0), 10);
+  const retry = await post("/contact", auth(macaroon, await pay(invoice)));
+  const body = await retry.json();
+  assert.notEqual(retry.status, 200, JSON.stringify(body));
+  assert.notEqual(body.rail, "settle");
+});
+
+test("spending those proofs before the retry does not grant a pass", async () => {
+  const { macaroon, invoice } = await quoteOffer("/contact");
+  await pay(invoice);
+  const proofs = await mintForeign(caveatsOf(macaroon).quote);
+  const spent = await fetch(mint.url + "/v1/swap", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ inputs: proofs.map((p) => ({ amount: p.amount, id: p.id, secret: p.secret, C: p.C })), outputs: [] }),
+  });
+  assert.equal(spent.status, 200);
+  await spent.arrayBuffer();
+  const retry = await post("/contact", auth(macaroon, await pay(invoice)));
+  const body = await retry.json();
+  assert.notEqual(retry.status, 200, JSON.stringify(body));
+});
+
+test("a new store refuses a macaroon whose quote is already minted", async () => {
+  const { macaroon, invoice } = await quoteOffer("/contact");
+  const preimage = await pay(invoice);
+  const first = await post("/contact", auth(macaroon, preimage));
+  assert.equal(first.status, 200);
+  await drain(first);
+  const other = await startDemo({
+    work: { standard: { cost: 500 } },
+    settlement: { enabled: true, backend: "stub", fee_bps: 1000, fx: { source: "fixed", usd_per_btc: 100000 }, cashu: { enabled: true, mint: mint.url } },
+  }, { now: () => clock });
+  try {
+    const retry = await fetch(other.url + "/contact", {
+      method: "POST",
+      headers: { accept: "application/json", "content-type": "application/json", "toll-client": "agent", authorization: `L402 ${macaroon}:${preimage}` },
+      body: "{}",
+    });
+    const body = await retry.json();
+    assert.notEqual(retry.status, 200, JSON.stringify(body));
+  } finally {
+    await other.close();
+  }
+});
+
+test("a down mint is a 403 and the manifest does not advertise pay methods", async () => {
+  mint.setDown(true);
+  try {
+    const res = await fetch(demo.url + "/.well-known/toll.json");
+    const doc = await res.json();
+    assert.equal(res.status, 200);
+    assert.equal(doc.tools.length, 3);
+    for (const t of doc.tools) assert.equal(t.payment.protocol, "none", t.name);
+    const denied = await post("/contact");
+    const body = await denied.json();
+    assert.equal(denied.status, 403);
+    assert.equal(body.offers, undefined);
+  } finally {
+    mint.setDown(false);
+  }
+});
+
 test("an expired token and an action mismatch are refused", async () => {
   const stale = await quoteOffer("/contact");
   const preimage = await pay(stale.invoice);
@@ -94,6 +178,10 @@ test("an expired token and an action mismatch are refused", async () => {
   const late = await post("/contact", auth(stale.macaroon, preimage));
   assert.equal(late.status, 401);
   assert.equal((await late.json()).error, "expired");
+  const losses = demo.store.mintQuoteLosses?.() ?? [];
+  assert.equal(losses.length, 1);
+  assert.deepEqual(losses[0], { quote: caveatsOf(stale.macaroon).quote, action: "write", amount: 10 });
+  assert.ok(demo.lines.some((l) => l.includes("mint_quote_loss") && l.includes(losses[0].quote) && !l.includes(preimage)));
   clock = Math.floor(Date.now() / 1000) + 10_000;
   const search = await quoteOffer("/search");
   assert.equal(search.body.offers[1].amount_msat, 2000);

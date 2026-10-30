@@ -22,6 +22,9 @@ export interface RailOptions {
   now: () => number;
   /** Single-use guard from the issuer's replay store (throws store_unavailable when it is down). */
   firstUse: (key: string, ttl_s: number) => Promise<boolean>;
+  hasMintQuote?: (quote: string) => Promise<boolean>;
+  claimMintQuote?: (row: { quote: string; action: string; amount: number; mint: string; proofs: { amount: number; secret: string; id: string; C: string }[] }) => Promise<boolean>;
+  noteMintQuoteLoss?: (x: { quote: string; action: string; amount: number }) => Promise<void>;
   onDegraded?: (reason: string) => void;
   onSettled?: (o: { cls: ActionClass; amount_msat: number; fee_msat: number }) => void;
 }
@@ -124,7 +127,7 @@ export function createSettlementRail(o: RailOptions) {
    * engine must call the mint; a mint outage throws `store_unavailable` and no pass is minted.
    */
   async function redeemPaid(body: any): Promise<Paid & { fee_msat: number; net_msat: number }> {
-    if (!body || typeof body.offer_id !== "string" || (body.kind !== "ln402" && body.kind !== "cashu")) throw new TollError("malformed");
+    if (!body || typeof body.offer_id !== "string" || (body.kind !== "ln402" && body.kind !== "l402" && body.kind !== "cashu")) throw new TollError("malformed");
     const now = o.now();
     let proof: PaidProof;
     if (body.kind === "cashu") {
@@ -134,11 +137,14 @@ export function createSettlementRail(o: RailOptions) {
     } else if (typeof body.preimage !== "string" || typeof body.macaroon !== "string") {
       throw new TollError("malformed");
     } else {
-      proof = { kind: "ln402", offer_id: body.offer_id, credential: body.macaroon, preimage: body.preimage.toLowerCase() };
+      proof = { kind: body.kind === "l402" ? "l402" : "ln402", offer_id: body.offer_id, credential: body.macaroon, preimage: body.preimage.toLowerCase() };
     }
     let paid: Paid;
     try {
-      paid = await o.engine.verifyPaid({ site: o.site, proof, now, action: isActionClass(body.action) ? body.action : undefined, firstUse: o.firstUse });
+      paid = await o.engine.verifyPaid({
+        site: o.site, proof, now, action: isActionClass(body.action) ? body.action : undefined, firstUse: o.firstUse,
+        hasMintQuote: o.hasMintQuote, claimMintQuote: o.claimMintQuote, noteMintQuoteLoss: o.noteMintQuoteLoss,
+      });
     } catch (e) {
       if (e instanceof TollError && e.code === "replay") replayRejected++;
       throw e;

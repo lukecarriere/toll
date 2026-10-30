@@ -2,18 +2,18 @@
 // A NUT-04 quote is quote, request, state, and expiry. It has no preimage field. Whether a public
 // mint adds one is unverified, so this path never asks the mint for it. The payer proves
 // sha256(preimage) equals the payment hash sealed with the price, the action, and the expiry.
-// The mint proves payment when that quote id is PAID or ISSUED. Toll then mints the proofs into
-// its own store. No node, and no second place that holds funds.
+// Mint state ISSUED is not payment. Toll's own quote row, written with the proofs and the
+// single-use mark, is the proof. No node, and no second place that holds funds.
 import {
   type ActionClass, TollError, canonicalJson, fromB64url, fromHex, fromUtf8, hmacSha256, hmacVerify, randomHex, sha256, timingSafeEqual, toB64url, utf8,
 } from "../../protocol/src/index.ts";
-import type { LnOffer, Paid, PaidClass } from "./engine.ts";
+import type { Paid, PaidClass, QuoteOffer, SettlementEngine } from "./engine.ts";
 
 const PREFIX = "toll-mint-quote-v1.";
 const TIMEOUT_MS = 1500;
 
 /** Method name carried in a manifest payment object. The word stays in this package. */
-export const QUOTE_KIND = "l402";
+export const QUOTE_KIND = "l402" as const;
 
 export interface HeldProof { amount: number; secret: string; id: string; C: string }
 
@@ -22,11 +22,12 @@ interface Caveats {
   payment_hash: string; quote: string; mint: string; exp: number;
 }
 
-/** Loopback invoice: bolt11-style amount, then the payment hash. */
+/** Loopback invoice only. Not a bolt11 decoder and not for a public mint. */
 export function invoiceFor(amountSats: number, paymentHash: string): string {
   return `lnbc${amountSats * 10}n1${paymentHash}`;
 }
 
+/** LOOPBACK ONLY. A real bolt11 invoice does not match and is refused. */
 export function paymentHashOf(invoice: string): string {
   const m = /^lnbc\d+n1([0-9a-f]{64})$/.exec(invoice);
   if (!m) throw new TollError("malformed");
@@ -61,24 +62,37 @@ export function offerIdOf(token: string): string {
   return c.offer_id;
 }
 
-async function readJson(url: string, init?: RequestInit): Promise<{ status: number; body: any }> {
+async function readJson(url: string, init: RequestInit | undefined, fetchImpl: typeof fetch): Promise<{ status: number; body: Record<string, unknown> }> {
   let r: Response;
-  try { r = await fetch(url, { ...init, signal: AbortSignal.timeout(TIMEOUT_MS) }); } catch { throw new TollError("store_unavailable"); }
+  try { r = await fetchImpl(url, { ...init, signal: AbortSignal.timeout(TIMEOUT_MS) }); } catch { throw new TollError("store_unavailable"); }
   const text = await r.text();
-  let body: any = {};
-  try { body = text ? JSON.parse(text) : {}; } catch { body = {}; }
+  let body: Record<string, unknown> = {};
+  try {
+    const parsed: unknown = text ? JSON.parse(text) : {};
+    body = parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed as Record<string, unknown> : {};
+  } catch { body = {}; }
   return { status: r.status, body };
+}
+
+export interface MintQuoteRow {
+  quote: string;
+  action: string;
+  amount: number;
+  mint: string;
+  proofs: HeldProof[];
 }
 
 export async function mintQuoteOffer(o: {
   secret: string; mint: string; site: string; cls: PaidClass; amount_msat: number; now: number; ttl_s?: number;
-}): Promise<LnOffer> {
+  fetchImpl?: typeof fetch;
+}): Promise<QuoteOffer> {
+  const fetchImpl = o.fetchImpl ?? fetch;
   const created = await readJson(o.mint + "/v1/mint/quote/bolt11", {
     method: "POST", headers: { "content-type": "application/json" },
     body: JSON.stringify({ amount: o.amount_msat / 1000, unit: "sat" }),
-  });
-  const quote = created.body?.quote;
-  const request = created.body?.request;
+  }, fetchImpl);
+  const quote = created.body.quote;
+  const request = created.body.request;
   if (created.status !== 200 || typeof quote !== "string" || typeof request !== "string") throw new TollError("store_unavailable");
   if ("preimage" in created.body || "payment_preimage" in created.body) throw new TollError("store_unavailable");
   const ttl = Math.min(o.ttl_s ?? 120, 120);
@@ -88,7 +102,7 @@ export async function mintQuoteOffer(o: {
     v: 1, offer_id: id, site: o.site, cls: o.cls, amount_msat: o.amount_msat,
     payment_hash: paymentHashOf(request), quote, mint: o.mint, exp,
   });
-  return { id, kind: "ln402", amount_msat: o.amount_msat, invoice: request, macaroon, exp };
+  return { id, kind: QUOTE_KIND, amount_msat: o.amount_msat, invoice: request, macaroon, exp };
 }
 
 function asProofs(rows: unknown, amount: number): HeldProof[] | null {
@@ -104,35 +118,58 @@ function asProofs(rows: unknown, amount: number): HeldProof[] | null {
 
 export async function verifyMintQuote(o: {
   secret: string; mint: string; site: string; action: ActionClass; offer_id: string; macaroon: string; preimage: string; now: number;
-  firstUse: (key: string, ttl_s: number) => Promise<boolean>;
-  held: (quote: string) => HeldProof[] | undefined;
-  hold: (quote: string, proofs: HeldProof[]) => void;
+  fetchImpl?: typeof fetch;
+  has: (quote: string) => Promise<boolean>;
+  claim: (row: MintQuoteRow) => Promise<boolean>;
+  noteLoss: (x: { quote: string; action: string; amount: number }) => Promise<void>;
 }): Promise<Paid> {
   if (!/^[0-9a-f]{64}$/.test(o.preimage)) throw new TollError("malformed");
+  const fetchImpl = o.fetchImpl ?? fetch;
   const c = await open(o.secret, o.macaroon);
   if (c.offer_id !== o.offer_id || c.mint !== o.mint) throw new TollError("bad_sig");
   if (c.site !== o.site) throw new TollError("wrong_site");
-  if (o.now > c.exp) throw new TollError("expired");
   if (c.cls !== o.action) throw new TollError("wrong_action");
   if (!Number.isSafeInteger(c.amount_msat) || c.amount_msat % 1000 !== 0) throw new TollError("bad_sig");
   const got = await sha256(fromHex(o.preimage));
   // MINT_QUOTE_GUARD preimage: the payer's preimage must hash to the sealed payment hash.
   if (!timingSafeEqual(got, fromHex(c.payment_hash))) throw new TollError("bad_solution");
-  const quote = await readJson(o.mint + "/v1/mint/quote/bolt11/" + encodeURIComponent(c.quote));
-  const state = quote.body?.state;
-  if (quote.status !== 200 || quote.body?.quote !== c.quote || (state !== "PAID" && state !== "ISSUED")) throw new TollError(quote.status === 200 ? "bad_solution" : "store_unavailable");
+  const looked = await readJson(o.mint + "/v1/mint/quote/bolt11/" + encodeURIComponent(c.quote), undefined, fetchImpl);
+  const state = typeof looked.body.state === "string" ? looked.body.state : "";
+  if (looked.status !== 200 || looked.body.quote !== c.quote) throw new TollError(looked.status === 200 ? "bad_solution" : "store_unavailable");
   const amount = c.amount_msat / 1000;
-  let proofs = o.held(c.quote);
-  if (!proofs) {
-    const minted = await readJson(o.mint + "/v1/mint/bolt11", {
-      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ quote: c.quote }),
-    });
-    proofs = minted.status === 200 ? asProofs(minted.body?.proofs, amount) ?? undefined : undefined;
-    if (!proofs) throw new TollError("store_unavailable");
-    o.hold(c.quote, proofs);
+  if (o.now > c.exp) {
+    if ((state === "PAID" || state === "ISSUED") && !(await o.has(c.quote))) await o.noteLoss({ quote: c.quote, action: c.cls, amount });
+    throw new TollError("expired");
   }
-  const ttl = Math.max(1, c.exp - o.now + 60);
-  // MINT_QUOTE_GUARD replay: one quote grants one pass.
-  if (!(await o.firstUse("mq:" + c.quote, ttl))) throw new TollError("replay");
+  if (await o.has(c.quote)) throw new TollError("replay");
+  if (state !== "PAID" && state !== "ISSUED") throw new TollError("bad_solution");
+  // MINT_QUOTE_GUARD issued: mint state ISSUED is not payment when this store has no row.
+  if (state === "ISSUED") throw new TollError("bad_solution");
+  const minted = await readJson(o.mint + "/v1/mint/bolt11", {
+    method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ quote: c.quote }),
+  }, fetchImpl);
+  const proofs = minted.status === 200 ? asProofs(minted.body.proofs, amount) : null;
+  if (!proofs) throw new TollError("store_unavailable");
+  // MINT_QUOTE_GUARD replay: the row, the proofs, and the single-use mark are one store call.
+  if (!(await o.claim({ quote: c.quote, action: c.cls, amount, mint: c.mint, proofs }))) throw new TollError("replay");
   return { cls: c.cls, amount_msat: c.amount_msat, payment_ref: c.payment_hash };
+}
+
+/** Adds the loopback quote offer onto a Cashu engine. The fetch must already target the test mint. */
+export function withQuoteOffer(base: SettlementEngine, o: { secret: string; mint: string; fetchImpl: typeof fetch }): SettlementEngine {
+  return {
+    kind: base.kind,
+    offer: (x) => base.offer(x),
+    healthy: () => base.healthy(),
+    mintQuote: (x) => mintQuoteOffer({ ...x, secret: o.secret, mint: o.mint, fetchImpl: o.fetchImpl }),
+    async verifyPaid(x) {
+      if (x.proof.kind === "cashu" || !("preimage" in x.proof)) return base.verifyPaid(x);
+      if (!x.action || !x.hasMintQuote || !x.claimMintQuote || !x.noteMintQuoteLoss) throw new TollError("malformed");
+      return verifyMintQuote({
+        secret: o.secret, mint: o.mint, site: x.site, action: x.action, offer_id: x.proof.offer_id,
+        macaroon: x.proof.credential, preimage: x.proof.preimage, now: x.now, fetchImpl: o.fetchImpl,
+        has: x.hasMintQuote, claim: x.claimMintQuote, noteLoss: x.noteMintQuoteLoss,
+      });
+    },
+  };
 }

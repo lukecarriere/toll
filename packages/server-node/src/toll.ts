@@ -32,6 +32,7 @@ import {
   StubSettler,
   createSettlementRail,
   offerIdOf,
+  QUOTE_KIND,
   stubEngineSecret,
   workChallengeUrl,
 } from "../../settlement-ln/src/index.ts";
@@ -144,6 +145,16 @@ export function createToll(config: TollConfig, opts: TollOptions = {}) {
       offer_ttl_s: config.settlement.offer_ttl_s,
       now,
       firstUse: (key, ttl) => store.firstUse(key, ttl),
+      hasMintQuote: (quote) => store.hasMintQuote ? store.hasMintQuote(quote) : Promise.resolve(false),
+      claimMintQuote: (row) => {
+        if (!store.claimMintQuote) return Promise.reject(new TollError("store_unavailable"));
+        return store.claimMintQuote(row);
+      },
+      noteMintQuoteLoss: async (x) => {
+        if (!store.noteMintQuoteLoss) throw new TollError("store_unavailable");
+        await store.noteMintQuoteLoss(x);
+        metrics.emit("mint_quote_loss", { quote: x.quote, action: x.action, amount: x.amount });
+      },
       onDegraded: (reason) => metrics.settlementDegraded({ reason }),
       onSettled: (x) => metrics.settled(x.amount_msat),
     });
@@ -330,9 +341,9 @@ export function createToll(config: TollConfig, opts: TollOptions = {}) {
    */
   async function redeemQuoted(o: { macaroon: string; preimage: string; action: ActionClass; ip?: string | null }): Promise<PaidRedeemResult> {
     const cashu = config.settlement.cashu;
-    if (!paid || !cashu || !("mint" in cashu) || !paid.rail.isCollecting()) throw new TollError("unsupported");
+    if (!paid || !cashu || !paid.rail.isCollecting()) throw new TollError("unsupported");
     if (o.action === "read") throw new TollError("malformed");
-    return redeemPaid({ offer_id: offerIdOf(o.macaroon), kind: "ln402", preimage: o.preimage, macaroon: o.macaroon, action: o.action }, { ip: o.ip });
+    return redeemPaid({ offer_id: offerIdOf(o.macaroon), kind: QUOTE_KIND, preimage: o.preimage, macaroon: o.macaroon, action: o.action }, { ip: o.ip });
   }
 
   /**
@@ -464,6 +475,14 @@ export function createToll(config: TollConfig, opts: TollOptions = {}) {
     },
     /** "test": paid offers come from the local test backend. "stub": no paid offer here. */
     priceStatus: (): PriceStatus => (paid && paid.rail.isCollecting() ? "test" : "stub"),
+    /** Empty when the mint is down, so the manifest does not advertise a method the 402 cannot offer. */
+    payMethods: async (): Promise<readonly string[] | undefined> => {
+      const cashu = config.settlement.cashu;
+      if (!paid || !paid.rail.isCollecting() || !cashu) return undefined;
+      const st = await paid.rail.status();
+      if (!st.healthy) return [];
+      return "mint" in cashu ? ["cashu", QUOTE_KIND] : ["cashu"];
+    },
     classCovers,
   };
 }

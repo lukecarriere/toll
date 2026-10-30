@@ -180,7 +180,7 @@ export function tollRouter(toll: Toll) {
           return send(res, 200, agentsPointer(origin + "/.well-known/toll.json"));
         }
         toll.metrics.discovery("manifest");
-        return send(res, 200, buildManifest({ api: origin + "/v1", docs: toll.config.discovery.docs_url, status: toll.priceStatus(), prices: toll.priceTable(), loadPricing: toll.loadPricing() }));
+        return send(res, 200, buildManifest({ api: origin + "/v1", docs: toll.config.discovery.docs_url, status: toll.priceStatus(), prices: toll.priceTable(), loadPricing: toll.loadPricing(), methods: await toll.payMethods() }));
       }
       if (!path.startsWith("/v1/")) return next();
       applyCors(toll, req, res);

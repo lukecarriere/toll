@@ -18,12 +18,20 @@ export interface TollStore {
    * (the edge Durable Object). Missing: callers use consume then getTag.
    */
   consumeTagged?(useKey: string, initial: number, ttl_s: number, tagKey: string): Promise<{ remaining: number; tag: string | undefined }>;
+  /** One insert of the quote row, its proofs, and the single-use mark. False when the quote is already claimed. */
+  claimMintQuote?(row: { quote: string; action: string; amount: number; mint: string; proofs: { amount: number; secret: string; id: string; C: string }[] }): Promise<boolean>;
+  hasMintQuote?(quote: string): Promise<boolean>;
+  /** A paid quote we will not gate. No secrets. */
+  noteMintQuoteLoss?(o: { quote: string; action: string; amount: number }): Promise<void>;
+  mintQuoteLosses?(): { quote: string; action: string; amount: number }[];
 }
 
 interface Entry { v: number; tag?: string; until: number }
 
 export class MemoryStore implements TollStore {
   private m = new Map<string, Entry>();
+  private quotes = new Map<string, { quote: string; action: string; amount: number; mint: string; proofs: { amount: number; secret: string; id: string; C: string }[] }>();
+  private losses: { quote: string; action: string; amount: number }[] = [];
   private down = false;
   private now: () => number;
   private sweepAt = 0;
@@ -84,6 +92,29 @@ export class MemoryStore implements TollStore {
   async getTag(key: string): Promise<string | undefined> {
     this.check();
     return this.live(key)?.tag;
+  }
+
+  async claimMintQuote(row: { quote: string; action: string; amount: number; mint: string; proofs: { amount: number; secret: string; id: string; C: string }[] }): Promise<boolean> {
+    this.check();
+    if (this.quotes.has(row.quote) || this.live("f:mq:" + row.quote)) return false;
+    const until = this.now() + 180;
+    this.quotes.set(row.quote, row);
+    this.m.set("f:mq:" + row.quote, { v: 1, until });
+    return true;
+  }
+
+  async hasMintQuote(quote: string): Promise<boolean> {
+    this.check();
+    return this.quotes.has(quote);
+  }
+
+  async noteMintQuoteLoss(o: { quote: string; action: string; amount: number }): Promise<void> {
+    this.check();
+    this.losses.push({ quote: o.quote, action: o.action, amount: o.amount });
+  }
+
+  mintQuoteLosses() {
+    return this.losses.map((o) => ({ ...o }));
   }
 }
 

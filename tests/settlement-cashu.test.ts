@@ -118,7 +118,7 @@ test("agent 402 carries an X-Cashu payment request; a test-mint token yields a 1
     assert.equal(req.s, true);
     assert.equal(body.offers.length, 2);
     assert.equal(body.offers[0].kind, "cashu");
-    assert.equal(body.offers[1].kind, "ln402");
+    assert.equal(body.offers[1].kind, "l402");
     assert.equal(body.offers[0].request, header);
     assert.equal(body.offers[0].amount, 10);
     assert.equal(body.offers[0].amount_msat, 10000);

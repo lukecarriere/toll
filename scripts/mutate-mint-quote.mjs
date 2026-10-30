@@ -15,8 +15,14 @@ const mutants = [
   {
     name: "replay guard removed",
     test: "a paid quote grants a pass, and a replay is refused",
-    from: 'if (!(await o.firstUse("mq:" + c.quote, ttl))) throw new TollError("replay");',
+    from: 'if (!(await o.claim({ quote: c.quote, action: c.cls, amount, mint: c.mint, proofs }))) throw new TollError("replay");',
     to: "if (false) throw new TollError(\"replay\");",
+  },
+  {
+    name: "issued state accepted as payment",
+    test: "a foreign mint of the quote does not grant a pass",
+    from: 'if (state === "ISSUED") throw new TollError("bad_solution");',
+    to: "if (false) throw new TollError(\"bad_solution\");",
   },
 ];
 
