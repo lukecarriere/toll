@@ -138,8 +138,8 @@ What is sent, and when:
 * POST /v1/owner/withdraw, when you withdraw with "Collect usage payouts" on: the server key and the withdrawal text you pasted.
 * GET /v1/owner/price?net=1, when anyone loads /.well-known/toll.json or /wp-json/toll/v1/price with payouts on and that answer is not already cached (about 30 seconds): the server key only. The net=1 on this address means the site can send a coarse network later. This call does not send one.
 * POST /v1/owner/quote, when anyone opens /wp-json/toll/v1/price with payouts on and the server has said the price can rise with load: the server key, the action (for example "write"), and, when it can be worked out, the visitor's coarse network (the address with its last part removed, such as 203.0.113.0/24).
-* POST /v1/owner/offers, when an automated client (not a person in a browser) posts to a checked form with payouts on: the server key, the action, and, when it can be worked out, the visitor's coarse network, so the server can return payment offers.
-* POST /v1/owner/redeem, when a client pays an offer and a payment server address is saved: the server key, the payment proof the client sent, and, when it can be worked out, the visitor's coarse network.
+* POST /v1/owner/offers, when an automated client (not a person in a browser) posts to a checked form with payouts on, and when that client requests /wp-json/toll/v1/challenge (not when the request sets offers=0): the server key, the action, and, when it can be worked out, the visitor's coarse network, so the server can return payment offers.
+* POST /v1/owner/redeem, when a client pays an offer and a payment server address is saved: the server key, the offer_id, the kind, the payment proof the client sent, and, when it can be worked out, the visitor's coarse network.
 * POST /v1/owner/cashu, when a client retries with a payment string in the X-Cashu header and a payment server address is saved: the server key, that payment string, the action, and, when it can be worked out, the visitor's coarse network.
 
 Terms of use: https://lessspam.dev/terms
