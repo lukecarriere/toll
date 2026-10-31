@@ -36,6 +36,10 @@ export class TollStoreDO extends DurableObject {
     if (!cols.some((c) => String(c.name) === "outputs")) {
       this.sql.exec("ALTER TABLE cashu_mint_quote ADD COLUMN outputs TEXT NOT NULL DEFAULT '[]'");
     }
+    // Additive columns on the loss table. Old rows read as reason '' and not recovered.
+    const lossCols = this.sql.exec("PRAGMA table_info(cashu_mint_loss)").toArray().map((c) => String(c.name));
+    if (!lossCols.includes("reason")) this.sql.exec("ALTER TABLE cashu_mint_loss ADD COLUMN reason TEXT NOT NULL DEFAULT ''");
+    if (!lossCols.includes("recovered")) this.sql.exec("ALTER TABLE cashu_mint_loss ADD COLUMN recovered INTEGER NOT NULL DEFAULT 0");
   }
 
   /** Several statements, one commit. A throw rolls them back. */
@@ -390,6 +394,12 @@ export class TollStoreDO extends DurableObject {
           p.secret, mint, p.amount, p.id, p.C,
         );
       }
+      // MINT_QUOTE_GUARD loss-reversal: a booked loss is reversed by the proofs that recover it, in the same transaction.
+      const lost = this.sql.exec("SELECT amount FROM cashu_mint_loss WHERE quote = ? AND recovered = 0", row.quote).toArray();
+      if (lost.length) {
+        this.sql.exec("UPDATE cashu_mint_loss SET recovered = 1 WHERE quote = ?", row.quote);
+        this.sql.exec("UPDATE cashu_meta SET n = ? WHERE k = 'losses'", Math.max(0, this.lossN() - num(lost[0].amount)));
+      }
       return true;
     });
   }
@@ -404,9 +414,9 @@ export class TollStoreDO extends DurableObject {
     return this.sql.exec("SELECT quote FROM cashu_mint_quote WHERE quote = ?", quote).toArray().length > 0;
   }
 
-  noteMintQuoteLoss(o: { quote: string; action: string; amount: number }): void {
+  noteMintQuoteLoss(o: { quote: string; action: string; amount: number; reason?: string }): void {
     if (this.sql.exec("SELECT quote FROM cashu_mint_loss WHERE quote = ?", o.quote).toArray().length) return;
-    this.sql.exec("INSERT INTO cashu_mint_loss (quote, action, amount) VALUES (?, ?, ?)", o.quote, o.action, o.amount);
+    this.sql.exec("INSERT INTO cashu_mint_loss (quote, action, amount, reason) VALUES (?, ?, ?, ?)", o.quote, o.action, o.amount, o.reason ?? "");
     this.addLoss(o.amount);
   }
 
@@ -500,7 +510,7 @@ export interface TollDoStub {
   finishMintQuote(row: { quote: string; proofs: { amount: number; secret: string; id: string; C: string }[] }): Promise<boolean>;
   claimMintQuote(row: { quote: string; action: string; amount: number; mint: string; proofs: { amount: number; secret: string; id: string; C: string }[] }): Promise<boolean>;
   hasMintQuote(quote: string): Promise<boolean>;
-  noteMintQuoteLoss(o: { quote: string; action: string; amount: number }): Promise<void>;
+  noteMintQuoteLoss(o: { quote: string; action: string; amount: number; reason?: string }): Promise<void>;
 }
 
 /**
@@ -594,6 +604,6 @@ export class DurableObjectStore implements TollStore {
     return this.run(() => this.stub.claimMintQuote(row));
   }
   hasMintQuote(quote: string) { return this.run(() => this.stub.hasMintQuote(quote)); }
-  noteMintQuoteLoss(o: { quote: string; action: string; amount: number }) { return this.run(async () => { await this.stub.noteMintQuoteLoss(o); }); }
+  noteMintQuoteLoss(o: { quote: string; action: string; amount: number; reason?: string }) { return this.run(async () => { await this.stub.noteMintQuoteLoss(o); }); }
   counts() { return this.run(() => this.stub.counts()); }
 }

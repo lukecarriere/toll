@@ -102,7 +102,7 @@ export class CashuTestEngine implements SettlementEngine {
     unlockMintQuote?: (quote: string) => Promise<void>;
     finishMintQuote?: (row: { quote: string; proofs: MintQuoteRow["proofs"] }) => Promise<boolean>;
     claimMintQuote?: (row: MintQuoteRow) => Promise<boolean>;
-    noteMintQuoteLoss?: (x: { quote: string; action: string; amount: number }) => Promise<void>;
+    noteMintQuoteLoss?: (x: { quote: string; action: string; amount: number; reason?: string }) => Promise<void>;
   }): Promise<Paid> {
     if (o.proof.kind !== "cashu") {
       if (!o.action || !("preimage" in o.proof) || !o.hasMintQuote || !o.reserveMintQuote || !o.claimOpenMintQuote || !o.releaseMintQuote || !o.unlockMintQuote || !o.finishMintQuote || !o.noteMintQuoteLoss) throw new TollError("malformed");

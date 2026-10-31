@@ -29,7 +29,7 @@ export interface RailOptions {
   unlockMintQuote?: (quote: string) => Promise<void>;
   finishMintQuote?: (row: { quote: string; proofs: { amount: number; secret: string; id: string; C: string }[] }) => Promise<boolean>;
   claimMintQuote?: (row: { quote: string; action: string; amount: number; mint: string; proofs: { amount: number; secret: string; id: string; C: string }[] }) => Promise<boolean>;
-  noteMintQuoteLoss?: (x: { quote: string; action: string; amount: number }) => Promise<void>;
+  noteMintQuoteLoss?: (x: { quote: string; action: string; amount: number; reason?: string }) => Promise<void>;
   onDegraded?: (reason: string) => void;
   onSettled?: (o: { cls: ActionClass; amount_msat: number; fee_msat: number }) => void;
 }

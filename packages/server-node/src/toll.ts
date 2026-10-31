@@ -187,7 +187,7 @@ export function createToll(config: TollConfig, opts: TollOptions = {}) {
       noteMintQuoteLoss: async (x) => {
         if (!store.noteMintQuoteLoss) throw new TollError("store_unavailable");
         await store.noteMintQuoteLoss(x);
-        metrics.emit("mint_quote_loss", { quote: x.quote, action: x.action, amount: x.amount });
+        metrics.emit("mint_quote_loss", { quote: x.quote, action: x.action, amount: x.amount, reason: x.reason ?? "" });
       },
       onDegraded: (reason) => metrics.settlementDegraded({ reason }),
       onSettled: (x) => metrics.settled(x.amount_msat),

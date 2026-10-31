@@ -203,3 +203,36 @@ test("a proxy's 502 page in place of the mint keeps the reservation and the retr
     await env.close();
   }
 });
+
+for (const expiredRetry of [false, true]) {
+  test("a restore after a booked unrecoverable loss reverses it, once (" + (expiredRetry ? "expired" : "unexpired") + " retry)", async () => {
+    const env = await boot();
+    try {
+      const { quote, exp, send } = await paidOffer(env);
+      const missed = await timeOutBothPosts(env.mint, quote, send);
+      assert.equal(missed.res.status, 503, JSON.stringify(missed.body));
+      env.mint.setStuckMint(true);
+      await missed.signLate();
+      for (let i = 0; i < 2; i++) {
+        const lost = await send();
+        assert.equal((await lost.json()).detail, LOST);
+      }
+      assert.deepEqual(booked(env, quote), { stored: 0, lost: 10 });
+      env.mint.setStuckMint(false);
+      if (expiredRetry) env.clock.now = exp + 1;
+      const recovered = await send();
+      const body = await recovered.json();
+      assert.equal(recovered.status, expiredRetry ? 401 : 200, JSON.stringify(body));
+      for (let i = 0; i < 2; i++) {
+        const again = await send();
+        assert.equal(again.status, 401);
+        assert.equal((await again.json()).error, expiredRetry ? "expired" : "replay");
+      }
+      assert.deepEqual(booked(env, quote), { stored: 10, lost: 0 }, "the 10 sats are counted once, as stored");
+      const rows = (env.demo.store.mintQuoteLossRows?.() ?? []).filter((o) => o.quote === quote);
+      assert.deepEqual(rows, [{ quote, action: "write", amount: 10, reason: "unrecoverable", recovered: true }], "the loss is kept as a recovered record");
+    } finally {
+      await env.close();
+    }
+  });
+}

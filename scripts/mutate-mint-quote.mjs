@@ -48,7 +48,7 @@ const mutants = [
   {
     name: "an unrecoverable signature is not booked as a loss",
     test: "an issued quote whose signatures cannot be fetched records one loss",
-    from: '      await o.noteLoss({ quote: c.quote, action: c.cls, amount });\n      await o.unlock(c.quote);\n      throw new TollError("store_unavailable", MINT_SIGNED_UNRECOVERABLE);',
+    from: '      await o.noteLoss({ quote: c.quote, action: c.cls, amount, reason: "unrecoverable" });\n      await o.unlock(c.quote);\n      throw new TollError("store_unavailable", MINT_SIGNED_UNRECOVERABLE);',
     to: '      await o.unlock(c.quote);\n      throw new TollError("store_unavailable", MINT_SIGNED_UNRECOVERABLE);',
   },
   {
@@ -99,7 +99,7 @@ const mutants = [
   {
     name: "an issued quote with no row is not booked as a loss",
     test: "a foreign mint of the quote does not grant a pass",
-    from: "    // MINT_QUOTE_GUARD issued-loss: a paid quote this store holds no row for is booked as a loss, once.\n    await o.noteLoss({ quote: c.quote, action: c.cls, amount });\n",
+    from: "    // MINT_QUOTE_GUARD issued-loss: a paid quote this store holds no row for is booked as a loss, once.\n    await o.noteLoss({ quote: c.quote, action: c.cls, amount, reason: \"issued_no_row\" });\n",
     to: "",
   },
   {
@@ -123,7 +123,7 @@ const mutants = [
   {
     name: "an expired unrecoverable reservation is not booked as a loss",
     test: "an expired macaroon on a kept reservation the mint cannot restore books one loss",
-    from: '      await o.noteLoss({ quote: c.quote, action: c.cls, amount });\n      await o.unlock(c.quote);\n      throw new TollError("store_unavailable", MINT_SIGNED_UNRECOVERABLE);',
+    from: '      await o.noteLoss({ quote: c.quote, action: c.cls, amount, reason: "unrecoverable" });\n      await o.unlock(c.quote);\n      throw new TollError("store_unavailable", MINT_SIGNED_UNRECOVERABLE);',
     to: '      await o.unlock(c.quote);\n      throw new TollError("store_unavailable", MINT_SIGNED_UNRECOVERABLE);',
   },
   {
@@ -148,12 +148,12 @@ const mutants = [
     name: "an expired paid quote is booked as a loss instead of minted",
     test: "an expired macaroon on a paid quote that was never minted books the sats as stored",
     from: "  if (expired && state !== \"PAID\") {\n",
-    to: "  if (expired && state === \"PAID\") await o.noteLoss({ quote: c.quote, action: c.cls, amount });\n  if (expired) {\n",
+    to: "  if (expired && state === \"PAID\") await o.noteLoss({ quote: c.quote, action: c.cls, amount, reason: \"issued_no_row\" });\n  if (expired) {\n",
   },
   {
     name: "an expired issued quote with no row is not booked as a loss",
     test: "an expired token and an action mismatch are refused",
-    from: '    if (state === "ISSUED") await o.noteLoss({ quote: c.quote, action: c.cls, amount });\n',
+    from: '    if (state === "ISSUED") await o.noteLoss({ quote: c.quote, action: c.cls, amount, reason: "issued_no_row" });\n',
     to: "",
   },
   {
@@ -161,6 +161,34 @@ const mutants = [
     test: "an expired macaroon on a paid quote that was never minted books the sats as stored",
     from: "    await commitProofs(o, c.quote, c.cls, amount, first.proofs);\n    return granted();",
     to: "    await commitProofs(o, c.quote, c.cls, amount, first.proofs);\n    return paid();",
+  },
+  {
+    file: MS,
+    name: "memory finish does not reverse a booked loss",
+    test: "a restore after a booked unrecoverable loss reverses it, once",
+    from: "    if (lost) lost.recovered = true;\n",
+    to: "",
+  },
+  {
+    file: MS,
+    name: "memory net losses count recovered rows",
+    test: "a restore after a booked unrecoverable loss reverses it, once",
+    from: "return this.losses.filter((o) => !o.recovered).map(",
+    to: "return this.losses.map(",
+  },
+  {
+    file: DO,
+    name: "DO finish does not reverse a booked loss",
+    test: "a restore on the worker after a booked unrecoverable loss reverses it, once",
+    from: "      if (lost.length) {\n        this.sql.exec(\"UPDATE cashu_mint_loss SET recovered = 1 WHERE quote = ?\", row.quote);",
+    to: "      if (false) {\n        this.sql.exec(\"UPDATE cashu_mint_loss SET recovered = 1 WHERE quote = ?\", row.quote);",
+  },
+  {
+    file: DO,
+    name: "DO reversal marks the row but leaves the loss in the books",
+    test: "a restore on the worker after a booked unrecoverable loss reverses it, once",
+    from: "        this.sql.exec(\"UPDATE cashu_meta SET n = ? WHERE k = 'losses'\", Math.max(0, this.lossN() - num(lost[0].amount)));\n",
+    to: "",
   },
 ];
 
