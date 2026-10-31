@@ -112,7 +112,7 @@ test("wrangler.toml: assets, sqlite durable object, workers_dev, production cust
   assert.match(toml, /^TOLL_SITE_URL = "https:\/\/lessspam\.dev"$/m);
   assert.match(toml, /^CASHU_MINTS = '\["https:\/\/mint\.minibits\.cash\/Bitcoin"\]'$/m);
   assert.equal((toml.match(/\[\[durable_objects\.bindings\]\]/g) ?? []).length, 1, "no new durable object binding");
-  assert.doesNotMatch(toml, /^\s*(SITE_SECRET|TOLL_TEST_HOOKS|STORE_FAIL)\s*=/m);
+  assert.doesNotMatch(toml, /^\s*(SITE_SECRET|TOLL_TEST_HOOKS|STORE_FAIL|L402_ENABLED)\s*=/m);
   record("wrangler.toml checks", "name, main, assets.run_worker_first, new_sqlite_classes, workers_dev, preview_urls; two custom domains, no zone routes, no secret");
 });
 

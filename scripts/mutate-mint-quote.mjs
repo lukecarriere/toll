@@ -33,7 +33,7 @@ const mutants = [
 ];
 
 function run(testName) {
-  return spawnSync(process.execPath, ["--test", "--test-concurrency=1", "--test-name-pattern", testName, "tests/settlement-mint-quote.test.ts"], {
+  return spawnSync(process.execPath, ["--test", "--test-concurrency=1", "--test-name-pattern", testName, "tests/settlement-mint-quote.test.ts", "tests/l402-quote.test.ts"], {
     encoding: "utf8",
   });
 }

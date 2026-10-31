@@ -53,7 +53,7 @@ Cannot catch, in `scripts/cashu-guards.ts`:
 - `mint allowlist`: `settlement.cashu.mints` on Node, `CASHU_MINTS` on the worker. `guardMintUrl` refuses anything else. Empty means receive is off.
 - `change`: leftover when the source is larger than the `creqA` amount. `cashuPayer` passes it to `onChange` as a `cashuB` string.
 - `conservation`: sats the mint signed equal stored proofs plus pending outputs plus recorded losses. `abort()` runs only when restore is empty and every input is `UNSPENT`.
-- `l402`: the mint-quote offer beside Cashu. `kind` is `l402`. The header is `WWW-Authenticate`. The invoice form is loopback-only. Payment is the store's mint-quote row, not mint state `ISSUED`.
+- `l402`: the mint-quote offer beside Cashu. `kind` is `l402`. The header is `WWW-Authenticate`. The test invoice is the loopback stand-in. A real invoice is read only when `L402_ENABLED` is `1`. Payment is the store's mint-quote row, not mint state `ISSUED`.
 
 ## Team rules
 
