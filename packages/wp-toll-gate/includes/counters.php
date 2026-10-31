@@ -112,7 +112,7 @@ function toll_gate_counters_by_day(int $days = TOLL_GATE_COUNTER_DAYS, ?int $now
         $out[gmdate('Y-m-d', $now - $i * 86400)] = array_fill_keys(TOLL_GATE_COUNTERS, 0);
     }
     $first = 'toll_gate_n_' . gmdate('Ymd', $now - ($days - 1) * 86400) . '_';
-    $rows = $wpdb->get_results($wpdb->prepare("SELECT option_name, option_value FROM {$wpdb->options} WHERE option_name >= %s AND option_name < %s", $first, 'toll_gate_n_99999999'), ARRAY_A);
+    $rows = $wpdb->get_results($wpdb->prepare("SELECT option_name, option_value FROM {$wpdb->options} WHERE option_name >= %s AND option_name < %s", $first, 'toll_gate_n_99999999'), ARRAY_A); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- range read over per-day counter rows; counts must be current
     foreach ((array) $rows as $r) {
         if (!preg_match('/^toll_gate_n_(\d{4})(\d{2})(\d{2})_([a-z_0-9]+)$/', (string) $r['option_name'], $m)) continue;
         $d = "$m[1]-$m[2]-$m[3]";
@@ -150,5 +150,5 @@ function toll_gate_counters_cleanup(): void
 {
     global $wpdb;
     $cut = 'toll_gate_n_' . gmdate('Ymd', time() - TOLL_GATE_COUNTER_KEEP * 86400) . '_';
-    $wpdb->query($wpdb->prepare("DELETE FROM {$wpdb->options} WHERE option_name LIKE %s AND option_name < %s", 'toll\\_gate\\_n\\_%', $cut));
+    $wpdb->query($wpdb->prepare("DELETE FROM {$wpdb->options} WHERE option_name LIKE %s AND option_name < %s", 'toll\\_gate\\_n\\_%', $cut)); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- hourly delete of expired counter rows by name range
 }

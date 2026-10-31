@@ -27,6 +27,9 @@ function home_url(string $path = ''): string { return 'https://wp.test/' . ltrim
 function rest_url(string $path = ''): string { return 'https://wp.test/wp-json/' . ltrim($path, '/'); }
 function untrailingslashit(string $s): string { return rtrim($s, '/\\'); }
 function wp_parse_url(string $url, int $component = -1) { return parse_url($url, $component); }
+function wp_unslash($v) { return is_string($v) ? stripslashes($v) : $v; }
+function sanitize_text_field($s): string { $s = strip_tags((string) $s); $s = preg_replace('/%[a-f0-9]{2}/i', '', $s); return trim((string) preg_replace('/[\r\n\t ]+/', ' ', $s)); }
+function esc_url_raw(string $u, ?array $p = null): string { return $u; }
 function wp_json_encode($data, int $options = 0, int $depth = 512) { return json_encode($data, $options, $depth); }
 function status_header(int $code): void {}
 function toll_gate_count(string $name, int $n = 1): void {}

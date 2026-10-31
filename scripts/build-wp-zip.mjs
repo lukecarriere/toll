@@ -99,7 +99,14 @@ for (const required of ["toll-gate.php", "uninstall.php", "LICENSE", "assets/wid
 }
 
 // 6. readme.txt.
+// WordPress.org usernames of the plugin's owners (comma separated). Empty until the owner's
+// wordpress.org account exists; scripts/wporg-check.sh reports it as the one open item. The
+// WPORG_CONTRIBUTORS environment variable overrides it for a trial build.
+const WPORG_CONTRIBUTORS = "";
+const contributors = (process.env.WPORG_CONTRIBUTORS ?? WPORG_CONTRIBUTORS).trim();
+if (contributors && !/^[a-z0-9_-]+(\s*,\s*[a-z0-9_-]+)*$/.test(contributors)) fail(`Contributors "${contributors}" must be wordpress.org usernames (lowercase, comma separated)`);
 const readme = `=== ${name} ===
+${contributors ? `Contributors: ${contributors}\n` : ""}Tags: spam, comments, login, forms, rest-api
 Requires at least: ${requiresWp}
 Tested up to: ${testedUpTo}
 Requires PHP: ${requiresPhp}
@@ -112,6 +119,28 @@ ${desc}
 == Description ==
 
 ${installLine}
+
+== Installation ==
+
+1. In Plugins > Add New, search for ${name}, or upload the toll-gate folder to /wp-content/plugins/.
+2. Activate ${name}.
+3. Open Settings > Toll and choose which forms Toll checks.
+
+== External services ==
+
+By default ${name} connects to no outside service. The check runs in the visitor's browser and is verified on your own site, under /wp-json/toll/v1/.
+
+The plugin calls one outside address only when you turn this on yourself: in Settings > Toll, tick "Collect usage payouts", choose "Payment server" and enter that server's address. The payment server is a Toll issuer that you run, or that someone you choose runs for you. It is not run by the plugin authors.
+
+What goes to that address, and when:
+
+* Every call carries the server key you entered, so the server knows the request is from your site.
+* When you open Settings > Toll: a balance request.
+* When you withdraw: the invoice you pasted.
+* When an automated client (not a person in a browser) posts to a checked form: the action (for example "write") and the visitor's coarse network (the address with its last part removed, such as 203.0.113.0/24), to get a price and payment offers.
+* When a client pays: the payment proof it sent, the action, and its coarse network, so the server can book the payment once.
+
+No names, email addresses, comment text, passwords or full IP addresses are sent. That server's own terms of use and privacy policy apply; ask whoever runs it for them.
 
 == Changelog ==
 

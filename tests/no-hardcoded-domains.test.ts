@@ -27,6 +27,7 @@ export const ALLOWED_HOSTS = new Map<string, string>([
   ["fsf.org", "Free Software Foundation, named in GPL notices (EM list)"],
   ["wordpress.org", "the WordPress.org plugin listing named in docs/copy.md"],
   ["downloads.wordpress.org", "SQLite integration plugin download in the local WordPress setup script"],
+  ["api.wordpress.org", "scripts/wporg-check.sh: the live WordPress version and plugin slug lookups"],
   ["schema.org", "structured-data vocabulary (EM list)"],
   ["www.sitemaps.org", "sitemap xmlns, the sitemap protocol namespace"],
   ["www.w3.org", "W3C specs and XML namespaces (EM list)"],

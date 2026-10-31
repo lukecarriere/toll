@@ -49,7 +49,7 @@ To try **Payment server**: start the Node demo (`npm run demo`, stub backend), t
 
 ## Before any release (not done)
 
-A release zip would bundle `packages/server-php` (src + vendor) under `lib/server-php` and copy the widget files in place of the `assets/widget` link. Not built: publishing waits on the Android timing run.
+`node scripts/build-wp-zip.mjs` builds the zip as it would be uploaded: `packages/server-php` (src + vendor) under `lib/server-php`, the widget files in place of the `assets/widget` link, and a generated `readme.txt`, without `dev/` or this file. `scripts/wporg-check.sh` rebuilds it, runs the official Plugin Check in a throwaway WordPress and checks `readme.txt` against the WordPress.org rules; it exits 0 when both are clean. Contributors stays empty until the owner's wordpress.org username is known (`WPORG_CONTRIBUTORS` in `scripts/build-wp-zip.mjs`). Not published: publishing waits on the Android timing run.
 
 ## Licence
 

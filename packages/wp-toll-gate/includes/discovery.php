@@ -244,9 +244,9 @@ function toll_gate_rest_price(WP_REST_Request $req): WP_REST_Response
 /** Serve the two discovery documents before WordPress routes the request (any visitor, no check). */
 function toll_gate_discovery_serve(): void
 {
-    $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
+    $method = isset($_SERVER['REQUEST_METHOD']) ? sanitize_text_field(wp_unslash($_SERVER['REQUEST_METHOD'])) : 'GET';
     if ($method !== 'GET' && $method !== 'HEAD') return;
-    $path = (string) wp_parse_url((string) ($_SERVER['REQUEST_URI'] ?? '/'), PHP_URL_PATH);
+    $path = (string) wp_parse_url(isset($_SERVER['REQUEST_URI']) ? esc_url_raw(wp_unslash($_SERVER['REQUEST_URI'])) : '/', PHP_URL_PATH);
     $home = rtrim((string) wp_parse_url(home_url('/'), PHP_URL_PATH), '/');
     if ($path === $home . '/.well-known/agents.json') {
         toll_gate_count('agents_json_fetch');
