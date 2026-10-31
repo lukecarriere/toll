@@ -1,7 +1,7 @@
 // §19.12 copy lint (full §1 list from docs/copy.md) and "docs/copy.md is the single source".
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync, statSync } from "node:fs";
 // @ts-ignore plain JS helper
 import { lintList, lintRegexes, lintText, readmeTop, widgetStrings, readCopy, isExempt, section } from "../scripts/copy-lib.mjs";
 // @ts-ignore plain JS helper
@@ -220,4 +220,78 @@ test("commit titles are linted after TITLE_LINT_AFTER: an old title with a banne
   const repo = commitTitles();
   assert.ok(repo.some((t: any) => t.s.startsWith("copy: brand brief ruling")), "the PM's brand-brief commit is linted");
   assert.ok(!repo.some((t: any) => t.sha.startsWith("fa12195")), "fa12195 is the cutoff and is not linted");
+});
+
+// Hosted-demo payment copy. "No real money moves" stays, and only for the self-hosted stub and the
+// plugin's test mode. A sentence about the hosted demo must not call that demo test mode or stub.
+const MONEY_PHRASE = "No real money moves";
+const MONEY_SCOPE = /self-hosted server's stub backend|WordPress plugin's test mode/;
+const HOSTED_PRICE = "The hosted demo at lessspam.dev charges real money: a write is 10,000 msat, paid with Cashu through the Minibits mint or with a BOLT11 mint quote (L402_ENABLED is 1).";
+const PRICE_FILES = [
+  "website/demo.html",
+  "website/docs/agent.md",
+  "website/docs/self-hosting.md",
+  "website/docs/server.md",
+  "website/docs/wordpress.md",
+];
+const SKIP_DIRS = new Set(["node_modules", "vendor", "dist", "dist-release", "website/dist", ".git", ".verify-e2e"]);
+
+function proseSentences(text: string): string[] {
+  const prose = text
+    .replace(/```[\s\S]*?```/g, " ")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/`/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  return prose.split(/(?<=[.!?])\s+/).map((s) => s.trim()).filter(Boolean);
+}
+
+function moneyProblems(text: string): string[] {
+  return proseSentences(text).filter((s) => s.includes(MONEY_PHRASE) && !MONEY_SCOPE.test(s));
+}
+
+function demoProblems(text: string): string[] {
+  return proseSentences(text).filter((s) => /hosted demo|lessspam\.dev/i.test(s) && /\btest mode\b|\bstub\b/i.test(s));
+}
+
+function sourceDocs(dir = new URL("..", import.meta.url).pathname, rel = ""): string[] {
+  const out: string[] = [];
+  for (const name of readdirSync(dir + rel)) {
+    const child = rel ? rel + "/" + name : name;
+    if (SKIP_DIRS.has(name) || SKIP_DIRS.has(child) || child.startsWith("website/dist")) continue;
+    const abs = dir + child;
+    let st;
+    try { st = statSync(abs); } catch { continue; } // a symlink whose target is not built yet
+    if (st.isDirectory()) out.push(...sourceDocs(dir, child));
+    else if (/\.(md|html)$/.test(name)) out.push(child);
+  }
+  return out;
+}
+
+test("hosted-demo money copy: unscoped 'No real money moves' fails, and a hosted-demo test mode or stub fails", () => {
+  // The lines this change replaces. The checker rejects them; the tree below must not contain them.
+  const oldServer = "Paid requests in this version use a local test backend. No real money moves.";
+  const oldWp = "The plugin takes no payments itself. Test mode does the background check. A payment server is optional and, in this version, local and for tests. No real money moves.";
+  assert.deepEqual(moneyProblems(oldServer), ["No real money moves."]);
+  assert.deepEqual(moneyProblems(oldWp), ["No real money moves."]);
+  assert.deepEqual(demoProblems("The hosted demo at lessspam.dev is in test mode."), ["The hosted demo at lessspam.dev is in test mode."]);
+  assert.deepEqual(demoProblems("The hosted demo uses the stub."), ["The hosted demo uses the stub."]);
+  assert.deepEqual(moneyProblems("No real money moves on the self-hosted server's stub backend."), []);
+  assert.deepEqual(moneyProblems("No real money moves in the WordPress plugin's test mode."), []);
+  assert.deepEqual(demoProblems(HOSTED_PRICE), []);
+
+  const root = new URL("..", import.meta.url).pathname;
+  const problems: string[] = [];
+  const files = sourceDocs();
+  assert.ok(files.includes("website/docs/server.md"));
+  for (const f of files) {
+    const text = readFileSync(root + f, "utf8");
+    for (const s of moneyProblems(text)) problems.push(`${f}: ${s}`);
+    for (const s of demoProblems(text)) problems.push(`${f}: ${s}`);
+  }
+  assert.deepEqual(problems, []);
+  const joined = files.map((f) => readFileSync(root + f, "utf8").replace(/`/g, "")).join("\n");
+  assert.ok(joined.includes("No real money moves on the self-hosted server's stub backend."));
+  assert.ok(joined.includes("No real money moves in the WordPress plugin's test mode."));
+  for (const f of PRICE_FILES) assert.ok(readFileSync(root + f, "utf8").replace(/`/g, "").includes(HOSTED_PRICE), f);
 });
