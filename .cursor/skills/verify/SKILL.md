@@ -11,7 +11,7 @@ Needs Node `>=22.18`, PHP `>=8.1` with `ext-sodium`, Composer, and a full git hi
 
 Run from the repository root. One full pass is `bash .cursor/skills/verify/run.sh`. It writes `.verify-e2e/` (gitignored) and leaves that directory in place after it stops the processes it started. The saved run in `docs/runs/verify-e2e/` stays as committed.
 
-Do not run `npx wrangler deploy`. Phase 4 stays locked: the demo uses the stub backend, no real money, and no live payouts. Do not set `L402_ENABLED`. `scripts/l402-live-check.sh` pays one real invoice and is not part of this pass.
+Do not run `npx wrangler deploy`. Phase 4 stays locked: the demo uses the stub backend, no real money, and no live payouts. The site worker config sets `L402_ENABLED` to `1`; do not change it in this pass, and do not run `scripts/l402-live-check.sh` (it pays one real invoice).
 
 ## Launch
 

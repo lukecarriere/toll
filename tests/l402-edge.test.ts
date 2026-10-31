@@ -101,3 +101,53 @@ test("the worker mints a paid quote into one store call and refuses a forged or 
   const held = await read(await fetch(base + "/v1/test/cashu-books"));
   assert.equal(held.body.stored, 10);
 });
+
+test("POST /v1/demo/agent offers without an agent header, and a macaroon alone pays once", async () => {
+  const manifest = await read(await fetch(base + "/.well-known/toll.json"));
+  assert.equal(String(manifest.body.pay).endsWith("/v1/demo/agent"), true, JSON.stringify(manifest.body.pay));
+  assert.equal(String(manifest.body.description).includes("test mode"), false);
+  const human = await fetch(base + "/demo/contact", { method: "POST", headers: { accept: "application/json", "content-type": "application/json" }, body: "{}" }).then(read);
+  assert.equal(human.status, 403);
+  assert.equal(human.body.error, "toll_required");
+
+  const denied = await fetch(base + "/v1/demo/agent", { method: "POST", headers: { accept: "application/json", "content-type": "application/json" }, body: "{}" }).then(read);
+  assert.equal(denied.status, 402);
+  assert.equal(denied.headers.get("toll-client"), null);
+  const www = denied.headers.get("www-authenticate") ?? "";
+  const m = /^L402 macaroon="([^"]+)", invoice="([^"]+)"$/.exec(www);
+  assert.ok(m, www);
+  assert.ok(String(denied.headers.get("x-cashu")).startsWith("creqA"));
+  const unpaid = await fetch(base + "/v1/demo/agent", { method: "POST", headers: { authorization: `L402 ${m![1]}` }, body: "{}" }).then(read);
+  assert.equal(unpaid.status, 401);
+  assert.equal(unpaid.body.error, "bad_solution");
+  const paid = await fetch(mint.url + "/test/pay", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ request: m![2] }) });
+  assert.equal(paid.status, 200);
+  await paid.arrayBuffer();
+  const ok = await fetch(base + "/v1/demo/agent", { method: "POST", headers: { authorization: `L402 ${m![1]}` }, body: "{}" }).then(read);
+  assert.equal(ok.status, 200, JSON.stringify(ok.body));
+  assert.equal(ok.body.rail, "settle");
+  const again = await fetch(base + "/v1/demo/agent", { method: "POST", headers: { authorization: `L402 ${m![1]}:` }, body: "{}" }).then(read);
+  assert.equal(again.status, 401);
+  assert.equal(again.body.error, "replay");
+  const forged = m![1].slice(0, -1) + (m![1].endsWith("a") ? "b" : "a");
+  const bad = await fetch(base + "/v1/demo/agent", { method: "POST", headers: { authorization: `L402 ${forged}` }, body: "{}" }).then(read);
+  assert.equal(bad.status, 401);
+});
+
+test("eight concurrent retries on the worker mint once", async () => {
+  const denied = await post({});
+  const www = denied.headers.get("www-authenticate") ?? "";
+  const m = /^L402 macaroon="([^"]+)", invoice="([^"]+)"$/.exec(www);
+  assert.ok(m);
+  const paid = await fetch(mint.url + "/test/pay", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ request: m[2] }) });
+  const payBody = await paid.json() as { preimage: string };
+  assert.equal(paid.status, 200);
+  const before = mint.mintPosts();
+  const beforeBooks = await read(await fetch(base + "/v1/test/cashu-books"));
+  const results = await Promise.all(Array.from({ length: 8 }, () => post({ authorization: `L402 ${m[1]}:${payBody.preimage}` })));
+  assert.equal(results.filter((r) => r.status === 200).length, 1, JSON.stringify(results.map((r) => [r.status, r.body.error])));
+  assert.equal(results.filter((r) => r.status === 401).length, 7);
+  assert.equal(mint.mintPosts(), before + 1);
+  const books = await read(await fetch(base + "/v1/test/cashu-books"));
+  assert.equal(books.body.stored, Number(beforeBooks.body.stored) + 10);
+});

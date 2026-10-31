@@ -23,6 +23,8 @@ export interface RailOptions {
   /** Single-use guard from the issuer's replay store (throws store_unavailable when it is down). */
   firstUse: (key: string, ttl_s: number) => Promise<boolean>;
   hasMintQuote?: (quote: string) => Promise<boolean>;
+  reserveMintQuote?: (row: { quote: string; action: string; amount: number; mint: string }) => Promise<boolean>;
+  finishMintQuote?: (row: { quote: string; proofs: { amount: number; secret: string; id: string; C: string }[] }) => Promise<boolean>;
   claimMintQuote?: (row: { quote: string; action: string; amount: number; mint: string; proofs: { amount: number; secret: string; id: string; C: string }[] }) => Promise<boolean>;
   noteMintQuoteLoss?: (x: { quote: string; action: string; amount: number }) => Promise<void>;
   onDegraded?: (reason: string) => void;
@@ -137,13 +139,13 @@ export function createSettlementRail(o: RailOptions) {
     } else if (typeof body.preimage !== "string" || typeof body.macaroon !== "string") {
       throw new TollError("malformed");
     } else {
-      proof = { kind: body.kind === "l402" ? "l402" : "ln402", offer_id: body.offer_id, credential: body.macaroon, preimage: body.preimage.toLowerCase() };
+      proof = { kind: body.kind === "l402" ? "l402" : "ln402", offer_id: body.offer_id, credential: body.macaroon, preimage: body.preimage === "" ? "" : body.preimage.toLowerCase() };
     }
     let paid: Paid;
     try {
       paid = await o.engine.verifyPaid({
         site: o.site, proof, now, action: isActionClass(body.action) ? body.action : undefined, firstUse: o.firstUse,
-        hasMintQuote: o.hasMintQuote, claimMintQuote: o.claimMintQuote, noteMintQuoteLoss: o.noteMintQuoteLoss,
+        hasMintQuote: o.hasMintQuote, reserveMintQuote: o.reserveMintQuote, finishMintQuote: o.finishMintQuote, claimMintQuote: o.claimMintQuote, noteMintQuoteLoss: o.noteMintQuoteLoss,
       });
     } catch (e) {
       if (e instanceof TollError && e.code === "replay") replayRejected++;

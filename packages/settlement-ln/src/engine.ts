@@ -84,6 +84,10 @@ export interface SettlementEngine {
     site: string; proof: PaidProof; now: number; action?: ActionClass;
     firstUse: (key: string, ttl_s: number) => Promise<boolean>;
     hasMintQuote?: (quote: string) => Promise<boolean>;
+    /** Single-use mark before the mint is asked to sign. False when the quote is already reserved. */
+    reserveMintQuote?: (row: { quote: string; action: string; amount: number; mint: string }) => Promise<boolean>;
+    /** Proofs for a quote this store already reserved. One call. False when the proofs are already stored. */
+    finishMintQuote?: (row: { quote: string; proofs: { amount: number; secret: string; id: string; C: string }[] }) => Promise<boolean>;
     claimMintQuote?: (row: { quote: string; action: string; amount: number; mint: string; proofs: { amount: number; secret: string; id: string; C: string }[] }) => Promise<boolean>;
     noteMintQuoteLoss?: (x: { quote: string; action: string; amount: number }) => Promise<void>;
   }): Promise<Paid>;
@@ -93,10 +97,20 @@ export interface SettlementEngine {
   healthy(): Promise<boolean>;
 }
 
-/** Parse `Authorization: L402 <credential>:<preimage>` (also accepts the legacy `LSAT` scheme). */
+/**
+ * Parse `Authorization: L402 <credential>:<preimage>` (also accepts the legacy `LSAT` scheme).
+ * A credential with no preimage, or an empty one, is the mint-settled proof: the hash is not
+ * checked here. A short preimage is not that proof and does not parse.
+ */
 export function parseL402Authorization(header: string | undefined, offer_id: string): PaidProof | null {
-  const m = /^(?:L402|LSAT)\s+([^:\s]+):([0-9a-f]{64})$/i.exec((header ?? "").trim());
-  return m ? { offer_id, credential: m[1], preimage: m[2].toLowerCase() } : null;
+  const raw = (header ?? "").trim();
+  const full = /^(?:L402|LSAT)\s+([^:\s]+):([0-9a-f]{64})$/i.exec(raw);
+  if (full) return { offer_id, credential: full[1], preimage: full[2].toLowerCase() };
+  const bare = /^(?:L402|LSAT)\s+([^:\s]+)\s*$/i.exec(raw);
+  if (bare) return { offer_id, credential: bare[1], preimage: "" };
+  const empty = /^(?:L402|LSAT)\s+([^:\s]+):\s*$/i.exec(raw);
+  if (empty) return { offer_id, credential: empty[1], preimage: "" };
+  return null;
 }
 
 /** `WWW-Authenticate` value for a Lightning 402 to agents (settlement.md Q2). */

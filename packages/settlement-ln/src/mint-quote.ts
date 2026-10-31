@@ -159,10 +159,12 @@ export async function verifyMintQuote(o: {
   guard?: MintGuard;
   allowlist?: string[];
   has: (quote: string) => Promise<boolean>;
-  claim: (row: MintQuoteRow) => Promise<boolean>;
+  reserve: (row: { quote: string; action: string; amount: number; mint: string }) => Promise<boolean>;
+  finish: (row: { quote: string; proofs: HeldProof[] }) => Promise<boolean>;
   noteLoss: (x: { quote: string; action: string; amount: number }) => Promise<void>;
 }): Promise<Paid> {
-  if (!/^[0-9a-f]{64}$/.test(o.preimage)) throw new TollError("malformed");
+  const bare = o.preimage === "";
+  if (!bare && !/^[0-9a-f]{64}$/.test(o.preimage)) throw new TollError("malformed");
   const mode = o.mode ?? "loopback";
   const fetchImpl = o.fetchImpl ?? fetch;
   const c = await open(o.secret, o.macaroon);
@@ -170,9 +172,11 @@ export async function verifyMintQuote(o: {
   if (c.site !== o.site) throw new TollError("wrong_site");
   if (c.cls !== o.action) throw new TollError("wrong_action");
   if (!Number.isSafeInteger(c.amount_msat) || c.amount_msat % 1000 !== 0) throw new TollError("bad_sig");
-  const got = await sha256(fromHex(o.preimage));
-  // MINT_QUOTE_GUARD preimage: the payer's preimage must hash to the sealed payment hash.
-  if (!timingSafeEqual(got, fromHex(c.payment_hash))) throw new TollError("bad_solution");
+  if (!bare) {
+    const got = await sha256(fromHex(o.preimage));
+    // MINT_QUOTE_GUARD preimage: the payer's preimage must hash to the sealed payment hash.
+    if (!timingSafeEqual(got, fromHex(c.payment_hash))) throw new TollError("bad_solution");
+  }
   const looked = await readMint(o.mint, "/v1/mint/quote/bolt11/" + encodeURIComponent(c.quote), undefined, fetchImpl, mode, o.guard, o.allowlist);
   const state = typeof looked.body.state === "string" ? looked.body.state : "";
   if (looked.status !== 200 || looked.body.quote !== c.quote) throw new TollError(looked.status === 200 ? "bad_solution" : "store_unavailable");
@@ -185,13 +189,15 @@ export async function verifyMintQuote(o: {
   if (state !== "PAID" && state !== "ISSUED") throw new TollError("bad_solution");
   // MINT_QUOTE_GUARD issued: mint state ISSUED is not payment when this store has no row.
   if (state === "ISSUED") throw new TollError("bad_solution");
-  const proofs = mode === "bolt11"
-    ? await mintBlinded(o.mint, c.quote, amount, fetchImpl, o.guard, o.allowlist)
-    : await mintLoopback(o.mint, c.quote, amount, fetchImpl);
-  if (!proofs) throw new TollError("store_unavailable");
-  // MINT_QUOTE_GUARD replay: the row, the proofs, and the single-use mark are one store call.
+  // The single-use mark lands before the mint is asked to sign, so eight retries mint once.
+  if (!(await o.reserve({ quote: c.quote, action: c.cls, amount, mint: c.mint }))) throw new TollError("replay");
   try {
-    if (!(await o.claim({ quote: c.quote, action: c.cls, amount, mint: c.mint, proofs }))) throw new TollError("replay");
+    const proofs = mode === "bolt11"
+      ? await mintBlinded(o.mint, c.quote, amount, fetchImpl, o.guard, o.allowlist)
+      : await mintLoopback(o.mint, c.quote, amount, fetchImpl);
+    if (!proofs) throw new TollError("store_unavailable");
+    // The proofs and the used mark are one store call. A second finish is a replay.
+    if (!(await o.finish({ quote: c.quote, proofs }))) throw new TollError("replay");
   } catch (e) {
     if (e instanceof TollError && e.code === "replay") throw e;
     await o.noteLoss({ quote: c.quote, action: c.cls, amount });
@@ -216,11 +222,11 @@ export function withQuoteOffer(base: SettlementEngine, o: {
     mintQuote: (x) => mintQuoteOffer({ ...x, ...bound }),
     async verifyPaid(x) {
       if (x.proof.kind === "cashu" || !("preimage" in x.proof)) return base.verifyPaid(x);
-      if (!x.action || !x.hasMintQuote || !x.claimMintQuote || !x.noteMintQuoteLoss) throw new TollError("malformed");
+      if (!x.action || !x.hasMintQuote || !x.reserveMintQuote || !x.finishMintQuote || !x.noteMintQuoteLoss) throw new TollError("malformed");
       return verifyMintQuote({
         ...bound, site: x.site, action: x.action, offer_id: x.proof.offer_id,
         macaroon: x.proof.credential, preimage: x.proof.preimage, now: x.now,
-        has: x.hasMintQuote, claim: x.claimMintQuote, noteLoss: x.noteMintQuoteLoss,
+        has: x.hasMintQuote, reserve: x.reserveMintQuote, finish: x.finishMintQuote, noteLoss: x.noteMintQuoteLoss,
       });
     },
   };

@@ -46,7 +46,7 @@ never logged.
 
 ## Limits (deferred)
 
-- **Cashu on the site worker only.** Root `wrangler.toml` sets `CASHU_MINTS` to `https://mint.minibits.cash/Bitcoin`. Proofs are stored in the existing `TOLL_STORE` Durable Object. Agents get a 402 with `X-Cashu`. The work check stays. `L402_ENABLED` is not set there; the second offer stays off until an operator sets that var to `1` (docs/settlement.md §18). This package's own `wrangler.toml` (no mint list, no Durable Object) stays work-only: no offers and a paid redeem is `400 unsupported`.
+- **Cashu on the site worker only.** Root `wrangler.toml` sets `CASHU_MINTS` to `https://mint.minibits.cash/Bitcoin` and `L402_ENABLED` to `1`. Proofs are stored in the existing `TOLL_STORE` Durable Object. Agents get a 402 with `X-Cashu` and `WWW-Authenticate`. `POST /v1/demo/agent` returns that offer without an agent header, and `/.well-known/toll.json` lists it as `pay`. `POST /demo/contact` without a pass stays the work check. `TOLL_TEST_HOOKS` stays unset (docs/settlement.md §18). This package's own `wrangler.toml` (no mint list, no Durable Object) stays work-only: no offers and a paid redeem is `400 unsupported`.
 - **Standard engine only.** The Argon2id engine compiles WebAssembly at runtime, which Workers do not
   allow, so hardened mode and Argon2id escalation are off here (velocity still raises the work). Fix:
   ship the WASM as a module import.

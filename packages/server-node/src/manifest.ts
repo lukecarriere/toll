@@ -4,8 +4,8 @@
 // as the 402 offer) and always carries a status, "test" or "stub". Reads are never priced.
 import type { ActionClass } from "../../protocol/src/index.ts";
 
-/** Catalog description seed (verbatim, 147 characters). */
-export const MANIFEST_DESCRIPTION = "A small check for writes. Heavy clients do work on each write, or pay in test mode. Page views stay free. Does not identify the caller.";
+/** Catalog description seed (verbatim, 122 characters). */
+export const MANIFEST_DESCRIPTION = "A small check for writes. Heavy clients do work on each write, or pay. Page views stay free. Does not identify the caller.";
 export const NOT_FOR = ["page views", "crawler blocking", "citation licensing"] as const;
 export const PAID_CLASSES = ["write", "search", "account", "admin"] as const;
 export type PriceStatus = "test" | "stub" | "cashu";
@@ -107,7 +107,7 @@ export type LoadPricing = Partial<Record<Exclude<ActionClass, "read">, boolean>>
  * status "stub". `api` is the /v1 facade base (Node and edge `<origin>/v1`, WordPress
  * `<home>/wp-json/toll/v1`).
  */
-export function buildManifest(o: { api: string; docs: string | null; status: PriceStatus; prices: PriceTable; loadPricing?: LoadPricing; method?: "ln402" | "cashu"; methods?: readonly string[] }) {
+export function buildManifest(o: { api: string; docs: string | null; status: PriceStatus; prices: PriceTable; loadPricing?: LoadPricing; method?: "ln402" | "cashu"; methods?: readonly string[]; pay?: string }) {
   const paid = !!o.prices;
   const canRise = paid && PAID_CLASSES.some((c) => !!o.prices?.[c] && o.loadPricing?.[c] === true);
   const by_action: Record<string, Price & { basis: "base" }> = {};
@@ -122,6 +122,7 @@ export function buildManifest(o: { api: string; docs: string | null; status: Pri
     description: MANIFEST_DESCRIPTION,
     docs: o.docs,
     api: o.api,
+    ...(o.pay ? { pay: o.pay } : {}),
     reads_free: true,
     not_for: [...NOT_FOR],
     tools: [

@@ -46,6 +46,8 @@ export interface KeysetMint {
   token: (amount: number) => string;
   /** How many quote invoices were created. Stays 0 unless `quotes` was set. */
   quotePosts: () => number;
+  /** How many times POST /v1/mint/bolt11 was attempted. */
+  mintPosts: () => number;
   /** Force the next quote invoice to this sat amount. Null restores the requested amount. */
   setInvoiceSats: (sats: number | null) => void;
   close: () => Promise<void>;
@@ -72,6 +74,7 @@ export async function startKeysetMint(opts: { quotes?: boolean } = {}): Promise<
   let uppercaseSigs = false;
   let signedReply: { status: number; body: string; type: string } | null = null;
   let quotePosts = 0;
+  let mintPosts = 0;
   let invoiceSats: number | null = null;
   const quoteRows = new Map<string, { amount: number; preimage: string; request: string; state: "UNPAID" | "PAID" | "ISSUED"; signatures: { id: string; amount: number; C_: string }[] | null }>();
 
@@ -223,6 +226,7 @@ export async function startKeysetMint(opts: { quotes?: boolean } = {}): Promise<
         return json(res, 200, { preimage: q.preimage });
       }
       if (opts.quotes && req.method === "POST" && path === "/v1/mint/bolt11") {
+        mintPosts++;
         const body = await readJson(req);
         const q = quoteRows.get(typeof body?.quote === "string" ? body.quote : "");
         if (!q || q.state === "UNPAID") return json(res, 400, { detail: "unpaid", code: 11000 });
@@ -252,6 +256,7 @@ export async function startKeysetMint(opts: { quotes?: boolean } = {}): Promise<
     }
   });
 
+  server.keepAliveTimeout = 100;
   await new Promise<void>((ok) => server.listen(0, "127.0.0.1", ok));
   url = stripMint("http://127.0.0.1:" + (server.address() as AddressInfo).port);
 
@@ -285,6 +290,7 @@ export async function startKeysetMint(opts: { quotes?: boolean } = {}): Promise<
     signedSats: () => [...signed.values()].reduce((n, s) => n + s.amount, 0),
     token: issue,
     quotePosts: () => quotePosts,
+    mintPosts: () => mintPosts,
     setInvoiceSats: (sats) => { invoiceSats = sats; },
     close: () => new Promise<void>((ok) => { server.closeAllConnections?.(); server.close(() => ok()); }),
   };

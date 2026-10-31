@@ -18,6 +18,10 @@ export interface TollStore {
    * (the edge Durable Object). Missing: callers use consume then getTag.
    */
   consumeTagged?(useKey: string, initial: number, ttl_s: number, tagKey: string): Promise<{ remaining: number; tag: string | undefined }>;
+  /** Single-use mark before the mint signs. False when the quote is already reserved. No proofs yet. */
+  reserveMintQuote?(row: { quote: string; action: string; amount: number; mint: string }): Promise<boolean>;
+  /** Proofs for a reserved quote. One call. False when that quote already has proofs. */
+  finishMintQuote?(row: { quote: string; proofs: { amount: number; secret: string; id: string; C: string }[] }): Promise<boolean>;
   /** One insert of the quote row, its proofs, and the single-use mark. False when the quote is already claimed. */
   claimMintQuote?(row: { quote: string; action: string; amount: number; mint: string; proofs: { amount: number; secret: string; id: string; C: string }[] }): Promise<boolean>;
   hasMintQuote?(quote: string): Promise<boolean>;
@@ -94,13 +98,26 @@ export class MemoryStore implements TollStore {
     return this.live(key)?.tag;
   }
 
-  async claimMintQuote(row: { quote: string; action: string; amount: number; mint: string; proofs: { amount: number; secret: string; id: string; C: string }[] }): Promise<boolean> {
+  async reserveMintQuote(row: { quote: string; action: string; amount: number; mint: string }): Promise<boolean> {
     this.check();
     if (this.quotes.has(row.quote) || this.live("f:mq:" + row.quote)) return false;
     const until = this.now() + 180;
-    this.quotes.set(row.quote, row);
+    this.quotes.set(row.quote, { ...row, proofs: [] });
     this.m.set("f:mq:" + row.quote, { v: 1, until });
     return true;
+  }
+
+  async finishMintQuote(row: { quote: string; proofs: { amount: number; secret: string; id: string; C: string }[] }): Promise<boolean> {
+    this.check();
+    const held = this.quotes.get(row.quote);
+    if (!held || held.proofs.length > 0) return false;
+    held.proofs = row.proofs;
+    return true;
+  }
+
+  async claimMintQuote(row: { quote: string; action: string; amount: number; mint: string; proofs: { amount: number; secret: string; id: string; C: string }[] }): Promise<boolean> {
+    if (!(await this.reserveMintQuote(row))) return false;
+    return this.finishMintQuote(row);
   }
 
   async hasMintQuote(quote: string): Promise<boolean> {

@@ -16,6 +16,11 @@ import { parseSiteUrl, siteUrl, SITE_URL_PATTERN, SITE_URL_ENV } from "../packag
 import { siteUrl as siteUrlSubpath } from "../packages/protocol/src/site-url.ts";
 import { loadConfig } from "../packages/server-node/src/config.ts";
 import { nodeDocs, edgeDocs, phpDocs, allDocsUnset } from "./discovery-docs.ts";
+import { MANIFEST_DESCRIPTION } from "../packages/server-node/src/manifest.ts";
+
+/** 23108ec's manifest sentence. Later copy changes are rewritten back so this file still locks every other byte. */
+const HISTORIC_DESCRIPTION = "A small check for writes. Heavy clients do work on each write, or pay in test mode. Page views stay free. Does not identify the caller.";
+const as23108 = (body: string) => body.split(MANIFEST_DESCRIPTION).join(HISTORIC_DESCRIPTION);
 
 const ROOT = new URL("..", import.meta.url).pathname.replace(/\/$/, "");
 const GOLDEN = JSON.parse(readFileSync(ROOT + "/tests/fixtures/discovery-23108ec.json", "utf8"));
@@ -85,10 +90,10 @@ test("unset: toll.json and agents.json from Node, edge and WordPress are byte-id
   assert.deepEqual(Object.keys(GOLDEN.docs).sort(), ["edge work agents.json", "edge work toll.json", "node paid agents.json", "node paid toll.json", "node work agents.json", "node work toll.json", "wp paid agents.json", "wp paid toll.json", "wp work agents.json", "wp work toll.json"]);
   const now = await allDocsUnset(ROOT);
   assert.deepEqual(Object.keys(now).sort(), Object.keys(GOLDEN.docs).sort());
-  for (const k of Object.keys(GOLDEN.docs)) assert.ok(Buffer.from(now[k]).equals(Buffer.from(GOLDEN.docs[k])), `${k} differs from 23108ec:\n${now[k]}\n${GOLDEN.docs[k]}`);
+  for (const k of Object.keys(GOLDEN.docs)) assert.equal(as23108(now[k]), GOLDEN.docs[k], `${k} differs from 23108ec:\n${as23108(now[k])}\n${GOLDEN.docs[k]}`);
   // An empty value is the same as unset, everywhere.
   const empty = { ...(await nodeDocs(ROOT, { TOLL_SITE_URL: "" })), ...(await edgeDocs(ROOT, { TOLL_SITE_URL: "" })), ...phpDocs(ROOT, "").docs };
-  for (const k of Object.keys(GOLDEN.docs)) assert.equal(empty[k], GOLDEN.docs[k], k + " with TOLL_SITE_URL=''");
+  for (const k of Object.keys(GOLDEN.docs)) assert.equal(as23108(empty[k]), GOLDEN.docs[k], k + " with TOLL_SITE_URL=''");
 });
 
 /** The golden document with `docs` set to `url`: the only change TOLL_SITE_URL may make. */
@@ -102,7 +107,7 @@ test("set: docs is exactly TOLL_SITE_URL in Node, edge and WordPress; nothing el
     const got = { ...(await nodeDocs(ROOT, { TOLL_SITE_URL: raw })), ...(await edgeDocs(ROOT, { TOLL_SITE_URL: raw })), ...phpDocs(ROOT, raw).docs };
     for (const k of Object.keys(GOLDEN.docs)) {
       const want = k.endsWith("toll.json") ? withDocs(GOLDEN.docs[k], SITE) : GOLDEN.docs[k];
-      assert.equal(got[k], want, `${k} with TOLL_SITE_URL=${raw}`);
+      assert.equal(as23108(got[k]), want, `${k} with TOLL_SITE_URL=${raw}`);
       if (k.endsWith("toll.json")) assert.equal(JSON.parse(got[k]).docs, SITE);
     }
     // The protected site's own URLs still come from the request / home URL, not from TOLL_SITE_URL.
@@ -116,8 +121,8 @@ test("set: docs is exactly TOLL_SITE_URL in Node, edge and WordPress; nothing el
 test("Node: an explicit discovery.docs_url in the config still wins over TOLL_SITE_URL", async () => {
   const docsUrl = "https://docs.site.example/toll";
   const got = await nodeDocs(ROOT, { TOLL_SITE_URL: SITE }, { discovery: { docs_url: docsUrl } });
-  assert.equal(got["node work toll.json"], withDocs(GOLDEN.docs["node work toll.json"], docsUrl));
-  assert.equal(got["node paid toll.json"], withDocs(GOLDEN.docs["node paid toll.json"], docsUrl));
+  assert.equal(as23108(got["node work toll.json"]), withDocs(GOLDEN.docs["node work toll.json"], docsUrl));
+  assert.equal(as23108(got["node paid toll.json"]), withDocs(GOLDEN.docs["node paid toll.json"], docsUrl));
 });
 
 test("demo: demo/toll.yaml through loadConfig takes TOLL_SITE_URL from the environment", () => {
@@ -142,7 +147,7 @@ test("invalid: logged once and treated as unset in Node, edge and WordPress (out
     const edge = await edgeDocs(ROOT, { TOLL_SITE_URL: raw }, (m) => edgeWarn.push(String(m)));
     const wp = phpDocs(ROOT, raw);
     const got = { ...node, ...edge, ...wp.docs };
-    for (const k of Object.keys(GOLDEN.docs)) assert.equal(got[k], GOLDEN.docs[k], `${k} with invalid TOLL_SITE_URL ${JSON.stringify(raw)}`);
+    for (const k of Object.keys(GOLDEN.docs)) assert.equal(as23108(got[k]), GOLDEN.docs[k], `${k} with invalid TOLL_SITE_URL ${JSON.stringify(raw)}`);
     // Once per process per value on Node (two configs were built: paid and work), once per isolate at
     // the edge (both documents fetched), once per harness run on WordPress (only the manifest reads it;
     // each run has its own in-memory transients, so the hourly throttle is checked in the next test).
@@ -157,7 +162,7 @@ test("invalid: logged once and treated as unset in Node, edge and WordPress (out
   }
   // A non-string constant in wp-config.php is refused too.
   const wp = phpDocs(ROOT, true);
-  assert.equal(wp.docs["wp work toll.json"], GOLDEN.docs["wp work toll.json"]);
+  assert.equal(as23108(wp.docs["wp work toll.json"]), GOLDEN.docs["wp work toll.json"]);
   assert.match(wp.stderr["wp work toll.json"], /TOLL_SITE_URL must be a string/);
 });
 
@@ -167,7 +172,7 @@ function wpManifestLog(store: string, constant: unknown, skew = 0): string[] {
   if (constant !== undefined) args.push(JSON.stringify(constant));
   const r = spawnSync("php", args, { encoding: "utf8", env: { ...process.env, TOLL_TEST_TRANSIENTS: store, TOLL_TEST_CLOCK_SKEW: String(skew) } });
   assert.equal(r.status, 0, r.stderr);
-  assert.equal(r.stdout, GOLDEN.docs["wp work toll.json"], "the manifest is as if TOLL_SITE_URL were unset");
+  assert.equal(as23108(r.stdout), GOLDEN.docs["wp work toll.json"], "the manifest is as if TOLL_SITE_URL were unset");
   return r.stderr.split("\n").filter((l) => l.includes("Toll: TOLL_SITE_URL"));
 }
 

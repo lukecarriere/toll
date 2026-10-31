@@ -6,7 +6,7 @@ Reads stay free. A write with no pass gets `403` and `toll_required`. The pass c
 
 Paid requests in this version use a local test backend. No real money moves.
 
-The hosted demo at lessspam.dev is the exception: it settles real Cashu payments through the Minibits mint.
+The hosted demo at lessspam.dev is the exception: it settles real Cashu payments through the Minibits mint. That site also serves `POST /v1/demo/agent`. An unpaid post gets the payment offer. A paid post gets a pass. `/.well-known/toll.json` names that URL as `pay`. A plain post to the demo form still gets the work check.
 
 ## Node
 

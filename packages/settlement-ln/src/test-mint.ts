@@ -25,6 +25,8 @@ export interface TestMint {
   swaps: () => number;
   /** Sats minted into the caller's store after a paid quote. A replay does not add more. */
   issuedSats: () => number;
+  /** How many times POST /v1/mint/bolt11 was attempted. */
+  mintPosts: () => number;
   /** Drop connections so callers see an outage, not an error body. */
   setDown: (down: boolean) => void;
   close: () => Promise<void>;
@@ -35,6 +37,7 @@ export async function startTestMint(): Promise<TestMint> {
   const quotes = new Map<string, QuoteRow>();
   let swaps = 0;
   let issuedSats = 0;
+  let mintPosts = 0;
   let down = false;
   let url = "";
 
@@ -70,6 +73,7 @@ export async function startTestMint(): Promise<TestMint> {
         return json(res, 200, { preimage: q.preimage });
       }
       if (req.method === "POST" && path === "/v1/mint/bolt11") {
+        mintPosts++;
         const body = await readJson(req);
         const q = quotes.get(typeof body?.quote === "string" ? body.quote : "");
         if (!q || q.state === "UNPAID") return json(res, 400, { detail: "unpaid", code: 11000 });
@@ -124,6 +128,7 @@ export async function startTestMint(): Promise<TestMint> {
     url,
     swaps: () => swaps,
     issuedSats: () => issuedSats,
+    mintPosts: () => mintPosts,
     setDown: (v: boolean) => { down = v; },
     close: () => new Promise<void>((ok) => { server.closeAllConnections?.(); server.close(() => ok()); }),
   };
