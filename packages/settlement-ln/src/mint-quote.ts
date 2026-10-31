@@ -127,6 +127,14 @@ export interface MintQuoteOutput {
 /** Body detail when the mint has signed and neither a re-mint nor a restore returned signatures. */
 export const MINT_SIGNED_UNRECOVERABLE = "mint signed; signatures were not recovered";
 
+/** Retry-After seconds on a retryable quote 503. Short against the 120 s quote lifetime. */
+export const MINT_RETRY_AFTER_S = "5";
+
+/** Retry-After for a quote 503: set unless the mint signed and the signatures are gone. */
+export function quoteRetryHeaders(detail: string): Record<string, string> {
+  return detail === MINT_SIGNED_UNRECOVERABLE ? {} : { "retry-after": MINT_RETRY_AFTER_S };
+}
+
 export async function mintQuoteOffer(o: {
   secret: string; mint: string; site: string; cls: PaidClass; amount_msat: number; now: number; ttl_s?: number;
   fetchImpl?: typeof fetch;
@@ -199,10 +207,13 @@ export async function verifyMintQuote(o: {
   if (looked.status !== 200 || looked.body.quote !== c.quote) throw new TollError(looked.status === 200 ? "bad_solution" : "store_unavailable");
   const amount = c.amount_msat / 1000;
   const paid = (): Paid => ({ cls: c.cls, amount_msat: c.amount_msat, payment_ref: c.payment_hash });
-  if (o.now > c.exp) {
-    if ((state === "PAID" || state === "ISSUED") && !(await o.has(c.quote))) await o.noteLoss({ quote: c.quote, action: c.cls, amount });
-    throw new TollError("expired");
-  }
+  // An expired macaroon never earns a pass, but a reservation it left open is still settled into the books.
+  const expired = o.now > c.exp;
+  const granted = (): Paid => {
+    // MINT_QUOTE_GUARD expired-grant: proofs recovered after expiry are stored, and the caller still gets expired.
+    if (expired) throw new TollError("expired");
+    return paid();
+  };
   const ctx: MintCtx = { mint: o.mint, quote: c.quote, amount, mode, fetchImpl, guard: o.guard, allowlist: o.allowlist };
   // A previous attempt stored outputs and dropped the lease. Finish from those, or give the row up.
   const pending = await o.claimOpen(c.quote);
@@ -220,10 +231,16 @@ export async function verifyMintQuote(o: {
       throw new TollError("store_unavailable");
     } else {
       await commitProofs(o, c.quote, c.cls, amount, recovered);
-      return paid();
+      return granted();
     }
   } else if (await o.has(c.quote)) {
-    throw new TollError("replay");
+    throw new TollError(expired ? "expired" : "replay");
+  }
+  // An expired PAID quote with no row is still minted into the store below; only the pass is withheld.
+  if (expired && state !== "PAID") {
+    // MINT_QUOTE_GUARD expired-loss: an issued quote this store holds no row for is booked as a loss, once.
+    if (state === "ISSUED") await o.noteLoss({ quote: c.quote, action: c.cls, amount });
+    throw new TollError("expired");
   }
   if (state !== "PAID" && state !== "ISSUED") throw new TollError("bad_solution");
   if (state === "ISSUED") {
@@ -244,7 +261,7 @@ export async function verifyMintQuote(o: {
   const first = await mintOnce(ctx, outputs);
   if (first.proofs) {
     await commitProofs(o, c.quote, c.cls, amount, first.proofs);
-    return paid();
+    return granted();
   }
   // One more post while the lease is held. A single 500 among concurrent retries still yields one pass.
   const missed = await afterMiss(ctx, outputs, first.outcome);
@@ -255,7 +272,7 @@ export async function verifyMintQuote(o: {
   }
   if (missed !== "kept") {
     await commitProofs(o, c.quote, c.cls, amount, missed);
-    return paid();
+    return granted();
   }
   await o.unlock(c.quote);
   throw new TollError("store_unavailable");

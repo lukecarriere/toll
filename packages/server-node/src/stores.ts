@@ -40,6 +40,8 @@ export interface TollStore {
   /** A paid quote we will not gate. No secrets. */
   noteMintQuoteLoss?(o: { quote: string; action: string; amount: number }): Promise<void>;
   mintQuoteLosses?(): { quote: string; action: string; amount: number }[];
+  /** Quotes whose proofs this store holds, for tests and the books. */
+  mintQuoteStored?(): { quote: string; action: string; amount: number }[];
 }
 
 interface Entry { v: number; tag?: string; until: number }
@@ -169,6 +171,10 @@ export class MemoryStore implements TollStore {
 
   mintQuoteLosses() {
     return this.losses.map((o) => ({ ...o }));
+  }
+
+  mintQuoteStored() {
+    return [...this.quotes.values()].filter((o) => o.proofs.length > 0).map((o) => ({ quote: o.quote, action: o.action, amount: o.proofs.reduce((n, p) => n + p.amount, 0) }));
   }
 }
 
