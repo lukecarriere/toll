@@ -130,17 +130,21 @@ ${installLine}
 
 By default ${name} connects to no outside service. The check runs in the visitor's browser and is verified on your own site, under /wp-json/toll/v1/.
 
-The plugin calls one outside address only when you turn this on yourself: in Settings > Toll, tick "Collect usage payouts", choose "Payment server" and enter that server's address. The payment server is a Toll issuer that you run, or that someone you choose runs for you. It is not run by the plugin authors.
+The plugin calls one outside address only when you choose it: in Settings > Toll, choose "Payment server" and enter that server's address. The payment server is a Toll issuer that you run, or that someone you choose runs for you. It is not run by the plugin authors. Every call sends the server key you entered, so the server knows the request is from your site. No names, email addresses, comment text, passwords, or full IP addresses are sent.
 
-What goes to that address, and when:
+What is sent, and when:
 
-* Every call carries the server key you entered, so the server knows the request is from your site.
-* When you open Settings > Toll: a balance request.
-* When you withdraw: the invoice you pasted.
-* When an automated client (not a person in a browser) posts to a checked form: the action (for example "write") and the visitor's coarse network (the address with its last part removed, such as 203.0.113.0/24), to get a price and payment offers.
-* When a client pays: the payment proof it sent, the action, and its coarse network, so the server can book the payment once.
+* GET /v1/owner/balance, when you open Settings > Toll with "Collect usage payouts" on: the server key only.
+* POST /v1/owner/withdraw, when you withdraw with "Collect usage payouts" on: the server key and the withdrawal text you pasted.
+* GET /v1/owner/price?net=1, when anyone loads /.well-known/toll.json or /wp-json/toll/v1/price with payouts on and that answer is not already cached (about 30 seconds): the server key only. The net=1 on this address means the site can send a coarse network later. This call does not send one.
+* POST /v1/owner/quote, when anyone opens /wp-json/toll/v1/price with payouts on and the server has said the price can rise with load: the server key, the action (for example "write"), and, when it can be worked out, the visitor's coarse network (the address with its last part removed, such as 203.0.113.0/24).
+* POST /v1/owner/offers, when an automated client (not a person in a browser) posts to a checked form with payouts on: the server key, the action, and, when it can be worked out, the visitor's coarse network, so the server can return payment offers.
+* POST /v1/owner/redeem, when a client pays an offer and a payment server address is saved: the server key, the payment proof the client sent, and, when it can be worked out, the visitor's coarse network.
+* POST /v1/owner/cashu, when a client retries with a payment string in the X-Cashu header and a payment server address is saved: the server key, that payment string, the action, and, when it can be worked out, the visitor's coarse network.
 
-No names, email addresses, comment text, passwords or full IP addresses are sent. That server's own terms of use and privacy policy apply; ask whoever runs it for them.
+Terms of use: https://lessspam.dev/terms
+Privacy policy: https://lessspam.dev/privacy
+The operator of the address you enter applies their own terms of use and privacy policy to what that server stores.
 
 == Changelog ==
 
