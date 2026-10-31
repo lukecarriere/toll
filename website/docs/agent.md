@@ -1,6 +1,6 @@
 # Agent SDK
 
-`@lessspam/agent` is the client for automated callers. Version 0.1.0. Test mode only. Paid requests are in testing and move no real money.
+`@lessspam/agent` is the client for automated callers. Version 0.1.0. `testMintPayer` uses a local test mint and moves no real money. `cashuPayer` pays with real Cashu. The hosted demo at lessspam.dev charges real money: a write is 10,000 msat, paid with Cashu through the Minibits mint or with a BOLT11 mint quote (`L402_ENABLED` is `1`).
 
 ```sh
 npm install @lessspam/agent@0.1.0

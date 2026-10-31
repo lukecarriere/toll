@@ -1,8 +1,9 @@
 <!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Toll demo · Toll</title><meta name="description" content="Use them like a normal visitor. Each one runs an invisible check in the background, and the counts on the right update as you go. Then try the same endpoint without a pass."><link rel="icon" href="/favicon.ico" sizes="32x32"><link rel="icon" href="/favicon.svg" type="image/svg+xml"><link rel="apple-touch-icon" href="/apple-touch-icon.png"><link rel="stylesheet" href="/site.css"><link rel="stylesheet" href="/demo.css"></head><body>
-<header><div class="bar"><a class="mark" href="/">Toll</a><span class="tag">work-only</span></div></header>
+<header><div class="bar"><a class="mark" href="/">Toll</a><span class="tag">agents pay real Cashu or a mint quote</span></div></header>
 <main><h1>Every form on this page is protected</h1>
 <p>Use them like a normal visitor. Each one runs an invisible check in the background, and the counts on the right update as you go. Then try the same endpoint without a pass.</p>
+<p>The hosted demo at lessspam.dev charges real money: a write is 10,000 msat, paid with Cashu through the Minibits mint or with a BOLT11 mint quote (L402_ENABLED is 1).</p>
 <div class="demo">
 <section class="card" id="contact" aria-labelledby="c-h"><h2 id="c-h">Contact</h2><p class="sub">A write. Gated as <code>write</code>.</p>
 <form method="post" action="/demo/contact" data-toll="write"><div class="row2"><div><label for="n">Name</label><input id="n" name="name" value="Ana Ruiz" autocomplete="name"></div><div><label for="e">Email</label><input id="e" name="email" type="email" value="ana@example.com" autocomplete="email"></div></div>

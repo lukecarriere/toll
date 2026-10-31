@@ -27,6 +27,6 @@ The plugin is the issuer. The same API as the [server page](/docs/server) is und
 
 `GET /.well-known/toll.json` and `GET /.well-known/agents.json` are served with no check.
 
-The plugin takes no payments itself. Test mode does the background check. A payment server is optional and, in this version, local and for tests. No real money moves.
+The plugin takes no payments itself. No real money moves in the WordPress plugin's test mode. The background check runs instead. A payment server is optional and, when used for tests, local.
 
-The hosted demo at lessspam.dev is the exception: it settles real Cashu payments through the Minibits mint.
+The hosted demo at lessspam.dev charges real money: a write is 10,000 msat, paid with Cashu through the Minibits mint or with a BOLT11 mint quote (`L402_ENABLED` is `1`).

@@ -4,9 +4,9 @@ Two servers speak the same `/v1` API. Node is the published package `@lessspam/s
 
 Reads stay free. A write with no pass gets `403` and `toll_required`. The pass cookie is `toll_pass`. The header is `Authorization: Toll`.
 
-Paid requests in this version use a local test backend. No real money moves.
+No real money moves on the self-hosted server's stub backend.
 
-The hosted demo at lessspam.dev is the exception: it settles real Cashu payments through the Minibits mint. That site also serves `POST /v1/demo/agent`. An unpaid post gets the payment offer. A paid post gets a pass. `/.well-known/toll.json` names that URL as `pay`. A plain post to the demo form still gets the work check.
+The hosted demo at lessspam.dev charges real money: a write is 10,000 msat, paid with Cashu through the Minibits mint or with a BOLT11 mint quote (`L402_ENABLED` is `1`). Search, account, and admin on that worker are 2,000, 25,000, and 100,000 msat. That site also serves `POST /v1/demo/agent`. An unpaid post gets the payment offer. A paid post gets a pass. `/.well-known/toll.json` names that URL as `pay`. A plain post to the demo form still gets the work check.
 
 ## Node
 

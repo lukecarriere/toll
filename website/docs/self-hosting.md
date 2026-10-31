@@ -16,7 +16,7 @@ Install the published packages at version 0.1.0 and run them yourself. You do no
 
 ## This site's worker
 
-The toll-site worker serves this static site and a work-only demo. The store is one SQLite-backed Durable Object, `TollStoreDO`. From a clean checkout:
+The toll-site worker serves this static site and the hosted demo. People pass the work check. The hosted demo at lessspam.dev charges real money: a write is 10,000 msat, paid with Cashu through the Minibits mint or with a BOLT11 mint quote (`L402_ENABLED` is `1`). The mint list is `CASHU_MINTS`. The store is one SQLite-backed Durable Object, `TollStoreDO`. From a clean checkout:
 
 ```sh
 npm ci
