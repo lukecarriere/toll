@@ -91,7 +91,7 @@ if (field("Requires at least") !== hdr("Requires at least")) problems.push("Requ
 if (field("Requires PHP") !== hdr("Requires PHP")) problems.push("Requires PHP differs between readme and plugin header");
 const latest = process.env.LATEST_WP.split(".").slice(0, 2).join(".");
 if (field("Tested up to") !== latest) problems.push(`Tested up to ${field("Tested up to")} is not the current WordPress release ${latest}`);
-if (!/^(GPL-?2\.0-or-later|GPLv2 or later|GPL-?3\.0-or-later|GPLv3 or later)$/i.test(field("License") ?? "")) problems.push(`License "${field("License")}" is not a GPL-compatible SPDX/wp.org value`);
+if (!/^(GPL-?2\.0-or-later|GPLv2 or later|GPL-?3\.0-or-later|GPLv3 or later)$/i.test(field("License") ?? "")) problems.push(`License "${field("License")}" is not a GPL-compatible SPDX/WordPress.org value`);
 if (hdr("License") !== field("License")) problems.push("License differs between readme and plugin header");
 const tags = (field("Tags") ?? "").split(",").map((t) => t.trim()).filter(Boolean);
 if (tags.length > 5) problems.push(`${tags.length} tags; WordPress.org shows at most 5`);
