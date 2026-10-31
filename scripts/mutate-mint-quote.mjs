@@ -144,6 +144,24 @@ const mutants = [
     from: 'return typeof body.detail === "string" || typeof body.code === "number" ? "refused" : "unknown";',
     to: 'return "refused";',
   },
+  {
+    name: "an expired paid quote is booked as a loss instead of minted",
+    test: "an expired macaroon on a paid quote that was never minted books the sats as stored",
+    from: "  if (expired && state !== \"PAID\") {\n",
+    to: "  if (expired && state === \"PAID\") await o.noteLoss({ quote: c.quote, action: c.cls, amount });\n  if (expired) {\n",
+  },
+  {
+    name: "an expired issued quote with no row is not booked as a loss",
+    test: "an expired token and an action mismatch are refused",
+    from: '    if (state === "ISSUED") await o.noteLoss({ quote: c.quote, action: c.cls, amount });\n',
+    to: "",
+  },
+  {
+    name: "a freshly minted expired quote is granted a pass",
+    test: "an expired macaroon on a paid quote that was never minted books the sats as stored",
+    from: "    await commitProofs(o, c.quote, c.cls, amount, first.proofs);\n    return granted();",
+    to: "    await commitProofs(o, c.quote, c.cls, amount, first.proofs);\n    return paid();",
+  },
 ];
 
 /** TAP summary counts, or null when the run printed no TAP summary (a crash, not a test result). */

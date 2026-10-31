@@ -236,9 +236,10 @@ export async function verifyMintQuote(o: {
   } else if (await o.has(c.quote)) {
     throw new TollError(expired ? "expired" : "replay");
   }
-  if (expired) {
-    // MINT_QUOTE_GUARD expired-loss: a paid quote with no row (or a row the mint never signed) is booked once.
-    if (state === "PAID" || state === "ISSUED") await o.noteLoss({ quote: c.quote, action: c.cls, amount });
+  // An expired PAID quote with no row is still minted into the store below; only the pass is withheld.
+  if (expired && state !== "PAID") {
+    // MINT_QUOTE_GUARD expired-loss: an issued quote this store holds no row for is booked as a loss, once.
+    if (state === "ISSUED") await o.noteLoss({ quote: c.quote, action: c.cls, amount });
     throw new TollError("expired");
   }
   if (state !== "PAID" && state !== "ISSUED") throw new TollError("bad_solution");
@@ -260,7 +261,7 @@ export async function verifyMintQuote(o: {
   const first = await mintOnce(ctx, outputs);
   if (first.proofs) {
     await commitProofs(o, c.quote, c.cls, amount, first.proofs);
-    return paid();
+    return granted();
   }
   // One more post while the lease is held. A single 500 among concurrent retries still yields one pass.
   const missed = await afterMiss(ctx, outputs, first.outcome);
@@ -271,7 +272,7 @@ export async function verifyMintQuote(o: {
   }
   if (missed !== "kept") {
     await commitProofs(o, c.quote, c.cls, amount, missed);
-    return paid();
+    return granted();
   }
   await o.unlock(c.quote);
   throw new TollError("store_unavailable");

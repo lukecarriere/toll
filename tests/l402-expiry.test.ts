@@ -135,6 +135,24 @@ test("an expired macaroon on a kept reservation the mint cannot restore books on
   }
 });
 
+test("an expired macaroon on a paid quote that was never minted books the sats as stored, not as a loss", async () => {
+  const env = await boot();
+  try {
+    const { quote, exp, send } = await paidOffer(env);
+    env.clock.now = exp + 1;
+    for (let i = 0; i < 2; i++) {
+      const late = await send();
+      const body = await late.json();
+      assert.equal(late.status, 401, JSON.stringify(body));
+      assert.equal(body.error, "expired");
+      assert.deepEqual(booked(env, quote), { stored: 10, lost: 0 });
+    }
+    assert.equal(await quoteState(env.mint.url, quote), "ISSUED");
+  } finally {
+    await env.close();
+  }
+});
+
 test("a retryable 503 carries Retry-After and the unrecoverable 503 does not", async () => {
   const env = await boot();
   try {
