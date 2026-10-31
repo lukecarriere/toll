@@ -10,6 +10,7 @@ import { fileURLToPath } from "node:url";
 const MQ = "packages/settlement-ln/src/mint-quote.ts";
 const MS = "packages/server-node/src/stores.ts";
 const DO = "packages/edge-cf/src/do-store.ts";
+const HTTP = "packages/server-node/src/http.ts";
 const TEST_FILES = ["tests/settlement-mint-quote.test.ts", "tests/l402-quote.test.ts", "tests/l402-edge.test.ts", "tests/l402-expiry.test.ts"];
 const TIMEOUT_MS = 300_000;
 
@@ -214,6 +215,20 @@ const mutants = [
     test: "an expired paid quote the mint keeps refusing books one loss at the cap",
     from: "    if (this.losses.some((row) => row.quote === o.quote)) return;\n",
     to: "",
+  },
+  {
+    file: HTTP,
+    name: "guardFetch drops the quote 503 headers",
+    test: "guardFetch sends Retry-After on a retryable quote 503",
+    from: "      if (quoted) return Response.json(quoted.body, { status: quoted.status, headers: quoted.headers });\n      return refuse(true);",
+    to: "      if (quoted) return Response.json(quoted.body, { status: quoted.status });\n      return refuse(true);",
+  },
+  {
+    file: HTTP,
+    name: "guardFetch drops the quote 503 headers beside a stale pass",
+    test: "guardFetch sends Retry-After on a retryable quote 503",
+    from: "      if (quoted) return Response.json(quoted.body, { status: quoted.status, headers: quoted.headers });\n      return refuse(false);",
+    to: "      if (quoted) return Response.json(quoted.body, { status: quoted.status });\n      return refuse(false);",
   },
 ];
 

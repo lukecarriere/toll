@@ -5,6 +5,7 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { decodeBolt11, startKeysetMint } from "../packages/settlement-ln/src/index.ts";
+import { PASS_COOKIE, guardFetch } from "../packages/server-node/src/http.ts";
 import { startDemo } from "./helpers.ts";
 
 const PUBLIC = "https://pay.example.com/Bitcoin";
@@ -55,8 +56,9 @@ async function paidOffer(env: Awaited<ReturnType<typeof boot>>) {
   const macaroon = m[1];
   const quote = JSON.parse(Buffer.from(macaroon.split(".")[0], "base64url").toString()).quote as string;
   const exp = body.offers[1].exp as number;
-  const send = () => fetch(env.demo.url + "/contact", { method: "POST", headers: agentHeaders({ authorization: `L402 ${macaroon}:${preimage}` }), body: "{}" });
-  return { quote, exp, send };
+  const authorization = `L402 ${macaroon}:${preimage}`;
+  const send = () => fetch(env.demo.url + "/contact", { method: "POST", headers: agentHeaders({ authorization }), body: "{}" });
+  return { quote, exp, send, authorization };
 }
 
 function agentHeaders(extra: Record<string, string> = {}) {
@@ -275,6 +277,42 @@ test("an expired paid quote the mint keeps refusing books one loss at the cap, a
     const again = await send();
     assert.equal(again.status, 401);
     assert.deepEqual(booked(env, quote), { stored: 10, lost: 0 });
+  } finally {
+    await env.close();
+  }
+});
+
+// Ported from QA's #42 check: guardFetch builds its own Response, so its quote 503s need their own header test.
+test("guardFetch sends Retry-After on a retryable quote 503 and none on the unrecoverable one", async () => {
+  const env = await boot();
+  try {
+    const gf = guardFetch(env.demo.demo.toll, () => new Response("ok"), { action: "write", remoteAddr: () => "127.0.0.1" });
+    const sendGF = (authorization: string, cookie?: string) => gf(new Request("http://site.test/contact", {
+      method: "POST", headers: agentHeaders(cookie ? { authorization, cookie } : { authorization }), body: "{}",
+    }));
+
+    const refusedOffer = await paidOffer(env);
+    env.mint.failNextMints(2);
+    const refused = await sendGF(refusedOffer.authorization, `${PASS_COOKIE}=stale`);
+    assert.equal(refused.status, 503, JSON.stringify(await refused.clone().json()));
+    assert.equal(refused.headers.get("retry-after"), "5", "a stale pass cookie beside the macaroon still gets Retry-After");
+    env.mint.failNextMints(0);
+
+    const { quote, authorization } = await paidOffer(env);
+    const missed = await timeOutBothPosts(env.mint, quote, () => sendGF(authorization));
+    assert.equal(missed.res.status, 503, JSON.stringify(missed.body));
+    assert.equal(missed.res.headers.get("retry-after"), "5", "guardFetch says when to retry");
+    env.mint.setStuckMint(true);
+    try {
+      await missed.signLate();
+      const lost = await sendGF(authorization);
+      const body = await lost.json();
+      assert.equal(lost.status, 503, JSON.stringify(body));
+      assert.equal(body.detail, LOST);
+      assert.equal(lost.headers.get("retry-after"), null, "retrying cannot recover these signatures");
+    } finally {
+      env.mint.setStuckMint(false);
+    }
   } finally {
     await env.close();
   }
