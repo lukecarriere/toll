@@ -96,17 +96,20 @@ export class CashuTestEngine implements SettlementEngine {
     site: string; proof: PaidProof; now: number; action?: ActionClass;
     firstUse: (key: string, ttl_s: number) => Promise<boolean>;
     hasMintQuote?: (quote: string) => Promise<boolean>;
-    reserveMintQuote?: (row: { quote: string; action: string; amount: number; mint: string }) => Promise<boolean>;
+    reserveMintQuote?: (row: { quote: string; action: string; amount: number; mint: string; outputs?: { amount: number; id: string; secret: string; r: string; B_: string }[] }) => Promise<boolean>;
+    claimOpenMintQuote?: (quote: string) => Promise<{ amount: number; id: string; secret: string; r: string; B_: string }[] | null>;
+    releaseMintQuote?: (quote: string) => Promise<boolean>;
+    unlockMintQuote?: (quote: string) => Promise<void>;
     finishMintQuote?: (row: { quote: string; proofs: MintQuoteRow["proofs"] }) => Promise<boolean>;
     claimMintQuote?: (row: MintQuoteRow) => Promise<boolean>;
     noteMintQuoteLoss?: (x: { quote: string; action: string; amount: number }) => Promise<void>;
   }): Promise<Paid> {
     if (o.proof.kind !== "cashu") {
-      if (!o.action || !("preimage" in o.proof) || !o.hasMintQuote || !o.reserveMintQuote || !o.finishMintQuote || !o.noteMintQuoteLoss) throw new TollError("malformed");
+      if (!o.action || !("preimage" in o.proof) || !o.hasMintQuote || !o.reserveMintQuote || !o.claimOpenMintQuote || !o.releaseMintQuote || !o.unlockMintQuote || !o.finishMintQuote || !o.noteMintQuoteLoss) throw new TollError("malformed");
       return verifyMintQuote({
         secret: this.secret, mint: this.mint, site: o.site, action: o.action, offer_id: o.proof.offer_id,
         macaroon: o.proof.credential, preimage: o.proof.preimage, now: o.now,
-        has: o.hasMintQuote, reserve: o.reserveMintQuote, finish: o.finishMintQuote, noteLoss: o.noteMintQuoteLoss,
+        has: o.hasMintQuote, reserve: o.reserveMintQuote, claimOpen: o.claimOpenMintQuote, release: o.releaseMintQuote, unlock: o.unlockMintQuote, finish: o.finishMintQuote, noteLoss: o.noteMintQuoteLoss,
       });
     }
     const c = await open(this.secret, o.proof.credential);

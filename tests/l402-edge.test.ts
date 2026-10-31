@@ -151,3 +151,159 @@ test("eight concurrent retries on the worker mint once", async () => {
   const books = await read(await fetch(base + "/v1/test/cashu-books"));
   assert.equal(books.body.stored, Number(beforeBooks.body.stored) + 10);
 });
+
+async function paidOffer() {
+  const denied = await post({});
+  const www = denied.headers.get("www-authenticate") ?? "";
+  const m = /^L402 macaroon="([^"]+)", invoice="([^"]+)"$/.exec(www);
+  assert.ok(m);
+  const paid = await fetch(mint.url + "/test/pay", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ request: m[2] }) });
+  const payBody = await paid.json() as { preimage: string };
+  assert.equal(paid.status, 200);
+  return { macaroon: m[1], preimage: payBody.preimage };
+}
+
+test("a mint 500 on the worker releases the quote and the retry passes once", async () => {
+  const { macaroon, preimage } = await paidOffer();
+  const before = mint.mintPosts();
+  const beforeBooks = await read(await fetch(base + "/v1/test/cashu-books"));
+  mint.failNextMints(8);
+  const failed = await post({ authorization: `L402 ${macaroon}:${preimage}` });
+  assert.equal(failed.status, 503, JSON.stringify(failed.body));
+  assert.equal(failed.body.error, "store_unavailable");
+  assert.equal(failed.body.detail, undefined);
+  mint.failNextMints(0);
+  const ok = await post({ authorization: `L402 ${macaroon}:${preimage}` });
+  assert.equal(ok.status, 200, JSON.stringify(ok.body));
+  assert.equal(ok.body.rail, "settle");
+  const again = await post({ authorization: `L402 ${macaroon}:${preimage}` });
+  assert.equal(again.status, 401);
+  assert.equal(again.body.error, "replay");
+  assert.equal(mint.mintPosts(), before + 3);
+  const books = await read(await fetch(base + "/v1/test/cashu-books"));
+  assert.equal(books.body.stored, Number(beforeBooks.body.stored) + 10);
+  assert.equal(books.body.losses, beforeBooks.body.losses);
+});
+
+test("a dropped mint response on the worker is recovered by the retry", async () => {
+  const { macaroon, preimage } = await paidOffer();
+  const before = mint.mintPosts();
+  const beforeBooks = await read(await fetch(base + "/v1/test/cashu-books"));
+  mint.setDropMint(true);
+  const failed = await post({ authorization: `L402 ${macaroon}:${preimage}` });
+  assert.equal(failed.status, 503, JSON.stringify(failed.body));
+  assert.equal(failed.body.error, "store_unavailable");
+  mint.setDropMint(false);
+  const ok = await post({ authorization: `L402 ${macaroon}:${preimage}` });
+  assert.equal(ok.status, 200, JSON.stringify(ok.body));
+  const again = await post({ authorization: `L402 ${macaroon}:${preimage}` });
+  assert.equal(again.status, 401);
+  assert.equal(again.body.error, "replay");
+  // The drop leaves the quote ISSUED, so the retry restores the stored outputs instead of posting again.
+  assert.equal(mint.mintPosts(), before + 1);
+  const books = await read(await fetch(base + "/v1/test/cashu-books"));
+  assert.equal(books.body.stored, Number(beforeBooks.body.stored) + 10);
+  assert.equal(books.body.losses, beforeBooks.body.losses);
+});
+
+test("concurrent retries during a failing first mint on the worker yield one pass", async () => {
+  const { macaroon, preimage } = await paidOffer();
+  const before = mint.mintPosts();
+  const beforeBooks = await read(await fetch(base + "/v1/test/cashu-books"));
+  mint.failNextMints(1);
+  const results = await Promise.all(Array.from({ length: 8 }, () => post({ authorization: `L402 ${macaroon}:${preimage}` })));
+  assert.equal(results.filter((r) => r.status === 200).length, 1, JSON.stringify(results.map((r) => [r.status, r.body.error])));
+  assert.equal(results.filter((r) => r.status === 401).length, 7);
+  assert.equal(mint.mintPosts(), before + 2);
+  const books = await read(await fetch(base + "/v1/test/cashu-books"));
+  assert.equal(books.body.stored, Number(beforeBooks.body.stored) + 10);
+  assert.equal(books.body.losses, beforeBooks.body.losses);
+});
+
+test("an unrecoverable mint on the worker records the loss once", async () => {
+  const { macaroon, preimage } = await paidOffer();
+  const beforeBooks = await read(await fetch(base + "/v1/test/cashu-books"));
+  mint.setDropMint(true);
+  const failed = await post({ authorization: `L402 ${macaroon}:${preimage}` });
+  assert.equal(failed.status, 503, JSON.stringify(failed.body));
+  assert.equal(failed.body.detail, undefined);
+  const mid = await read(await fetch(base + "/v1/test/cashu-books"));
+  assert.equal(mid.body.losses, beforeBooks.body.losses);
+  assert.equal(mid.body.stored, beforeBooks.body.stored);
+  mint.setDropMint(false);
+  mint.setStuckMint(true);
+  const lost = await post({ authorization: `L402 ${macaroon}:${preimage}` });
+  assert.equal(lost.status, 503, JSON.stringify(lost.body));
+  assert.equal(lost.body.error, "store_unavailable");
+  assert.equal(lost.body.detail, "mint signed; signatures were not recovered");
+  const again = await post({ authorization: `L402 ${macaroon}:${preimage}` });
+  assert.equal(again.status, 503);
+  assert.equal(again.body.detail, "mint signed; signatures were not recovered");
+  const books = await read(await fetch(base + "/v1/test/cashu-books"));
+  assert.equal(books.body.losses, Number(beforeBooks.body.losses) + 10);
+  assert.equal(books.body.stored, beforeBooks.body.stored);
+  mint.setStuckMint(false);
+});
+
+function quoteOfMacaroon(macaroon: string): string {
+  return JSON.parse(Buffer.from(macaroon.split(".")[0], "base64url").toString()).quote;
+}
+
+/** QA's #41 sequence on the worker: both mint posts outlive the 1.5 s timeout, then the mint signs late. */
+async function timeOutBothPosts(macaroon: string, preimage: string) {
+  const first = mint.holdNextMint();
+  const pending = post({ authorization: `L402 ${macaroon}:${preimage}` });
+  const a = await first;
+  const second = mint.holdNextMint();
+  const b = await second;
+  const missed = await pending;
+  const quote = quoteOfMacaroon(macaroon);
+  return {
+    missed,
+    signLate: async () => {
+      a.release();
+      b.release();
+      const state = async () => ((await (await fetch(mint.url + "/v1/mint/quote/bolt11/" + quote)).json()) as { state: string }).state;
+      for (let i = 0; i < 100 && (await state()) !== "ISSUED"; i++) await new Promise((r) => setTimeout(r, 20));
+      assert.equal(await state(), "ISSUED");
+    },
+  };
+}
+
+test("both mint posts time out on the worker and the mint signs late: the retry passes once and books the sats", async () => {
+  const { macaroon, preimage } = await paidOffer();
+  const beforeBooks = await read(await fetch(base + "/v1/test/cashu-books"));
+  const { missed, signLate } = await timeOutBothPosts(macaroon, preimage);
+  assert.equal(missed.status, 503, JSON.stringify(missed.body));
+  assert.equal(missed.body.detail, undefined);
+  await signLate();
+  const ok = await post({ authorization: `L402 ${macaroon}:${preimage}` });
+  assert.equal(ok.status, 200, JSON.stringify(ok.body));
+  const again = await post({ authorization: `L402 ${macaroon}:${preimage}` });
+  assert.equal(again.status, 401);
+  assert.equal(again.body.error, "replay");
+  const books = await read(await fetch(base + "/v1/test/cashu-books"));
+  assert.equal(books.body.stored, Number(beforeBooks.body.stored) + 10);
+  assert.equal(books.body.losses, beforeBooks.body.losses);
+});
+
+test("a late signature the worker cannot restore records the loss once and grants no pass", async () => {
+  const { macaroon, preimage } = await paidOffer();
+  const beforeBooks = await read(await fetch(base + "/v1/test/cashu-books"));
+  const { missed, signLate } = await timeOutBothPosts(macaroon, preimage);
+  assert.equal(missed.status, 503, JSON.stringify(missed.body));
+  mint.setStuckMint(true);
+  try {
+    await signLate();
+    for (let i = 0; i < 3; i++) {
+      const lost = await post({ authorization: `L402 ${macaroon}:${preimage}` });
+      assert.equal(lost.status, 503, JSON.stringify(lost.body));
+      assert.equal(lost.body.detail, "mint signed; signatures were not recovered");
+    }
+    const books = await read(await fetch(base + "/v1/test/cashu-books"));
+    assert.equal(books.body.losses, Number(beforeBooks.body.losses) + 10);
+    assert.equal(books.body.stored, beforeBooks.body.stored);
+  } finally {
+    mint.setStuckMint(false);
+  }
+});

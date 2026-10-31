@@ -251,3 +251,308 @@ test("L402_ENABLED unset: the 402 is the cashu-only response and the mint is not
     await mint.close();
   }
 });
+
+const LOST = "mint signed; signatures were not recovered";
+
+function quoteId(macaroon: string): string {
+  return JSON.parse(Buffer.from(macaroon.split(".")[0], "base64url").toString()).quote as string;
+}
+
+test("a mint 500 releases the quote and the retry passes once", async () => {
+  const { mint, demo } = await boot(true);
+  try {
+    const offer = await quoteOf(demo.url);
+    const preimage = await pay(mint.url, offer.invoice);
+    const quote = quoteId(offer.macaroon);
+    const before = mint.mintPosts();
+    mint.failNextMints(8);
+    const failed = await post(demo.url, { authorization: `L402 ${offer.macaroon}:${preimage}` });
+    const failedBody = await failed.json();
+    assert.equal(failed.status, 503, JSON.stringify(failedBody));
+    assert.equal(failedBody.error, "unavailable");
+    assert.equal(failedBody.detail, undefined);
+    assert.equal(await demo.store.hasMintQuote?.(quote), false);
+    assert.equal((demo.store.mintQuoteLosses?.() ?? []).some((o) => o.quote === quote), false);
+    mint.failNextMints(0);
+    const ok = await post(demo.url, { authorization: `L402 ${offer.macaroon}:${preimage}` });
+    const okBody = await ok.json();
+    assert.equal(ok.status, 200, JSON.stringify(okBody));
+    assert.equal(okBody.rail, "settle");
+    const again = await post(demo.url, { authorization: `L402 ${offer.macaroon}:${preimage}` });
+    assert.equal(again.status, 401);
+    assert.equal((await again.json()).error, "replay");
+    assert.equal(mint.mintPosts(), before + 3);
+    assert.equal((demo.store.mintQuoteLosses?.() ?? []).some((o) => o.quote === quote), false);
+  } finally {
+    delete process.env.L402_ENABLED;
+    await demo.close();
+    await mint.close();
+  }
+});
+
+test("a dropped mint response is recovered by the retry, once", async () => {
+  const { mint, demo } = await boot(true);
+  try {
+    const offer = await quoteOf(demo.url);
+    const preimage = await pay(mint.url, offer.invoice);
+    const quote = quoteId(offer.macaroon);
+    const before = mint.mintPosts();
+    mint.setDropMint(true);
+    const failed = await post(demo.url, { authorization: `L402 ${offer.macaroon}:${preimage}` });
+    const failedBody = await failed.json();
+    assert.equal(failed.status, 503, JSON.stringify(failedBody));
+    assert.equal(failedBody.error, "unavailable");
+    assert.equal(await demo.store.hasMintQuote?.(quote), true);
+    assert.equal((demo.store.mintQuoteLosses?.() ?? []).some((o) => o.quote === quote), false);
+    mint.setDropMint(false);
+    const ok = await post(demo.url, { authorization: `L402 ${offer.macaroon}:${preimage}` });
+    const okBody = await ok.json();
+    assert.equal(ok.status, 200, JSON.stringify(okBody));
+    assert.equal(okBody.rail, "settle");
+    const again = await post(demo.url, { authorization: `L402 ${offer.macaroon}:${preimage}` });
+    assert.equal(again.status, 401);
+    assert.equal((await again.json()).error, "replay");
+    // The drop leaves the quote ISSUED, so the retry restores the stored outputs instead of posting again.
+    assert.equal(mint.mintPosts(), before + 1);
+    assert.equal((demo.store.mintQuoteLosses?.() ?? []).some((o) => o.quote === quote), false);
+  } finally {
+    delete process.env.L402_ENABLED;
+    await demo.close();
+    await mint.close();
+  }
+});
+
+test("concurrent retries during a failing first mint yield one pass", async () => {
+  const { mint, demo } = await boot(true);
+  try {
+    const offer = await quoteOf(demo.url);
+    const preimage = await pay(mint.url, offer.invoice);
+    const before = mint.mintPosts();
+    mint.failNextMints(1);
+    const results = await Promise.all(Array.from({ length: 8 }, () => post(demo.url, { authorization: `L402 ${offer.macaroon}:${preimage}` })));
+    const rows = [];
+    for (const r of results) rows.push({ status: r.status, body: await r.json() });
+    assert.equal(rows.filter((r) => r.status === 200 && r.body.rail === "settle").length, 1, JSON.stringify(rows));
+    assert.equal(rows.filter((r) => r.status === 401 && r.body.error === "replay").length, 7, JSON.stringify(rows));
+    assert.equal(mint.mintPosts(), before + 2);
+    const again = await post(demo.url, { authorization: `L402 ${offer.macaroon}:${preimage}` });
+    assert.equal(again.status, 401);
+    assert.equal((await again.json()).error, "replay");
+  } finally {
+    delete process.env.L402_ENABLED;
+    await demo.close();
+    await mint.close();
+  }
+});
+
+test("twelve overlapping retries mint once", async () => {
+  const { mint, demo } = await boot(true);
+  try {
+    const offer = await quoteOf(demo.url);
+    const preimage = await pay(mint.url, offer.invoice);
+    const before = mint.mintPosts();
+    const gate = mint.holdNextMint();
+    const pending = Promise.all(Array.from({ length: 12 }, () => post(demo.url, { authorization: `L402 ${offer.macaroon}:${preimage}` })));
+    const held = await gate;
+    await new Promise((r) => setTimeout(r, 80));
+    held.release();
+    const results = await pending;
+    const rows = [];
+    for (const r of results) rows.push({ status: r.status, body: await r.json() });
+    assert.equal(rows.filter((r) => r.status === 200).length, 1, JSON.stringify(rows));
+    assert.equal(rows.filter((r) => r.status === 401 && r.body.error === "replay").length, 11, JSON.stringify(rows));
+    assert.equal(mint.mintPosts(), before + 1);
+  } finally {
+    delete process.env.L402_ENABLED;
+    await demo.close();
+    await mint.close();
+  }
+});
+
+test("an issued quote whose signatures cannot be fetched records one loss", async () => {
+  const { mint, demo } = await boot(true);
+  try {
+    const offer = await quoteOf(demo.url);
+    const preimage = await pay(mint.url, offer.invoice);
+    const quote = quoteId(offer.macaroon);
+    mint.setDropMint(true);
+    const failed = await post(demo.url, { authorization: `L402 ${offer.macaroon}:${preimage}` });
+    const failedBody = await failed.json();
+    assert.equal(failed.status, 503, JSON.stringify(failedBody));
+    assert.equal((demo.store.mintQuoteLosses?.() ?? []).some((o) => o.quote === quote), false);
+    mint.setDropMint(false);
+    mint.setStuckMint(true);
+    const lost = await post(demo.url, { authorization: `L402 ${offer.macaroon}:${preimage}` });
+    const lostBody = await lost.json();
+    assert.equal(lost.status, 503, JSON.stringify(lostBody));
+    assert.equal(lostBody.error, "unavailable");
+    assert.equal(lostBody.detail, LOST);
+    const losses = (demo.store.mintQuoteLosses?.() ?? []).filter((o) => o.quote === quote);
+    assert.equal(losses.length, 1);
+    assert.equal(losses[0].amount, 10);
+    const again = await post(demo.url, { authorization: `L402 ${offer.macaroon}:${preimage}` });
+    const againBody = await again.json();
+    assert.equal(again.status, 503, JSON.stringify(againBody));
+    assert.equal(againBody.detail, LOST);
+    assert.equal((demo.store.mintQuoteLosses?.() ?? []).filter((o) => o.quote === quote).length, 1);
+    assert.equal(await demo.store.hasMintQuote?.(quote), true);
+  } finally {
+    delete process.env.L402_ENABLED;
+    await demo.close();
+    await mint.close();
+  }
+});
+
+async function quoteState(mintUrl: string, quote: string): Promise<string> {
+  const r = await fetch(mintUrl + "/v1/mint/quote/bolt11/" + quote);
+  return ((await r.json()) as { state: string }).state;
+}
+
+/**
+ * QA's sequence on #41: both mint posts of one presentation outlive the 1.5 s client timeout.
+ * `signLate` lets the held posts run, so the mint signs the stored outputs after the 503.
+ */
+async function timeOutBothPosts(mint: Awaited<ReturnType<typeof startKeysetMint>>, quote: string, send: () => Promise<Response>) {
+  const first = mint.holdNextMint();
+  const pending = send();
+  const a = await first;
+  const second = mint.holdNextMint();
+  const b = await second;
+  const res = await pending;
+  const body = await res.json();
+  return {
+    status: res.status, body,
+    signLate: async () => {
+      a.release();
+      b.release();
+      for (let i = 0; i < 100 && (await quoteState(mint.url, quote)) !== "ISSUED"; i++) await new Promise((r) => setTimeout(r, 20));
+      assert.equal(await quoteState(mint.url, quote), "ISSUED");
+    },
+  };
+}
+
+test("both mint posts time out and the mint signs late: the retry restores the signatures, once", async () => {
+  const { mint, demo } = await boot(true);
+  try {
+    const offer = await quoteOf(demo.url);
+    const preimage = await pay(mint.url, offer.invoice);
+    const quote = quoteId(offer.macaroon);
+    const send = () => post(demo.url, { authorization: `L402 ${offer.macaroon}:${preimage}` });
+    const missed = await timeOutBothPosts(mint, quote, send);
+    assert.equal(missed.status, 503, JSON.stringify(missed.body));
+    assert.equal(missed.body.error, "unavailable");
+    assert.equal(missed.body.detail, undefined);
+    assert.equal(await demo.store.hasMintQuote?.(quote), true, "a timeout keeps the reservation");
+    await missed.signLate();
+    const posts = mint.mintPosts();
+    const ok = await send();
+    const okBody = await ok.json();
+    assert.equal(ok.status, 200, JSON.stringify(okBody));
+    assert.equal(okBody.rail, "settle");
+    assert.equal(mint.mintPosts(), posts, "an issued quote is recovered by restore, not a new mint post");
+    const again = await send();
+    assert.equal(again.status, 401);
+    assert.equal((await again.json()).error, "replay");
+    assert.equal((demo.store.mintQuoteLosses?.() ?? []).some((o) => o.quote === quote), false);
+  } finally {
+    delete process.env.L402_ENABLED;
+    await demo.close();
+    await mint.close();
+  }
+});
+
+test("a late signature that cannot be restored records one loss and grants no pass", async () => {
+  const { mint, demo } = await boot(true);
+  try {
+    const offer = await quoteOf(demo.url);
+    const preimage = await pay(mint.url, offer.invoice);
+    const quote = quoteId(offer.macaroon);
+    const send = () => post(demo.url, { authorization: `L402 ${offer.macaroon}:${preimage}` });
+    const missed = await timeOutBothPosts(mint, quote, send);
+    assert.equal(missed.status, 503, JSON.stringify(missed.body));
+    mint.setStuckMint(true);
+    await missed.signLate();
+    for (let i = 0; i < 3; i++) {
+      const lost = await send();
+      const lostBody = await lost.json();
+      assert.equal(lost.status, 503, JSON.stringify(lostBody));
+      assert.equal(lostBody.detail, LOST);
+      const losses = (demo.store.mintQuoteLosses?.() ?? []).filter((o) => o.quote === quote);
+      assert.equal(losses.length, 1);
+      assert.equal(losses[0].amount, 10);
+    }
+  } finally {
+    delete process.env.L402_ENABLED;
+    await demo.close();
+    await mint.close();
+  }
+});
+
+test("one timed-out post keeps the reservation even when the next post is refused", async () => {
+  const { mint, demo } = await boot(true);
+  try {
+    const offer = await quoteOf(demo.url);
+    const preimage = await pay(mint.url, offer.invoice);
+    const quote = quoteId(offer.macaroon);
+    const send = () => post(demo.url, { authorization: `L402 ${offer.macaroon}:${preimage}` });
+    const gate = mint.holdNextMint();
+    const pending = send();
+    const held = await gate;
+    mint.failNextMints(1);
+    const missed = await pending;
+    const missedBody = await missed.json();
+    assert.equal(missed.status, 503, JSON.stringify(missedBody));
+    assert.equal(await demo.store.hasMintQuote?.(quote), true, "the refusal does not cancel the timed-out post");
+    held.release();
+    for (let i = 0; i < 100 && (await quoteState(mint.url, quote)) !== "ISSUED"; i++) await new Promise((r) => setTimeout(r, 20));
+    const ok = await send();
+    assert.equal(ok.status, 200, JSON.stringify(await ok.json()));
+    assert.equal((demo.store.mintQuoteLosses?.() ?? []).some((o) => o.quote === quote), false);
+  } finally {
+    delete process.env.L402_ENABLED;
+    await demo.close();
+    await mint.close();
+  }
+});
+
+test("concurrent retries on a kept reservation yield one pass", async () => {
+  const { mint, demo } = await boot(true);
+  try {
+    const offer = await quoteOf(demo.url);
+    const preimage = await pay(mint.url, offer.invoice);
+    const quote = quoteId(offer.macaroon);
+    const send = () => post(demo.url, { authorization: `L402 ${offer.macaroon}:${preimage}` });
+    const missed = await timeOutBothPosts(mint, quote, send);
+    assert.equal(missed.status, 503, JSON.stringify(missed.body));
+    await missed.signLate();
+    const results = await Promise.all(Array.from({ length: 8 }, send));
+    const rows = [];
+    for (const r of results) rows.push({ status: r.status, body: await r.json() });
+    assert.equal(rows.filter((r) => r.status === 200 && r.body.rail === "settle").length, 1, JSON.stringify(rows));
+    assert.equal(rows.filter((r) => r.status === 401 && r.body.error === "replay").length, 7, JSON.stringify(rows));
+    assert.equal((demo.store.mintQuoteLosses?.() ?? []).some((o) => o.quote === quote), false);
+  } finally {
+    delete process.env.L402_ENABLED;
+    await demo.close();
+    await mint.close();
+  }
+});
+
+test("a mint refusal with an empty restore releases the reservation", async () => {
+  const { mint, demo } = await boot(true);
+  try {
+    const offer = await quoteOf(demo.url);
+    const preimage = await pay(mint.url, offer.invoice);
+    const quote = quoteId(offer.macaroon);
+    mint.failNextMints(2);
+    const refused = await post(demo.url, { authorization: `L402 ${offer.macaroon}:${preimage}` });
+    assert.equal(refused.status, 503, JSON.stringify(await refused.json()));
+    assert.equal(await quoteState(mint.url, quote), "PAID");
+    assert.equal(await demo.store.hasMintQuote?.(quote), false);
+    assert.equal((demo.store.mintQuoteLosses?.() ?? []).some((o) => o.quote === quote), false);
+  } finally {
+    delete process.env.L402_ENABLED;
+    await demo.close();
+    await mint.close();
+  }
+});

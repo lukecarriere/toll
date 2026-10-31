@@ -113,6 +113,10 @@ test("a foreign mint of the quote does not grant a pass", async () => {
   const body = await retry.json();
   assert.equal(retry.status, 401, JSON.stringify(body));
   assert.equal(body.error, "bad_solution");
+  const again = await post("/contact", auth(macaroon, await pay(invoice)));
+  assert.equal(again.status, 401);
+  const losses = (demo.store.mintQuoteLosses?.() ?? []).filter((o) => o.quote === quote);
+  assert.deepEqual(losses, [{ quote, action: "write", amount: 10 }], "an issued quote with no row is booked as one loss");
 });
 
 test("eight concurrent retries of one paid quote yield one pass and seven replays", async () => {
@@ -211,7 +215,7 @@ test("a throw after the mint signs is refused and recorded as a loss", async () 
     const body = await retry.json();
     assert.equal(retry.status, 500, JSON.stringify(body));
     assert.equal(body.error, "internal");
-    const losses = store.mintQuoteLosses?.() ?? [];
+    const losses = (store.mintQuoteLosses?.() ?? []).filter((o) => o.quote === caveatsOf(macaroon).quote);
     assert.equal(losses.length, 1, JSON.stringify(losses));
     assert.deepEqual(losses[0], { quote: caveatsOf(macaroon).quote, action: "write", amount: 10 });
     assert.ok(demo.lines.some((l) => l.includes("mint_quote_loss") && l.includes(losses[0].quote) && !l.includes(preimage) && !l.includes(macaroon)));
@@ -266,8 +270,97 @@ test("an unpaid quote with no preimage is refused", async () => {
 test("a forged macaroon is refused", async () => {
   const { macaroon, invoice } = await quoteOffer("/contact");
   await pay(invoice);
-  const forged = macaroon.slice(0, -1) + (macaroon.endsWith("a") ? "b" : "a");
+  const dot = macaroon.indexOf(".");
+  const forged = macaroon.slice(0, dot + 1) + (macaroon[dot + 1] === "A" ? "B" : "A") + macaroon.slice(dot + 2);
   const res = await post("/contact", { authorization: `L402 ${forged}` });
   assert.equal(res.status, 401);
   assert.notEqual((await res.json()).error, undefined);
+});
+
+function lossesFor(quote: string) {
+  return (demo.store.mintQuoteLosses?.() ?? []).filter((o) => o.quote === quote);
+}
+
+test("a mint 500 releases the reservation and the retry passes once", async () => {
+  const { macaroon, invoice } = await quoteOffer("/contact");
+  const preimage = await pay(invoice);
+  const quote = caveatsOf(macaroon).quote;
+  const before = mint.mintPosts();
+  const beforeSats = mint.issuedSats();
+  mint.setFailMint(true);
+  try {
+    const failed = await post("/contact", auth(macaroon, preimage));
+    const failedBody = await failed.json();
+    assert.equal(failed.status, 503, JSON.stringify(failedBody));
+    assert.equal(failedBody.error, "unavailable");
+    assert.equal("detail" in failedBody, false);
+    assert.equal(await demo.store.hasMintQuote?.(quote), false);
+    assert.equal(lossesFor(quote).length, 0);
+    assert.equal(mint.issuedSats(), beforeSats);
+  } finally {
+    mint.setFailMint(false);
+  }
+  const ok = await post("/contact", auth(macaroon, preimage));
+  const okBody = await ok.json();
+  assert.equal(ok.status, 200, JSON.stringify(okBody));
+  assert.equal(okBody.rail, "settle");
+  const again = await post("/contact", auth(macaroon, preimage));
+  assert.equal(again.status, 401);
+  assert.equal((await again.json()).error, "replay");
+  assert.equal(mint.issuedSats(), beforeSats + 10);
+  assert.equal(mint.mintPosts(), before + 3);
+  assert.equal(lossesFor(quote).length, 0);
+});
+
+test("a dropped mint response keeps the row and the retry passes once", async () => {
+  const { macaroon, invoice } = await quoteOffer("/contact");
+  const preimage = await pay(invoice);
+  const quote = caveatsOf(macaroon).quote;
+  const before = mint.mintPosts();
+  const beforeSats = mint.issuedSats();
+  mint.setDropMint(true);
+  try {
+    const failed = await post("/contact", auth(macaroon, preimage));
+    const failedBody = await failed.json();
+    assert.equal(failed.status, 503, JSON.stringify(failedBody));
+    assert.equal(failedBody.error, "unavailable");
+    assert.equal(await demo.store.hasMintQuote?.(quote), true);
+    assert.equal(lossesFor(quote).length, 0);
+    assert.equal(mint.issuedSats(), beforeSats + 10);
+  } finally {
+    mint.setDropMint(false);
+  }
+  const ok = await post("/contact", auth(macaroon, preimage));
+  const okBody = await ok.json();
+  assert.equal(ok.status, 200, JSON.stringify(okBody));
+  assert.equal(okBody.rail, "settle");
+  const again = await post("/contact", auth(macaroon, preimage));
+  assert.equal(again.status, 401);
+  assert.equal((await again.json()).error, "replay");
+  assert.equal(mint.mintPosts(), before + 2);
+  assert.equal(mint.issuedSats(), beforeSats + 10);
+  assert.equal(lossesFor(quote).length, 0);
+});
+
+test("concurrent retries during a failing first mint yield one pass", async () => {
+  const { macaroon, invoice } = await quoteOffer("/contact");
+  const preimage = await pay(invoice);
+  const quote = caveatsOf(macaroon).quote;
+  const before = mint.mintPosts();
+  const beforeSats = mint.issuedSats();
+  mint.failNextMints(1);
+  const results = await Promise.all(Array.from({ length: 8 }, () => post("/contact", auth(macaroon, preimage))));
+  const rows = [];
+  for (const r of results) rows.push({ status: r.status, body: await r.json() });
+  const passed = rows.filter((r) => r.status === 200);
+  const replays = rows.filter((r) => r.status === 401 && r.body.error === "replay");
+  assert.equal(passed.length, 1, JSON.stringify(rows));
+  assert.equal(passed[0].body.rail, "settle");
+  assert.equal(replays.length, 7, JSON.stringify(rows));
+  assert.equal(mint.mintPosts(), before + 2);
+  assert.equal(mint.issuedSats(), beforeSats + 10);
+  assert.equal(lossesFor(quote).length, 0);
+  const again = await post("/contact", auth(macaroon, preimage));
+  assert.equal(again.status, 401);
+  assert.equal((await again.json()).error, "replay");
 });

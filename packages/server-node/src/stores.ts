@@ -18,8 +18,20 @@ export interface TollStore {
    * (the edge Durable Object). Missing: callers use consume then getTag.
    */
   consumeTagged?(useKey: string, initial: number, ttl_s: number, tagKey: string): Promise<{ remaining: number; tag: string | undefined }>;
-  /** Single-use mark before the mint signs. False when the quote is already reserved. No proofs yet. */
-  reserveMintQuote?(row: { quote: string; action: string; amount: number; mint: string }): Promise<boolean>;
+  /**
+   * Single-use mark before the mint signs. False when the quote is already reserved.
+   * `outputs` are the blinded secrets, stored with the row. Empty for the loopback mint.
+   */
+  reserveMintQuote?(row: { quote: string; action: string; amount: number; mint: string; outputs?: { amount: number; id: string; secret: string; r: string; B_: string }[] }): Promise<boolean>;
+  /**
+   * Open reservation whose lease has expired. Renews the lease and returns the blinded outputs.
+   * Null when the quote is absent, already has proofs, or another request still holds the lease.
+   */
+  claimOpenMintQuote?(quote: string): Promise<{ amount: number; id: string; secret: string; r: string; B_: string }[] | null>;
+  /** Delete an open reservation. False when the row is absent or already has proofs. */
+  releaseMintQuote?(quote: string): Promise<boolean>;
+  /** Drop the in-flight lease so the next presentation can claim the same outputs. */
+  unlockMintQuote?(quote: string): Promise<void>;
   /** Proofs for a reserved quote. One call. False when that quote already has proofs. */
   finishMintQuote?(row: { quote: string; proofs: { amount: number; secret: string; id: string; C: string }[] }): Promise<boolean>;
   /** One insert of the quote row, its proofs, and the single-use mark. False when the quote is already claimed. */
@@ -34,7 +46,7 @@ interface Entry { v: number; tag?: string; until: number }
 
 export class MemoryStore implements TollStore {
   private m = new Map<string, Entry>();
-  private quotes = new Map<string, { quote: string; action: string; amount: number; mint: string; proofs: { amount: number; secret: string; id: string; C: string }[] }>();
+  private quotes = new Map<string, { quote: string; action: string; amount: number; mint: string; proofs: { amount: number; secret: string; id: string; C: string }[]; outputs: { amount: number; id: string; secret: string; r: string; B_: string }[] }>();
   private losses: { quote: string; action: string; amount: number }[] = [];
   private down = false;
   private now: () => number;
@@ -98,13 +110,37 @@ export class MemoryStore implements TollStore {
     return this.live(key)?.tag;
   }
 
-  async reserveMintQuote(row: { quote: string; action: string; amount: number; mint: string }): Promise<boolean> {
+  async reserveMintQuote(row: { quote: string; action: string; amount: number; mint: string; outputs?: { amount: number; id: string; secret: string; r: string; B_: string }[] }): Promise<boolean> {
     this.check();
     if (this.quotes.has(row.quote) || this.live("f:mq:" + row.quote)) return false;
-    const until = this.now() + 180;
-    this.quotes.set(row.quote, { ...row, proofs: [] });
+    const until = this.now() + 30;
+    this.quotes.set(row.quote, { quote: row.quote, action: row.action, amount: row.amount, mint: row.mint, proofs: [], outputs: row.outputs ?? [] });
     this.m.set("f:mq:" + row.quote, { v: 1, until });
     return true;
+  }
+
+  async claimOpenMintQuote(quote: string): Promise<{ amount: number; id: string; secret: string; r: string; B_: string }[] | null> {
+    this.check();
+    const held = this.quotes.get(quote);
+    if (!held || held.proofs.length > 0 || this.live("f:mq:" + quote)) return null;
+    this.m.set("f:mq:" + quote, { v: 1, until: this.now() + 30 });
+    return held.outputs.map((o) => ({ ...o }));
+  }
+
+  async releaseMintQuote(quote: string): Promise<boolean> {
+    this.check();
+    const held = this.quotes.get(quote);
+    if (!held || held.proofs.length > 0) return false;
+    this.quotes.delete(quote);
+    this.m.delete("f:mq:" + quote);
+    return true;
+  }
+
+  async unlockMintQuote(quote: string): Promise<void> {
+    this.check();
+    const held = this.quotes.get(quote);
+    if (!held || held.proofs.length > 0) return;
+    this.m.delete("f:mq:" + quote);
   }
 
   async finishMintQuote(row: { quote: string; proofs: { amount: number; secret: string; id: string; C: string }[] }): Promise<boolean> {
@@ -127,6 +163,7 @@ export class MemoryStore implements TollStore {
 
   async noteMintQuoteLoss(o: { quote: string; action: string; amount: number }): Promise<void> {
     this.check();
+    if (this.losses.some((row) => row.quote === o.quote)) return;
     this.losses.push({ quote: o.quote, action: o.action, amount: o.amount });
   }
 

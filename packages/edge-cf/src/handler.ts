@@ -259,6 +259,7 @@ export function createEdgeHandler<E extends EdgeEnv>(options: EdgeOptions<E>) {
       return json({ pass: r.pass, exp: r.exp, cls: r.cls, rail: r.rail });
     } catch (e) {
       const code = e instanceof TollError ? e.code : "internal";
+      if (e instanceof TollError && code === "store_unavailable" && e.message !== code) return json({ error: code, detail: e.message }, 503);
       return json({ error: code }, code === "store_unavailable" ? 503 : code === "malformed" || code === "unsupported" ? 400 : 401);
     }
   }
