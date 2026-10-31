@@ -515,7 +515,11 @@ async function quotedPassResponse(toll: Toll, header: string | string[] | undefi
     const r = await toll.redeemQuoted({ macaroon: parsed.credential, preimage: parsed.preimage, action, ip });
     return { status: 200, body: { pass: r.pass, exp: r.exp, cls: r.cls, rail: r.rail } };
   } catch (e) {
-    if (e instanceof TollError && e.code === "store_unavailable") return { status: 503, body: { error: "unavailable" } };
+    if (e instanceof TollError && e.code === "store_unavailable") {
+      const body: { error: string; detail?: string } = { error: "unavailable" };
+      if (e.message !== e.code) body.detail = e.message;
+      return { status: 503, body };
+    }
     return { status: statusFor(e), body: { error: e instanceof TollError ? e.code : "internal" } };
   }
 }

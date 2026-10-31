@@ -30,8 +30,18 @@ export class TollStoreDO extends DurableObject {
     this.sql.exec("CREATE TABLE IF NOT EXISTS cashu_spent (h TEXT PRIMARY KEY)");
     this.sql.exec("CREATE TABLE IF NOT EXISTS cashu_pending (id TEXT PRIMARY KEY, body TEXT NOT NULL)");
     this.sql.exec("CREATE TABLE IF NOT EXISTS cashu_meta (k TEXT PRIMARY KEY, n INTEGER NOT NULL)");
-    this.sql.exec("CREATE TABLE IF NOT EXISTS cashu_mint_quote (quote TEXT PRIMARY KEY, action TEXT NOT NULL, amount INTEGER NOT NULL, mint TEXT NOT NULL, proofs TEXT NOT NULL)");
+    this.sql.exec("CREATE TABLE IF NOT EXISTS cashu_mint_quote (quote TEXT PRIMARY KEY, action TEXT NOT NULL, amount INTEGER NOT NULL, mint TEXT NOT NULL, proofs TEXT NOT NULL, outputs TEXT NOT NULL DEFAULT '[]')");
     this.sql.exec("CREATE TABLE IF NOT EXISTS cashu_mint_loss (quote TEXT PRIMARY KEY, action TEXT NOT NULL, amount INTEGER NOT NULL)");
+    const cols = this.sql.exec("PRAGMA table_info(cashu_mint_quote)").toArray();
+    if (!cols.some((c) => String(c.name) === "outputs")) {
+      this.sql.exec("ALTER TABLE cashu_mint_quote ADD COLUMN outputs TEXT NOT NULL DEFAULT '[]'");
+    }
+  }
+
+  /** Several statements, one commit. A throw rolls them back. */
+  private tx<T>(fn: () => T): T {
+    const storage = this.ctx.storage;
+    return typeof storage.transactionSync === "function" ? storage.transactionSync(fn) : fn();
   }
 
   private now() {
@@ -295,34 +305,93 @@ export class TollStoreDO extends DurableObject {
     return { ok: true };
   }
 
-  /** Single-use mark before the mint signs. One call. Proofs are written later, in finishMintQuote. */
-  reserveMintQuote(row: { quote: string; action: string; amount: number; mint: string }): boolean {
-    if (this.sql.exec("SELECT quote FROM cashu_mint_quote WHERE quote = ?", row.quote).toArray().length) return false;
-    this.sql.exec(
-      "INSERT INTO cashu_mint_quote (quote, action, amount, mint, proofs) VALUES (?, ?, ?, ?, '[]')",
-      row.quote, row.action, row.amount, row.mint,
-    );
-    const exp = this.now() + 180;
-    this.sql.exec("INSERT INTO kv (k, v, exp) VALUES (?, '1', ?)", "f:mq:" + row.quote, exp);
-    return true;
+  /**
+   * Single-use mark before the mint signs. One transaction: the quote row (proofs still empty,
+   * blinded outputs already filled) and the in-flight lease. Proofs land later, in finishMintQuote.
+   */
+  reserveMintQuote(row: { quote: string; action: string; amount: number; mint: string; outputs?: { amount: number; id: string; secret: string; r: string; B_: string }[] }): boolean {
+    const outputs = JSON.stringify(row.outputs ?? []);
+    const exp = this.now() + 30;
+    return this.tx(() => {
+      if (this.sql.exec("SELECT quote FROM cashu_mint_quote WHERE quote = ?", row.quote).toArray().length) return false;
+      this.sql.exec(
+        "INSERT INTO cashu_mint_quote (quote, action, amount, mint, proofs, outputs) VALUES (?, ?, ?, ?, '[]', ?)",
+        row.quote, row.action, row.amount, row.mint, outputs,
+      );
+      this.sql.exec(
+        "INSERT INTO kv (k, v, exp) VALUES (?, '1', ?) ON CONFLICT(k) DO UPDATE SET v = '1', exp = excluded.exp",
+        "f:mq:" + row.quote, exp,
+      );
+      return true;
+    });
   }
 
-  /** Proofs for a reserved quote. One call, so the proof rows and the used mark land together. */
-  finishMintQuote(row: { quote: string; proofs: { amount: number; secret: string; id: string; C: string }[] }): boolean {
-    const rows = this.sql.exec("SELECT mint, proofs FROM cashu_mint_quote WHERE quote = ?", row.quote).toArray();
-    if (!rows.length) return false;
-    let existing: unknown = [];
-    try { existing = JSON.parse(String(rows[0].proofs)); } catch { return false; }
-    if (!Array.isArray(existing) || existing.length > 0) return false;
-    this.sql.exec("UPDATE cashu_mint_quote SET proofs = ? WHERE quote = ?", JSON.stringify(row.proofs), row.quote);
-    const mint = String(rows[0].mint);
-    for (const p of row.proofs) {
+  /** Open row with an expired lease. Renews the lease. Null when the row is finished or still leased. */
+  claimOpenMintQuote(quote: string): { amount: number; id: string; secret: string; r: string; B_: string }[] | null {
+    const now = this.now();
+    return this.tx(() => {
+      const rows = this.sql.exec("SELECT proofs, outputs FROM cashu_mint_quote WHERE quote = ?", quote).toArray();
+      if (!rows.length) return null;
+      let proofs: unknown = [];
+      try { proofs = JSON.parse(String(rows[0].proofs)); } catch { return null; }
+      if (!Array.isArray(proofs) || proofs.length > 0) return null;
+      const lease = this.sql.exec("SELECT exp FROM kv WHERE k = ?", "f:mq:" + quote).toArray();
+      if (lease.length && num(lease[0].exp) > now) return null;
+      const exp = now + 30;
       this.sql.exec(
-        "INSERT INTO cashu_proof (secret, mint, unit, amount, keyset, c) VALUES (?, ?, 'sat', ?, ?, ?)",
-        p.secret, mint, p.amount, p.id, p.C,
+        "INSERT INTO kv (k, v, exp) VALUES (?, '1', ?) ON CONFLICT(k) DO UPDATE SET v = '1', exp = excluded.exp",
+        "f:mq:" + quote, exp,
       );
-    }
-    return true;
+      let outputs: unknown = [];
+      try { outputs = JSON.parse(String(rows[0].outputs ?? "[]")); } catch { return null; }
+      return Array.isArray(outputs) ? outputs as { amount: number; id: string; secret: string; r: string; B_: string }[] : null;
+    });
+  }
+
+  /** Delete an open reservation and its lease. False once proofs are stored. */
+  releaseMintQuote(quote: string): boolean {
+    return this.tx(() => {
+      const rows = this.sql.exec("SELECT proofs FROM cashu_mint_quote WHERE quote = ?", quote).toArray();
+      if (!rows.length) return false;
+      let proofs: unknown = [];
+      try { proofs = JSON.parse(String(rows[0].proofs)); } catch { return false; }
+      if (!Array.isArray(proofs) || proofs.length > 0) return false;
+      this.sql.exec("DELETE FROM cashu_mint_quote WHERE quote = ?", quote);
+      this.sql.exec("DELETE FROM kv WHERE k = ?", "f:mq:" + quote);
+      return true;
+    });
+  }
+
+  /** The next presentation may claim this open row. Proofs stay put. */
+  unlockMintQuote(quote: string): void {
+    this.tx(() => {
+      const rows = this.sql.exec("SELECT proofs FROM cashu_mint_quote WHERE quote = ?", quote).toArray();
+      if (!rows.length) return;
+      let proofs: unknown = [];
+      try { proofs = JSON.parse(String(rows[0].proofs)); } catch { return; }
+      if (!Array.isArray(proofs) || proofs.length > 0) return;
+      this.sql.exec("DELETE FROM kv WHERE k = ?", "f:mq:" + quote);
+    });
+  }
+
+  /** Proofs for a reserved quote. One transaction, so the proof rows and the used mark land together. */
+  finishMintQuote(row: { quote: string; proofs: { amount: number; secret: string; id: string; C: string }[] }): boolean {
+    return this.tx(() => {
+      const rows = this.sql.exec("SELECT mint, proofs FROM cashu_mint_quote WHERE quote = ?", row.quote).toArray();
+      if (!rows.length) return false;
+      let existing: unknown = [];
+      try { existing = JSON.parse(String(rows[0].proofs)); } catch { return false; }
+      if (!Array.isArray(existing) || existing.length > 0) return false;
+      this.sql.exec("UPDATE cashu_mint_quote SET proofs = ? WHERE quote = ?", JSON.stringify(row.proofs), row.quote);
+      const mint = String(rows[0].mint);
+      for (const p of row.proofs) {
+        this.sql.exec(
+          "INSERT INTO cashu_proof (secret, mint, unit, amount, keyset, c) VALUES (?, ?, 'sat', ?, ?, ?)",
+          p.secret, mint, p.amount, p.id, p.C,
+        );
+      }
+      return true;
+    });
   }
 
   /** Quote row, proofs, and the single-use mark. Reserve then finish, each its own statement list. */
@@ -424,7 +493,10 @@ export interface TollDoStub {
   cashuLose(o: { id: string; marks: string[] }): Promise<{ ok: true }>;
   cashuNoteSigned(amount: number, marks: string[]): Promise<{ ok: true }>;
   cashuRecover(): Promise<{ ok: true }>;
-  reserveMintQuote(row: { quote: string; action: string; amount: number; mint: string }): Promise<boolean>;
+  reserveMintQuote(row: { quote: string; action: string; amount: number; mint: string; outputs?: { amount: number; id: string; secret: string; r: string; B_: string }[] }): Promise<boolean>;
+  claimOpenMintQuote(quote: string): Promise<{ amount: number; id: string; secret: string; r: string; B_: string }[] | null>;
+  releaseMintQuote(quote: string): Promise<boolean>;
+  unlockMintQuote(quote: string): Promise<void>;
   finishMintQuote(row: { quote: string; proofs: { amount: number; secret: string; id: string; C: string }[] }): Promise<boolean>;
   claimMintQuote(row: { quote: string; action: string; amount: number; mint: string; proofs: { amount: number; secret: string; id: string; C: string }[] }): Promise<boolean>;
   hasMintQuote(quote: string): Promise<boolean>;
@@ -509,9 +581,12 @@ export class DurableObjectStore implements TollStore {
   windowHit(key: string, window_s: number) { return this.run(() => this.stub.windowHit(key, window_s)); }
   windowCount(key: string, window_s: number) { return this.run(() => this.stub.windowCount(key, window_s)); }
   note(kind: "accepted" | "rejected") { return this.run(async () => { await this.stub.note(kind); }); }
-  reserveMintQuote(row: { quote: string; action: string; amount: number; mint: string }) {
+  reserveMintQuote(row: { quote: string; action: string; amount: number; mint: string; outputs?: { amount: number; id: string; secret: string; r: string; B_: string }[] }) {
     return this.run(() => this.stub.reserveMintQuote(row));
   }
+  claimOpenMintQuote(quote: string) { return this.run(() => this.stub.claimOpenMintQuote(quote)); }
+  releaseMintQuote(quote: string) { return this.run(() => this.stub.releaseMintQuote(quote)); }
+  unlockMintQuote(quote: string) { return this.run(() => this.stub.unlockMintQuote(quote)); }
   finishMintQuote(row: { quote: string; proofs: { amount: number; secret: string; id: string; C: string }[] }) {
     return this.run(() => this.stub.finishMintQuote(row));
   }

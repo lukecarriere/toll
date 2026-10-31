@@ -48,6 +48,17 @@ export interface KeysetMint {
   quotePosts: () => number;
   /** How many times POST /v1/mint/bolt11 was attempted. */
   mintPosts: () => number;
+  /** The next `n` bolt11 mints return 500 and do not sign. */
+  failNextMints: (n: number) => void;
+  /** While set, a bolt11 mint closes the socket after it has signed instead of writing the body. */
+  setDropMint: (drop: boolean) => void;
+  /**
+   * While set, an already-issued quote's bolt11 mint returns 400 and restore returns no signatures.
+   * The first sign still happens.
+   */
+  setStuckMint: (stuck: boolean) => void;
+  /** The next bolt11 mint waits until `release`. Resolves once that call is waiting. */
+  holdNextMint: () => Promise<{ release: () => void }>;
   /** Force the next quote invoice to this sat amount. Null restores the requested amount. */
   setInvoiceSats: (sats: number | null) => void;
   close: () => Promise<void>;
@@ -76,7 +87,11 @@ export async function startKeysetMint(opts: { quotes?: boolean } = {}): Promise<
   let quotePosts = 0;
   let mintPosts = 0;
   let invoiceSats: number | null = null;
-  const quoteRows = new Map<string, { amount: number; preimage: string; request: string; state: "UNPAID" | "PAID" | "ISSUED"; signatures: { id: string; amount: number; C_: string }[] | null }>();
+  const quoteRows = new Map<string, { amount: number; preimage: string; request: string; state: "UNPAID" | "PAID" | "ISSUED"; signatures: { id: string; amount: number; C_: string }[] | null; blinded: string[] | null }>();
+  let failMints = 0;
+  let dropMint = false;
+  let stuckMint = false;
+  let hold: { promise: Promise<void>; started: () => void } | null = null;
 
   function faultFor(path: string): string | null {
     if (faults.has(path)) return faults.get(path) ?? null;
@@ -170,6 +185,7 @@ export async function startKeysetMint(opts: { quotes?: boolean } = {}): Promise<
         return json(res, 200, { signatures });
       }
       if (req.method === "POST" && path === "/v1/restore") {
+        if (stuckMint) return json(res, 200, { outputs: [], signatures: [] });
         const body = await readJson(req);
         const outputs = Array.isArray(body?.outputs) ? body.outputs : [];
         const found: { output: { amount?: number; id?: string; B_?: string }; sig: { id: string; amount: number; C_: string } }[] = [];
@@ -209,7 +225,7 @@ export async function startKeysetMint(opts: { quotes?: boolean } = {}): Promise<
         const id = toHex(randomBytes(16));
         const shown = invoiceSats ?? amount;
         const request = encodeBolt11({ amountMsat: shown * 1000, paymentHash: toHex(await sha256(fromHex(preimage))) });
-        quoteRows.set(id, { amount, preimage, request, state: "UNPAID", signatures: null });
+        quoteRows.set(id, { amount, preimage, request, state: "UNPAID", signatures: null, blinded: null });
         return json(res, 200, { quote: id, request, state: "UNPAID", expiry: Math.floor(Date.now() / 1000) + 600 });
       }
       const quoted = opts.quotes ? /^\/v1\/mint\/quote\/bolt11\/([0-9a-f]+)$/.exec(path) : null;
@@ -228,27 +244,50 @@ export async function startKeysetMint(opts: { quotes?: boolean } = {}): Promise<
       if (opts.quotes && req.method === "POST" && path === "/v1/mint/bolt11") {
         mintPosts++;
         const body = await readJson(req);
+        if (hold) {
+          const waiting = hold;
+          hold = null;
+          waiting.started();
+          await waiting.promise;
+        }
+        if (failMints > 0) {
+          failMints--;
+          return json(res, 500, { detail: "down", code: 0 });
+        }
         const q = quoteRows.get(typeof body?.quote === "string" ? body.quote : "");
         if (!q || q.state === "UNPAID") return json(res, 400, { detail: "unpaid", code: 11000 });
-        if (!q.signatures) {
-          const outputs = Array.isArray(body?.outputs) ? body.outputs : null;
-          if (!outputs || outputs.length === 0 || outputs.length > 64) return json(res, 400, { detail: "bad output", code: 11000 });
-          let outSum = 0;
-          const signatures: { id: string; amount: number; C_: string }[] = [];
-          for (const output of outputs) {
-            const outAmount = output?.amount;
-            const id = typeof output?.id === "string" ? output.id.toLowerCase() : "";
-            const B_ = typeof output?.B_ === "string" ? output.B_ : "";
-            const sk = secrets.get(outAmount);
-            if (!sk || id !== keysetId || !B_) return json(res, 400, { detail: "bad output", code: 11000 });
-            outSum += outAmount;
-            signatures.push({ id: keysetId, amount: outAmount, C_: signBlind(sk, B_) });
+        const outputs = Array.isArray(body?.outputs) ? body.outputs : null;
+        if (q.signatures) {
+          if (stuckMint) return json(res, 400, { detail: "already issued", code: 11000 });
+          const got = (outputs ?? []).map((output: { B_?: unknown }) => typeof output?.B_ === "string" ? output.B_ : "");
+          if (!q.blinded || got.length !== q.blinded.length || got.some((b: string, i: number) => b !== q.blinded![i])) {
+            return json(res, 400, { detail: "already issued", code: 11000 });
           }
-          if (outSum !== q.amount) return json(res, 400, { detail: "amount", code: 11000 });
-          q.signatures = signatures;
-          q.state = "ISSUED";
+          if (dropMint) { req.socket.destroy(); return; }
+          return json(res, 200, { signatures: q.signatures });
         }
-        return json(res, 200, { signatures: q.signatures });
+        if (!outputs || outputs.length === 0 || outputs.length > 64) return json(res, 400, { detail: "bad output", code: 11000 });
+        let outSum = 0;
+        const signatures: { id: string; amount: number; C_: string }[] = [];
+        const blinded: string[] = [];
+        for (const output of outputs) {
+          const outAmount = output?.amount;
+          const id = typeof output?.id === "string" ? output.id.toLowerCase() : "";
+          const B_ = typeof output?.B_ === "string" ? output.B_ : "";
+          const sk = secrets.get(outAmount);
+          if (!sk || id !== keysetId || !B_) return json(res, 400, { detail: "bad output", code: 11000 });
+          outSum += outAmount;
+          const C_ = signBlind(sk, B_);
+          signatures.push({ id: keysetId, amount: outAmount, C_ });
+          blinded.push(B_);
+        }
+        if (outSum !== q.amount) return json(res, 400, { detail: "amount", code: 11000 });
+        for (let i = 0; i < blinded.length; i++) signed.set(blinded[i], signatures[i]);
+        q.signatures = signatures;
+        q.blinded = blinded;
+        q.state = "ISSUED";
+        if (dropMint) { req.socket.destroy(); return; }
+        return json(res, 200, { signatures });
       }
       return json(res, 404, { detail: "unknown", code: 404 });
     } catch {
@@ -291,6 +330,17 @@ export async function startKeysetMint(opts: { quotes?: boolean } = {}): Promise<
     token: issue,
     quotePosts: () => quotePosts,
     mintPosts: () => mintPosts,
+    failNextMints: (n) => { failMints = n; },
+    setDropMint: (drop) => { dropMint = drop; },
+    setStuckMint: (stuck) => { stuckMint = stuck; },
+    holdNextMint: () => {
+      let release!: () => void;
+      const promise = new Promise<void>((r) => { release = r; });
+      let started!: () => void;
+      const ready = new Promise<{ release: () => void }>((r) => { started = () => r({ release }); });
+      hold = { promise, started };
+      return ready;
+    },
     setInvoiceSats: (sats) => { invoiceSats = sats; },
     close: () => new Promise<void>((ok) => { server.closeAllConnections?.(); server.close(() => ok()); }),
   };

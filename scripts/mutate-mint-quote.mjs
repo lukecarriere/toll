@@ -14,7 +14,7 @@ const mutants = [
   {
     name: "replay guard removed",
     test: "a paid quote grants a pass, and a replay is refused",
-    from: 'if (!(await o.reserve({ quote: c.quote, action: c.cls, amount, mint: c.mint }))) throw new TollError("replay");',
+    from: 'if (!(await o.reserve({ quote: c.quote, action: c.cls, amount, mint: c.mint, outputs }))) throw new TollError("replay");',
     to: "if (false) throw new TollError(\"replay\");",
   },
   {
@@ -27,8 +27,8 @@ const mutants = [
     file: "packages/server-node/src/stores.ts",
     name: "claim yields between the check and the write",
     test: "eight concurrent retries",
-    from: '    if (this.quotes.has(row.quote) || this.live("f:mq:" + row.quote)) return false;\n    const until = this.now() + 180;',
-    to: '    if (this.quotes.has(row.quote) || this.live("f:mq:" + row.quote)) return false;\n    await new Promise((r) => setTimeout(r, 20));\n    const until = this.now() + 180;',
+    from: '    if (this.quotes.has(row.quote) || this.live("f:mq:" + row.quote)) return false;\n    const until = this.now() + 30;',
+    to: '    if (this.quotes.has(row.quote) || this.live("f:mq:" + row.quote)) return false;\n    await new Promise((r) => setTimeout(r, 20));\n    const until = this.now() + 30;',
   },
 ];
 

@@ -164,6 +164,18 @@ export function createToll(config: TollConfig, opts: TollOptions = {}) {
         if (!store.reserveMintQuote) return Promise.reject(new TollError("store_unavailable"));
         return store.reserveMintQuote(row);
       },
+      claimOpenMintQuote: (quote) => {
+        if (!store.claimOpenMintQuote) return Promise.reject(new TollError("store_unavailable"));
+        return store.claimOpenMintQuote(quote);
+      },
+      releaseMintQuote: (quote) => {
+        if (!store.releaseMintQuote) return Promise.reject(new TollError("store_unavailable"));
+        return store.releaseMintQuote(quote);
+      },
+      unlockMintQuote: async (quote) => {
+        if (!store.unlockMintQuote) throw new TollError("store_unavailable");
+        await store.unlockMintQuote(quote);
+      },
       finishMintQuote: (row) => {
         if (!store.finishMintQuote) return Promise.reject(new TollError("store_unavailable"));
         return store.finishMintQuote(row);

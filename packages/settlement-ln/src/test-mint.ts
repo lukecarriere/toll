@@ -27,6 +27,12 @@ export interface TestMint {
   issuedSats: () => number;
   /** How many times POST /v1/mint/bolt11 was attempted. */
   mintPosts: () => number;
+  /** While set, POST /v1/mint/bolt11 returns 500 and does not sign. */
+  setFailMint: (fail: boolean) => void;
+  /** The next `n` bolt11 mints return 500 and do not sign. */
+  failNextMints: (n: number) => void;
+  /** While set, a bolt11 mint closes the socket after it has signed instead of writing the body. */
+  setDropMint: (drop: boolean) => void;
   /** Drop connections so callers see an outage, not an error body. */
   setDown: (down: boolean) => void;
   close: () => Promise<void>;
@@ -39,6 +45,9 @@ export async function startTestMint(): Promise<TestMint> {
   let issuedSats = 0;
   let mintPosts = 0;
   let down = false;
+  let failMint = false;
+  let failLeft = 0;
+  let dropMint = false;
   let url = "";
 
   const server: Server = createServer(async (req, res) => {
@@ -75,6 +84,10 @@ export async function startTestMint(): Promise<TestMint> {
       if (req.method === "POST" && path === "/v1/mint/bolt11") {
         mintPosts++;
         const body = await readJson(req);
+        if (failMint || failLeft > 0) {
+          if (failLeft > 0) failLeft--;
+          return json(res, 500, { detail: "down", code: 0 });
+        }
         const q = quotes.get(typeof body?.quote === "string" ? body.quote : "");
         if (!q || q.state === "UNPAID") return json(res, 400, { detail: "unpaid", code: 11000 });
         if (!q.proofs) {
@@ -83,6 +96,7 @@ export async function startTestMint(): Promise<TestMint> {
           q.state = "ISSUED";
           issuedSats += q.amount;
         }
+        if (dropMint) { req.socket.destroy(); return; }
         return json(res, 200, { proofs: q.proofs });
       }
       if (req.method === "POST" && path === "/test/mint") {
@@ -129,6 +143,9 @@ export async function startTestMint(): Promise<TestMint> {
     swaps: () => swaps,
     issuedSats: () => issuedSats,
     mintPosts: () => mintPosts,
+    setFailMint: (fail: boolean) => { failMint = fail; },
+    failNextMints: (n: number) => { failLeft = n; failMint = false; },
+    setDropMint: (drop: boolean) => { dropMint = drop; },
     setDown: (v: boolean) => { down = v; },
     close: () => new Promise<void>((ok) => { server.closeAllConnections?.(); server.close(() => ok()); }),
   };

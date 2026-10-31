@@ -84,8 +84,14 @@ export interface SettlementEngine {
     site: string; proof: PaidProof; now: number; action?: ActionClass;
     firstUse: (key: string, ttl_s: number) => Promise<boolean>;
     hasMintQuote?: (quote: string) => Promise<boolean>;
-    /** Single-use mark before the mint is asked to sign. False when the quote is already reserved. */
-    reserveMintQuote?: (row: { quote: string; action: string; amount: number; mint: string }) => Promise<boolean>;
+    /** Single-use mark before the mint is asked to sign. False when the quote is already reserved. `outputs` are stored with the row. */
+    reserveMintQuote?: (row: { quote: string; action: string; amount: number; mint: string; outputs?: { amount: number; id: string; secret: string; r: string; B_: string }[] }) => Promise<boolean>;
+    /** Open reservation whose lease has expired. Null when the row is finished or still leased. */
+    claimOpenMintQuote?: (quote: string) => Promise<{ amount: number; id: string; secret: string; r: string; B_: string }[] | null>;
+    /** Delete an open reservation. False when proofs are already stored. */
+    releaseMintQuote?: (quote: string) => Promise<boolean>;
+    /** Drop the in-flight lease so the next presentation can claim the same outputs. */
+    unlockMintQuote?: (quote: string) => Promise<void>;
     /** Proofs for a quote this store already reserved. One call. False when the proofs are already stored. */
     finishMintQuote?: (row: { quote: string; proofs: { amount: number; secret: string; id: string; C: string }[] }) => Promise<boolean>;
     claimMintQuote?: (row: { quote: string; action: string; amount: number; mint: string; proofs: { amount: number; secret: string; id: string; C: string }[] }) => Promise<boolean>;

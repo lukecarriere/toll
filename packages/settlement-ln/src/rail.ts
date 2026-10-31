@@ -23,7 +23,10 @@ export interface RailOptions {
   /** Single-use guard from the issuer's replay store (throws store_unavailable when it is down). */
   firstUse: (key: string, ttl_s: number) => Promise<boolean>;
   hasMintQuote?: (quote: string) => Promise<boolean>;
-  reserveMintQuote?: (row: { quote: string; action: string; amount: number; mint: string }) => Promise<boolean>;
+  reserveMintQuote?: (row: { quote: string; action: string; amount: number; mint: string; outputs?: { amount: number; id: string; secret: string; r: string; B_: string }[] }) => Promise<boolean>;
+  claimOpenMintQuote?: (quote: string) => Promise<{ amount: number; id: string; secret: string; r: string; B_: string }[] | null>;
+  releaseMintQuote?: (quote: string) => Promise<boolean>;
+  unlockMintQuote?: (quote: string) => Promise<void>;
   finishMintQuote?: (row: { quote: string; proofs: { amount: number; secret: string; id: string; C: string }[] }) => Promise<boolean>;
   claimMintQuote?: (row: { quote: string; action: string; amount: number; mint: string; proofs: { amount: number; secret: string; id: string; C: string }[] }) => Promise<boolean>;
   noteMintQuoteLoss?: (x: { quote: string; action: string; amount: number }) => Promise<void>;
@@ -145,7 +148,7 @@ export function createSettlementRail(o: RailOptions) {
     try {
       paid = await o.engine.verifyPaid({
         site: o.site, proof, now, action: isActionClass(body.action) ? body.action : undefined, firstUse: o.firstUse,
-        hasMintQuote: o.hasMintQuote, reserveMintQuote: o.reserveMintQuote, finishMintQuote: o.finishMintQuote, claimMintQuote: o.claimMintQuote, noteMintQuoteLoss: o.noteMintQuoteLoss,
+        hasMintQuote: o.hasMintQuote, reserveMintQuote: o.reserveMintQuote, claimOpenMintQuote: o.claimOpenMintQuote, releaseMintQuote: o.releaseMintQuote, unlockMintQuote: o.unlockMintQuote, finishMintQuote: o.finishMintQuote, claimMintQuote: o.claimMintQuote, noteMintQuoteLoss: o.noteMintQuoteLoss,
       });
     } catch (e) {
       if (e instanceof TollError && e.code === "replay") replayRejected++;

@@ -4,6 +4,8 @@
 // sha256(preimage) equals the payment hash sealed with the price, the action, and the expiry.
 // Mint state ISSUED is not payment. Toll's own quote row, written with the proofs and the
 // single-use mark, is the proof. No node, and no second place that holds funds.
+// Blinded outputs are stored on that row before POST /v1/mint/bolt11. A mint error that leaves
+// the quote PAID releases the row. A lost response is recovered from those outputs.
 // The loopback invoice is the test mint's stand-in. A real invoice is read only in bolt11 mode,
 // which production turns on with L402_ENABLED and leaves off otherwise.
 import {
@@ -113,6 +115,18 @@ export interface MintQuoteRow {
   proofs: HeldProof[];
 }
 
+/** One blinded output saved before POST /v1/mint/bolt11. `r` is the blinding factor, 32 bytes hex. */
+export interface MintQuoteOutput {
+  amount: number;
+  id: string;
+  secret: string;
+  r: string;
+  B_: string;
+}
+
+/** Body detail when the mint has signed and neither a re-mint nor a restore returned signatures. */
+export const MINT_SIGNED_UNRECOVERABLE = "mint signed; signatures were not recovered";
+
 export async function mintQuoteOffer(o: {
   secret: string; mint: string; site: string; cls: PaidClass; amount_msat: number; now: number; ttl_s?: number;
   fetchImpl?: typeof fetch;
@@ -159,7 +173,10 @@ export async function verifyMintQuote(o: {
   guard?: MintGuard;
   allowlist?: string[];
   has: (quote: string) => Promise<boolean>;
-  reserve: (row: { quote: string; action: string; amount: number; mint: string }) => Promise<boolean>;
+  reserve: (row: { quote: string; action: string; amount: number; mint: string; outputs?: MintQuoteOutput[] }) => Promise<boolean>;
+  claimOpen: (quote: string) => Promise<MintQuoteOutput[] | null>;
+  release: (quote: string) => Promise<boolean>;
+  unlock: (quote: string) => Promise<void>;
   finish: (row: { quote: string; proofs: HeldProof[] }) => Promise<boolean>;
   noteLoss: (x: { quote: string; action: string; amount: number }) => Promise<void>;
 }): Promise<Paid> {
@@ -181,29 +198,76 @@ export async function verifyMintQuote(o: {
   const state = typeof looked.body.state === "string" ? looked.body.state : "";
   if (looked.status !== 200 || looked.body.quote !== c.quote) throw new TollError(looked.status === 200 ? "bad_solution" : "store_unavailable");
   const amount = c.amount_msat / 1000;
+  const paid = (): Paid => ({ cls: c.cls, amount_msat: c.amount_msat, payment_ref: c.payment_hash });
   if (o.now > c.exp) {
     if ((state === "PAID" || state === "ISSUED") && !(await o.has(c.quote))) await o.noteLoss({ quote: c.quote, action: c.cls, amount });
     throw new TollError("expired");
   }
-  if (await o.has(c.quote)) throw new TollError("replay");
+  const ctx: MintCtx = { mint: o.mint, quote: c.quote, amount, mode, fetchImpl, guard: o.guard, allowlist: o.allowlist };
+  // A previous attempt stored outputs and dropped the lease. Finish from those, or give the row up.
+  const pending = await o.claimOpen(c.quote);
+  if (pending) {
+    const recovered = await recoverOpen(ctx, pending);
+    if (recovered === "unsigned") {
+      // MINT_QUOTE_GUARD release: the mint did not sign, so this presentation may mint.
+      if (!(await o.release(c.quote))) throw new TollError("replay");
+    } else if (recovered === "unrecoverable") {
+      await o.noteLoss({ quote: c.quote, action: c.cls, amount });
+      await o.unlock(c.quote);
+      throw new TollError("store_unavailable", MINT_SIGNED_UNRECOVERABLE);
+    } else if (recovered === "later") {
+      await o.unlock(c.quote);
+      throw new TollError("store_unavailable");
+    } else {
+      await commitProofs(o, c.quote, c.cls, amount, recovered);
+      return paid();
+    }
+  } else if (await o.has(c.quote)) {
+    throw new TollError("replay");
+  }
   if (state !== "PAID" && state !== "ISSUED") throw new TollError("bad_solution");
   // MINT_QUOTE_GUARD issued: mint state ISSUED is not payment when this store has no row.
   if (state === "ISSUED") throw new TollError("bad_solution");
+  let outputs: MintQuoteOutput[] = [];
+  if (mode === "bolt11") {
+    const built = await buildOutputs(o.mint, amount, fetchImpl, o.guard, o.allowlist);
+    if (!built) throw new TollError("store_unavailable");
+    outputs = built;
+  }
   // The single-use mark lands before the mint is asked to sign, so eight retries mint once.
-  if (!(await o.reserve({ quote: c.quote, action: c.cls, amount, mint: c.mint }))) throw new TollError("replay");
+  // MINT_QUOTE_GUARD replay: the reservation is the single-use mark.
+  if (!(await o.reserve({ quote: c.quote, action: c.cls, amount, mint: c.mint, outputs }))) throw new TollError("replay");
+  const proofs = await mintOnce(ctx, outputs);
+  if (proofs) {
+    await commitProofs(o, c.quote, c.cls, amount, proofs);
+    return paid();
+  }
+  // One more post while the lease is held. A single 500 among concurrent retries still yields one pass.
+  const missed = await afterMiss(ctx, outputs);
+  if (missed === "released") {
+    // MINT_QUOTE_GUARD release: a failed mint that did not sign drops the reservation.
+    if (!(await o.release(c.quote))) throw new TollError("replay");
+    throw new TollError("store_unavailable");
+  }
+  if (missed !== "kept") {
+    await commitProofs(o, c.quote, c.cls, amount, missed);
+    return paid();
+  }
+  await o.unlock(c.quote);
+  throw new TollError("store_unavailable");
+}
+
+async function commitProofs(
+  o: { finish: (row: { quote: string; proofs: HeldProof[] }) => Promise<boolean>; noteLoss: (x: { quote: string; action: string; amount: number }) => Promise<void> },
+  quote: string, action: string, amount: number, proofs: HeldProof[],
+): Promise<void> {
   try {
-    const proofs = mode === "bolt11"
-      ? await mintBlinded(o.mint, c.quote, amount, fetchImpl, o.guard, o.allowlist)
-      : await mintLoopback(o.mint, c.quote, amount, fetchImpl);
-    if (!proofs) throw new TollError("store_unavailable");
-    // The proofs and the used mark are one store call. A second finish is a replay.
-    if (!(await o.finish({ quote: c.quote, proofs }))) throw new TollError("replay");
+    if (!(await o.finish({ quote, proofs }))) throw new TollError("replay");
   } catch (e) {
     if (e instanceof TollError && e.code === "replay") throw e;
-    await o.noteLoss({ quote: c.quote, action: c.cls, amount });
+    await o.noteLoss({ quote, action, amount });
     throw e;
   }
-  return { cls: c.cls, amount_msat: c.amount_msat, payment_ref: c.payment_hash };
 }
 
 /** Adds the quote offer onto a Cashu engine. `bolt11` talks to an allowlisted mint. `loopback` is the test stand-in. */
@@ -222,11 +286,11 @@ export function withQuoteOffer(base: SettlementEngine, o: {
     mintQuote: (x) => mintQuoteOffer({ ...x, ...bound }),
     async verifyPaid(x) {
       if (x.proof.kind === "cashu" || !("preimage" in x.proof)) return base.verifyPaid(x);
-      if (!x.action || !x.hasMintQuote || !x.reserveMintQuote || !x.finishMintQuote || !x.noteMintQuoteLoss) throw new TollError("malformed");
+      if (!x.action || !x.hasMintQuote || !x.reserveMintQuote || !x.claimOpenMintQuote || !x.releaseMintQuote || !x.unlockMintQuote || !x.finishMintQuote || !x.noteMintQuoteLoss) throw new TollError("malformed");
       return verifyMintQuote({
         ...bound, site: x.site, action: x.action, offer_id: x.proof.offer_id,
         macaroon: x.proof.credential, preimage: x.proof.preimage, now: x.now,
-        has: x.hasMintQuote, reserve: x.reserveMintQuote, finish: x.finishMintQuote, noteLoss: x.noteMintQuoteLoss,
+        has: x.hasMintQuote, reserve: x.reserveMintQuote, claimOpen: x.claimOpenMintQuote, release: x.releaseMintQuote, unlock: x.unlockMintQuote, finish: x.finishMintQuote, noteLoss: x.noteMintQuoteLoss,
       });
     },
   };
@@ -242,26 +306,115 @@ async function readMint(
 }
 
 async function mintLoopback(mint: string, quote: string, amount: number, fetchImpl: typeof fetch): Promise<HeldProof[] | null> {
-  const minted = await readJson(mint + "/v1/mint/bolt11", {
-    method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ quote }),
-  }, fetchImpl);
+  let minted: { status: number; body: Record<string, unknown> };
+  try {
+    minted = await readJson(mint + "/v1/mint/bolt11", {
+      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ quote }),
+    }, fetchImpl);
+  } catch { return null; }
   return minted.status === 200 ? asProofs(minted.body.proofs, amount) : null;
 }
 
+interface MintCtx {
+  mint: string;
+  quote: string;
+  amount: number;
+  mode: "loopback" | "bolt11";
+  fetchImpl: typeof fetch;
+  guard: MintGuard | undefined;
+  allowlist: string[] | undefined;
+}
+
+type OpenResult = HeldProof[] | "unsigned" | "unrecoverable" | "later";
+
+/** Continue an open reservation. `unsigned` means the mint still has not signed these outputs. */
+async function recoverOpen(ctx: MintCtx, outputs: MintQuoteOutput[]): Promise<OpenResult> {
+  if (ctx.mode !== "bolt11" || outputs.length === 0) {
+    const proofs = await mintLoopback(ctx.mint, ctx.quote, ctx.amount, ctx.fetchImpl);
+    if (proofs) return proofs;
+    const state = await quoteState(ctx);
+    if (state === "PAID") return "unsigned";
+    if (state === "ISSUED") return "unrecoverable";
+    return "later";
+  }
+  const posted = await postBolt11(ctx, outputs);
+  if (posted.proofs) return posted.proofs;
+  const restored = await restoreBolt11(ctx, outputs);
+  if (restored.kind === "proofs") return restored.proofs;
+  const state = await quoteState(ctx);
+  if (state === "PAID" && restored.kind === "none") return "unsigned";
+  if (state === "ISSUED") {
+    // A dropped connection can still be fetched. A refusal, or an empty restore, cannot.
+    if (posted.transport && restored.kind === "inconclusive") return "later";
+    return "unrecoverable";
+  }
+  return "later";
+}
+
 /**
- * NUT-04 mint. The mint returns blind signatures, not proofs. Outputs are built here, unblinded,
- * and only then handed to the one store call. A failure before that call stores nothing.
+ * The mint call failed while this request holds the lease.
+ * A quote that is still PAID is posted once more, then released when restore shows no signatures.
+ * ISSUED keeps the outputs for the next presentation.
  */
-async function mintBlinded(
-  mint: string, quote: string, amount: number, fetchImpl: typeof fetch,
-  guard: MintGuard | undefined, allowlist: string[] | undefined,
-): Promise<HeldProof[] | null> {
-  const listed = await mintFetch(mint, "/v1/keysets", { method: "GET" }, { ...guard, fetch: fetchImpl }, allowlist ?? [mint]);
+async function afterMiss(ctx: MintCtx, outputs: MintQuoteOutput[]): Promise<HeldProof[] | "released" | "kept"> {
+  const state = await quoteState(ctx);
+  if (state !== "PAID") return "kept";
+  if (ctx.mode === "bolt11" && outputs.length > 0) {
+    const posted = await postBolt11(ctx, outputs);
+    if (posted.proofs) return posted.proofs;
+    const restored = await restoreBolt11(ctx, outputs);
+    if (restored.kind === "proofs") return restored.proofs;
+    const again = await quoteState(ctx);
+    if (again === "PAID" && restored.kind === "none") return "released";
+    return "kept";
+  }
+  const proofs = await mintLoopback(ctx.mint, ctx.quote, ctx.amount, ctx.fetchImpl);
+  if (proofs) return proofs;
+  const again = await quoteState(ctx);
+  if (again === "PAID") return "released";
+  return "kept";
+}
+
+async function mintOnce(ctx: MintCtx, outputs: MintQuoteOutput[]): Promise<HeldProof[] | null> {
+  if (ctx.mode === "bolt11") {
+    const posted = await postBolt11(ctx, outputs);
+    return posted.proofs;
+  }
+  return mintLoopback(ctx.mint, ctx.quote, ctx.amount, ctx.fetchImpl);
+}
+
+async function quoteState(ctx: MintCtx): Promise<string | null> {
+  try {
+    const looked = await readMint(ctx.mint, "/v1/mint/quote/bolt11/" + encodeURIComponent(ctx.quote), undefined, ctx.fetchImpl, ctx.mode, ctx.guard, ctx.allowlist);
+    if (looked.status !== 200) return null;
+    return typeof looked.body.state === "string" ? looked.body.state : "";
+  } catch {
+    return null;
+  }
+}
+
+function hexR(r: bigint): string {
+  return r.toString(16).padStart(64, "0");
+}
+
+function parseR(h: string): bigint {
+  if (!/^[0-9a-f]{64}$/.test(h)) throw new Error("r");
+  return BigInt("0x" + h);
+}
+
+interface ActiveKeys { id: string; keys: Record<string, string> }
+
+/** Active sat keyset. Null when the mint does not answer or the id does not match its keys. */
+async function loadKeys(mint: string, fetchImpl: typeof fetch, guard: MintGuard | undefined, allowlist: string[] | undefined): Promise<ActiveKeys | null> {
+  const list = allowlist ?? [mint];
+  const guardWith = { ...guard, fetch: fetchImpl };
+  let listed: { status: number; text: string };
+  try { listed = await mintFetch(mint, "/v1/keysets", { method: "GET" }, guardWith, list); } catch { return null; }
   if (listed.status !== 200) return null;
   const rows = objectBody(listed.text).keysets;
   if (!Array.isArray(rows)) return null;
   const active = rows.map((k) => {
-    const row = k as { id?: unknown; unit?: unknown; active?: unknown; input_fee_ppk?: unknown; final_expiry?: unknown; keys?: unknown };
+    const row = k as { id?: unknown; unit?: unknown; active?: unknown; input_fee_ppk?: unknown; final_expiry?: unknown };
     return {
       id: typeof row.id === "string" ? row.id.toLowerCase() : "",
       unit: typeof row.unit === "string" ? row.unit : "",
@@ -271,7 +424,8 @@ async function mintBlinded(
     };
   }).find((k) => k.active && k.unit === "sat" && k.id.startsWith("01") && k.id.length === 66);
   if (!active) return null;
-  const keysRes = await mintFetch(mint, "/v1/keys/" + active.id, { method: "GET" }, { ...guard, fetch: fetchImpl }, allowlist ?? [mint]);
+  let keysRes: { status: number; text: string };
+  try { keysRes = await mintFetch(mint, "/v1/keys/" + active.id, { method: "GET" }, guardWith, list); } catch { return null; }
   if (keysRes.status !== 200) return null;
   const keyRow = objectBody(keysRes.text).keysets;
   const keysRaw = Array.isArray(keyRow) && keyRow[0] && typeof keyRow[0] === "object" ? (keyRow[0] as { keys?: unknown }).keys : undefined;
@@ -281,31 +435,93 @@ async function mintBlinded(
   let derived: string;
   try { derived = deriveKeysetIdV2(keys, "sat", active.input_fee_ppk, active.final_expiry); } catch { return null; }
   if (derived !== active.id) return null;
-  const amounts = splitAmount(amount, Object.keys(keys).map(Number));
+  return { id: active.id, keys };
+}
+
+/** Blinded outputs for `amount`. Stored before the mint is asked to sign. */
+async function buildOutputs(mint: string, amount: number, fetchImpl: typeof fetch, guard: MintGuard | undefined, allowlist: string[] | undefined): Promise<MintQuoteOutput[] | null> {
+  const active = await loadKeys(mint, fetchImpl, guard, allowlist);
+  if (!active) return null;
+  const amounts = splitAmount(amount, Object.keys(active.keys).map(Number));
   if (!amounts) return null;
-  const blinded = amounts.map((amt) => {
+  return amounts.map((amt) => {
     const b = blindMessage(toHex(randomBytes(32)));
-    return { amount: amt, id: active.id, secret: b.secret, r: b.r, B_: b.B_ };
+    return { amount: amt, id: active.id, secret: b.secret, r: hexR(b.r), B_: b.B_ };
   });
-  const minted = await mintFetch(mint, "/v1/mint/bolt11", {
-    method: "POST", headers: { "content-type": "application/json" },
-    body: JSON.stringify({ quote, outputs: blinded.map((b) => ({ amount: b.amount, id: b.id, B_: b.B_ })) }),
-  }, { ...guard, fetch: fetchImpl }, allowlist ?? [mint]);
-  if (minted.status !== 200) return null;
-  const signatures = objectBody(minted.text).signatures;
-  if (!Array.isArray(signatures) || signatures.length !== blinded.length) return null;
+}
+
+function outputBody(outputs: MintQuoteOutput[]): { amount: number; id: string; B_: string }[] {
+  return outputs.map((b) => ({ amount: b.amount, id: b.id, B_: b.B_ }));
+}
+
+function unblindAll(outputs: MintQuoteOutput[], signatures: unknown, keys: Record<string, string>, amount: number): HeldProof[] | null {
+  if (!Array.isArray(signatures) || signatures.length !== outputs.length) return null;
   const proofs: HeldProof[] = [];
-  for (let i = 0; i < blinded.length; i++) {
+  for (let i = 0; i < outputs.length; i++) {
     const sig = signatures[i] as { amount?: unknown; C_?: unknown; c_?: unknown };
     const raw = sig?.C_ ?? sig?.c_;
-    if (sig?.amount !== blinded[i].amount || typeof raw !== "string") return null;
-    const pub = keys[String(blinded[i].amount)];
+    if (sig?.amount !== outputs[i].amount || typeof raw !== "string") return null;
+    const pub = keys[String(outputs[i].amount)];
     if (!pub) return null;
     try {
-      proofs.push({ amount: blinded[i].amount, secret: blinded[i].secret, id: blinded[i].id, C: unblind(raw, blinded[i].r, pub) });
+      proofs.push({ amount: outputs[i].amount, secret: outputs[i].secret, id: outputs[i].id, C: unblind(raw, parseR(outputs[i].r), pub) });
     } catch { return null; }
   }
   return proofs.reduce((n, p) => n + p.amount, 0) === amount ? proofs : null;
+}
+
+/** NUT-04 with the outputs this store already saved. `transport` is a dropped call or a 5xx. */
+async function postBolt11(ctx: MintCtx, outputs: MintQuoteOutput[]): Promise<{ proofs: HeldProof[] | null; transport: boolean }> {
+  const active = await loadKeys(ctx.mint, ctx.fetchImpl, ctx.guard, ctx.allowlist);
+  if (!active) return { proofs: null, transport: true };
+  let minted: { status: number; text: string };
+  try {
+    minted = await mintFetch(ctx.mint, "/v1/mint/bolt11", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ quote: ctx.quote, outputs: outputBody(outputs) }),
+    }, { ...ctx.guard, fetch: ctx.fetchImpl }, ctx.allowlist ?? [ctx.mint]);
+  } catch { return { proofs: null, transport: true }; }
+  if (minted.status >= 500) return { proofs: null, transport: true };
+  if (minted.status !== 200) return { proofs: null, transport: false };
+  return { proofs: unblindAll(outputs, objectBody(minted.text).signatures, active.keys, ctx.amount), transport: false };
+}
+
+type RestoreResult = { kind: "proofs"; proofs: HeldProof[] } | { kind: "none" } | { kind: "inconclusive" };
+
+/**
+ * NUT-09 for the saved outputs. `none` is a 200 whose outputs and signatures are both empty.
+ * Anything else that is not a full signature list is inconclusive and must not release the row.
+ */
+async function restoreBolt11(ctx: MintCtx, outputs: MintQuoteOutput[]): Promise<RestoreResult> {
+  const active = await loadKeys(ctx.mint, ctx.fetchImpl, ctx.guard, ctx.allowlist);
+  if (!active) return { kind: "inconclusive" };
+  let r: { status: number; text: string };
+  try {
+    r = await mintFetch(ctx.mint, "/v1/restore", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ outputs: outputBody(outputs) }),
+    }, { ...ctx.guard, fetch: ctx.fetchImpl }, ctx.allowlist ?? [ctx.mint]);
+  } catch { return { kind: "inconclusive" }; }
+  if (r.status !== 200) return { kind: "inconclusive" };
+  const parsed = objectBody(r.text);
+  const outs = parsed.outputs;
+  const rows = parsed.signatures;
+  if (!Array.isArray(outs) || !Array.isArray(rows) || outs.length !== rows.length) return { kind: "inconclusive" };
+  if (outs.length === 0) return { kind: "none" };
+  const got: unknown[] = new Array(outputs.length);
+  let usable = 0;
+  for (let i = 0; i < rows.length; i++) {
+    const out = outs[i] as { amount?: unknown; B_?: unknown };
+    const B_ = typeof out?.B_ === "string" ? out.B_ : "";
+    const amt = typeof out?.amount === "number" ? out.amount : Number.NaN;
+    const idx = outputs.findIndex((b) => b.B_ === B_ && b.amount === amt);
+    if (idx < 0 || got[idx]) continue;
+    got[idx] = rows[i];
+    usable++;
+  }
+  if (usable !== outputs.length) return { kind: "inconclusive" };
+  const proofs = unblindAll(outputs, got, active.keys, ctx.amount);
+  return proofs ? { kind: "proofs", proofs } : { kind: "inconclusive" };
 }
 
 function objectBody(text: string): Record<string, unknown> {
