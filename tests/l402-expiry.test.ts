@@ -1,0 +1,136 @@
+// Expired macaroons and retryable 503s on the production quote path. The mint is local; nothing is paid.
+import { test, after } from "node:test";
+import assert from "node:assert/strict";
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { decodeBolt11, startKeysetMint } from "../packages/settlement-ln/src/index.ts";
+import { startDemo } from "./helpers.ts";
+
+const PUBLIC = "https://pay.example.com/Bitcoin";
+const LOST = "mint signed; signatures were not recovered";
+
+const saved = process.env.L402_ENABLED;
+after(() => {
+  if (saved === undefined) delete process.env.L402_ENABLED;
+  else process.env.L402_ENABLED = saved;
+});
+
+type Fault = (path: string, init: RequestInit | undefined) => Response | null;
+
+/** The allowlisted mint host is proxied to the local mint. `fault` may answer a call in its place. */
+async function boot() {
+  const mint = await startKeysetMint({ quotes: true });
+  process.env.L402_ENABLED = "1";
+  const clock = { now: Math.floor(Date.now() / 1000) };
+  const box: { fault: Fault | null } = { fault: null };
+  const proxied: typeof fetch = async (input, init) => {
+    const href = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+    const u = new URL(href);
+    const i = u.pathname.indexOf("/v1/");
+    const path = i >= 0 ? u.pathname.slice(i) : u.pathname;
+    const faulted = box.fault?.(path, init);
+    if (faulted) return faulted;
+    return fetch(new URL(mint.url).origin + path + u.search, init);
+  };
+  const dir = mkdtempSync(join(tmpdir(), "toll-l402-expiry-"));
+  const demo = await startDemo({
+    work: { standard: { cost: 500 } },
+    settlement: { enabled: true, backend: "stub", fee_bps: 1000, fx: { source: "none" }, cashu: { enabled: true, mints: [PUBLIC], store: join(dir, "proofs.json") } },
+  }, { now: () => clock.now, settlement: { mintGuard: { lookup: async () => ["1.1.1.1"], fetch: proxied } } });
+  const close = async () => { delete process.env.L402_ENABLED; await demo.close(); await mint.close(); };
+  return { mint, demo, clock, box, close };
+}
+
+async function paidOffer(env: Awaited<ReturnType<typeof boot>>) {
+  const denied = await fetch(env.demo.url + "/contact", { method: "POST", headers: agentHeaders(), body: "{}" });
+  const body = await denied.json();
+  assert.equal(denied.status, 402, JSON.stringify(body));
+  const m = /^L402 macaroon="([^"]+)", invoice="([^"]+)"$/.exec(denied.headers.get("www-authenticate") ?? "");
+  assert.ok(m);
+  assert.equal(decodeBolt11(m[2]).amountMsat, 10_000);
+  const paid = await fetch(env.mint.url + "/test/pay", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ request: m[2] }) });
+  const preimage = ((await paid.json()) as { preimage: string }).preimage;
+  assert.equal(paid.status, 200);
+  const macaroon = m[1];
+  const quote = JSON.parse(Buffer.from(macaroon.split(".")[0], "base64url").toString()).quote as string;
+  const exp = body.offers[1].exp as number;
+  const send = () => fetch(env.demo.url + "/contact", { method: "POST", headers: agentHeaders({ authorization: `L402 ${macaroon}:${preimage}` }), body: "{}" });
+  return { quote, exp, send };
+}
+
+function agentHeaders(extra: Record<string, string> = {}) {
+  return { accept: "application/json", "content-type": "application/json", "toll-client": "agent", ...extra };
+}
+
+async function quoteState(mintUrl: string, quote: string): Promise<string> {
+  return ((await (await fetch(mintUrl + "/v1/mint/quote/bolt11/" + quote)).json()) as { state: string }).state;
+}
+
+/** QA's #41 sequence: both mint posts outlive the 1.5 s timeout; `signLate` lets the mint sign afterwards. */
+async function timeOutBothPosts(mint: Awaited<ReturnType<typeof startKeysetMint>>, quote: string, send: () => Promise<Response>) {
+  const first = mint.holdNextMint();
+  const pending = send();
+  const a = await first;
+  const second = mint.holdNextMint();
+  const b = await second;
+  const res = await pending;
+  return {
+    res, body: await res.json(),
+    signLate: async () => {
+      a.release();
+      b.release();
+      for (let i = 0; i < 100 && (await quoteState(mint.url, quote)) !== "ISSUED"; i++) await new Promise((r) => setTimeout(r, 20));
+      assert.equal(await quoteState(mint.url, quote), "ISSUED");
+    },
+  };
+}
+
+function booked(env: Awaited<ReturnType<typeof boot>>, quote: string) {
+  const stored = (env.demo.store.mintQuoteStored?.() ?? []).filter((o) => o.quote === quote).reduce((n, o) => n + o.amount, 0);
+  const lost = (env.demo.store.mintQuoteLosses?.() ?? []).filter((o) => o.quote === quote).reduce((n, o) => n + o.amount, 0);
+  return { stored, lost };
+}
+
+test("an expired macaroon on a kept reservation books the late signature as stored, once, and grants no pass", async () => {
+  const env = await boot();
+  try {
+    const { quote, exp, send } = await paidOffer(env);
+    const missed = await timeOutBothPosts(env.mint, quote, send);
+    assert.equal(missed.res.status, 503, JSON.stringify(missed.body));
+    await missed.signLate();
+    env.clock.now = exp + 1;
+    const posts = env.mint.mintPosts();
+    for (let i = 0; i < 3; i++) {
+      const late = await send();
+      const body = await late.json();
+      assert.equal(late.status, 401, JSON.stringify(body));
+      assert.equal(body.error, "expired");
+      assert.deepEqual(booked(env, quote), { stored: 10, lost: 0 }, "the restored signatures are stored once, with no loss");
+    }
+    assert.equal(env.mint.mintPosts(), posts, "an issued quote is restored, not posted again");
+  } finally {
+    await env.close();
+  }
+});
+
+test("an expired macaroon on a kept reservation the mint cannot restore books one loss across retries", async () => {
+  const env = await boot();
+  try {
+    const { quote, exp, send } = await paidOffer(env);
+    const missed = await timeOutBothPosts(env.mint, quote, send);
+    assert.equal(missed.res.status, 503, JSON.stringify(missed.body));
+    env.mint.setStuckMint(true);
+    await missed.signLate();
+    env.clock.now = exp + 1;
+    for (let i = 0; i < 3; i++) {
+      const lost = await send();
+      const body = await lost.json();
+      assert.equal(lost.status, 503, JSON.stringify(body));
+      assert.equal(body.detail, LOST);
+      assert.deepEqual(booked(env, quote), { stored: 0, lost: 10 });
+    }
+  } finally {
+    await env.close();
+  }
+});
