@@ -18,7 +18,7 @@ import { buildManifest, agentsPointer, priceBody, PAID_CLASSES } from "../../ser
 import { offerAmountMsat } from "../../settlement-ln/src/stub-engine.ts";
 import { CashuReceiveEngine } from "../../settlement-ln/src/cashu-receive.ts";
 import { parseCashuMints } from "../../settlement-ln/src/cashu-net.ts";
-import { parseL402Authorization, paymentHashOf, paymentRequired, presentedCashu, QUOTE_KIND, quoteMode, stubEngineSecret, withQuoteOffer } from "../../settlement-ln/src/index.ts";
+import { parseL402Authorization, paymentHashOf, paymentRequired, presentedCashu, QUOTE_KIND, quoteMode, quoteRetryHeaders, stubEngineSecret, withQuoteOffer } from "../../settlement-ln/src/index.ts";
 import type { ProofStore } from "../../settlement-ln/src/cashu-store.ts";
 import type { KVLike } from "./kv-store.ts";
 import { cashuFaultSlot, cashuFetch, holdBeforeSwap, mintFetches, releaseBeforeSwap } from "./cashu-edge.ts";
@@ -259,8 +259,9 @@ export function createEdgeHandler<E extends EdgeEnv>(options: EdgeOptions<E>) {
       return json({ pass: r.pass, exp: r.exp, cls: r.cls, rail: r.rail });
     } catch (e) {
       const code = e instanceof TollError ? e.code : "internal";
-      if (e instanceof TollError && code === "store_unavailable" && e.message !== code) return json({ error: code, detail: e.message }, 503);
-      return json({ error: code }, code === "store_unavailable" ? 503 : code === "malformed" || code === "unsupported" ? 400 : 401);
+      if (e instanceof TollError && code === "store_unavailable" && e.message !== code) return json({ error: code, detail: e.message }, 503, quoteRetryHeaders(e.message));
+      if (code === "store_unavailable") return json({ error: code }, 503, quoteRetryHeaders(""));
+      return json({ error: code }, code === "malformed" || code === "unsupported" ? 400 : 401);
     }
   }
 

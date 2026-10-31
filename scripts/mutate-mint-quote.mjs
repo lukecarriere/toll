@@ -10,7 +10,7 @@ import { fileURLToPath } from "node:url";
 const MQ = "packages/settlement-ln/src/mint-quote.ts";
 const MS = "packages/server-node/src/stores.ts";
 const DO = "packages/edge-cf/src/do-store.ts";
-const TEST_FILES = ["tests/settlement-mint-quote.test.ts", "tests/l402-quote.test.ts", "tests/l402-edge.test.ts"];
+const TEST_FILES = ["tests/settlement-mint-quote.test.ts", "tests/l402-quote.test.ts", "tests/l402-edge.test.ts", "tests/l402-expiry.test.ts"];
 const TIMEOUT_MS = 300_000;
 
 const mutants = [
@@ -107,6 +107,60 @@ const mutants = [
     test: "a mint refusal with an empty restore releases the reservation",
     from: 'return typeof body.detail === "string" || typeof body.code === "number" ? "refused" : "unknown";',
     to: 'return "unknown";',
+  },
+  {
+    name: "an expired macaroon is granted a pass after recovery",
+    test: "an expired macaroon on a kept reservation books the late signature as stored",
+    from: 'if (expired) throw new TollError("expired");\n    return paid();',
+    to: "return paid();",
+  },
+  {
+    name: "an expired macaroon skips its open reservation",
+    test: "an expired macaroon on a kept reservation books the late signature as stored",
+    from: "  const ctx: MintCtx = {",
+    to: '  if (expired) throw new TollError("expired");\n  const ctx: MintCtx = {',
+  },
+  {
+    name: "an expired unrecoverable reservation is not booked as a loss",
+    test: "an expired macaroon on a kept reservation the mint cannot restore books one loss",
+    from: '      await o.noteLoss({ quote: c.quote, action: c.cls, amount });\n      await o.unlock(c.quote);\n      throw new TollError("store_unavailable", MINT_SIGNED_UNRECOVERABLE);',
+    to: '      await o.unlock(c.quote);\n      throw new TollError("store_unavailable", MINT_SIGNED_UNRECOVERABLE);',
+  },
+  {
+    name: "a retryable quote 503 has no Retry-After",
+    test: "a retryable 503 carries Retry-After and the unrecoverable 503 does not",
+    from: ': { "retry-after": MINT_RETRY_AFTER_S };',
+    to: ": {};",
+  },
+  {
+    name: "the unrecoverable quote 503 invites a retry",
+    test: "a retryable 503 carries Retry-After and the unrecoverable 503 does not",
+    from: 'return detail === MINT_SIGNED_UNRECOVERABLE ? {} :',
+    to: 'return detail === "" ? {} :',
+  },
+  {
+    name: "any non-200 mint reply is read as a refusal",
+    test: "a proxy's 502 page in place of the mint keeps the reservation",
+    from: 'return typeof body.detail === "string" || typeof body.code === "number" ? "refused" : "unknown";',
+    to: 'return "refused";',
+  },
+  {
+    name: "an expired paid quote is booked as a loss instead of minted",
+    test: "an expired macaroon on a paid quote that was never minted books the sats as stored",
+    from: "  if (expired && state !== \"PAID\") {\n",
+    to: "  if (expired && state === \"PAID\") await o.noteLoss({ quote: c.quote, action: c.cls, amount });\n  if (expired) {\n",
+  },
+  {
+    name: "an expired issued quote with no row is not booked as a loss",
+    test: "an expired token and an action mismatch are refused",
+    from: '    if (state === "ISSUED") await o.noteLoss({ quote: c.quote, action: c.cls, amount });\n',
+    to: "",
+  },
+  {
+    name: "a freshly minted expired quote is granted a pass",
+    test: "an expired macaroon on a paid quote that was never minted books the sats as stored",
+    from: "    await commitProofs(o, c.quote, c.cls, amount, first.proofs);\n    return granted();",
+    to: "    await commitProofs(o, c.quote, c.cls, amount, first.proofs);\n    return paid();",
   },
 ];
 
