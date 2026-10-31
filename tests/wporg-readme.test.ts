@@ -22,6 +22,9 @@ test("readme External services names each payment-server call and the terms and 
   }
   assert.match(section, /\/\.well-known\/toll\.json/);
   assert.match(section, /\/wp-json\/toll\/v1\/price/);
+  assert.match(section, /\/wp-json\/toll\/v1\/challenge/);
+  assert.match(section, /offer_id/);
+  assert.match(section, /kind/);
   assert.match(section, /203\.0\.113\.0\/24/);
   assert.match(section, /https:\/\/lessspam\.dev\/terms/);
   assert.match(section, /https:\/\/lessspam\.dev\/privacy/);

@@ -24,13 +24,20 @@ function sanitize_text_field($s): string
     while (preg_match('/%[a-f0-9]{2}/i', $s, $m)) $s = str_replace($m[0], '', $s);
     return trim($s);
 }
-// The part of WordPress esc_url that matters here: http(s) stays, other schemes become empty,
-// and %xx stays. A schemeless string is not rewritten; the caller rejects those first.
+// WordPress 7.1.4 esc_url_raw, for the cases this file cares about. A schemeless string is
+// rewritten to http:// (a space becomes %20): "not a url" becomes "http://not%20a%20url".
+// toll_gate_clean_server_url rejects that before calling this, which is why the stored value
+// stays empty. tests/wp-server-url.test.ts checks the same strings against core esc_url_raw.
 function esc_url_raw(string $url, ?array $protocols = null): string
 {
     if ($url === '') return '';
+    $url = str_replace(' ', '%20', ltrim($url));
     $url = preg_replace('|[^a-z0-9-~+_.?#=!&;,/:%@$\|*\'()\[\]\\x80-\\xff]|i', '', $url) ?? '';
-    if ($url === '' || !preg_match('#^([a-z0-9+.-]+):#i', $url, $m)) return '';
+    if ($url === '') return '';
+    if (!str_contains($url, ':') && !in_array($url[0], ['/', '#', '?'], true) && !preg_match('/^[a-z0-9-]+?\.php/i', $url)) {
+        $url = 'http://' . $url;
+    }
+    if (!preg_match('#^([a-z0-9+.-]+):#i', $url, $m)) return '';
     $allowed = $protocols ?? ['http', 'https'];
     return in_array(strtolower($m[1]), array_map('strtolower', $allowed), true) ? $url : '';
 }
@@ -44,7 +51,10 @@ check(toll_gate_clean_server_url('https://pay.example.com/a%20b') === 'https://p
 check(toll_gate_clean_server_url('http://127.0.0.1:8787') === 'http://127.0.0.1:8787', 'plain loopback URL is kept');
 check(toll_gate_clean_server_url('  https://pay.example.com/v1  ') === 'https://pay.example.com/v1', 'surrounding whitespace is trimmed');
 check(toll_gate_clean_server_url('javascript:alert(1)') === '', 'a non-http scheme is dropped');
-check(toll_gate_clean_server_url('pay.example.com') === '', 'a schemeless address is dropped');
+check(esc_url_raw('not a url', ['http', 'https']) === 'http://not%20a%20url', 'WordPress rewrites a schemeless string to http://not%20a%20url');
+check(toll_gate_clean_server_url('not a url') === '', 'the scheme check drops that rewritten URL');
+check(esc_url_raw('pay.example.com', ['http', 'https']) === 'http://pay.example.com', 'WordPress prepends http:// to a schemeless host');
+check(toll_gate_clean_server_url('pay.example.com') === '', 'a schemeless address is dropped before that rewrite');
 check(toll_gate_clean_server_url('') === '', 'empty stays empty');
 check(sanitize_text_field($kept) === 'https://pay.example.com/ownerapi', 'the text-field sanitizer would have changed this URL');
 
