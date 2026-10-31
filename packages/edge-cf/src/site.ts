@@ -62,8 +62,9 @@ function inject(req: Request, env: SiteEnv): boolean {
 
 export default {
   async fetch(req: Request, env: SiteEnv): Promise<Response> {
-    // Host canonicalisation runs before the gate. Static paths are not gated: the worker
-    // runs first only so this redirect can see them, then ASSETS serves them as before.
+    // Host canonicalisation runs before the gate. The worker runs first so the redirect
+    // can see every path. Only a real static page or file is then served by ASSETS.
+    // A gated route such as POST /search stays here.
     const redirected = wwwRedirect(req, env.TOLL_SITE_URL);
     if (redirected) return redirected;
     const url = new URL(req.url);

@@ -171,3 +171,22 @@ test("www redirects to the apex with 308; other hosts and static paths do not", 
   assert.ok(body.indexOf("wwwRedirect(req, env.TOLL_SITE_URL)") < body.indexOf("workerHandles(url.pathname)"));
   assert.ok(body.indexOf("workerHandles(url.pathname)") < body.indexOf("storeFailSlot.run"));
 });
+
+test("a gated route reaches the worker; static pages and files go to assets", () => {
+  const handler = readFileSync(ROOT + "packages/edge-cf/src/handler.ts", "utf8");
+  const prefixes = [...handler.matchAll(/list\(env\.(?:WRITE|SEARCH|ACCOUNT)_PATHS, (\[[^\]]*\])\)/g)].flatMap((m) => JSON.parse(m[1]) as string[]);
+  assert.ok(prefixes.includes("/search"), "the edge default still gates /search");
+  for (const prefix of prefixes) {
+    const path = prefix.endsWith("/") ? prefix + "item" : prefix;
+    assert.equal(workerHandles(path), true, path + " is gated and must not be routed to assets");
+  }
+  assert.equal(workerHandles("/demo/contact"), true);
+  assert.equal(workerHandles("/v1/redeem"), true);
+  assert.equal(workerHandles("/toll/v1/toll.js"), true);
+  const assets = ["/", "/docs", "/docs/server", "/docs/wordpress", "/pricing", "/sitemap.xml", "/llms.txt", "/robots.txt", "/mission", "/vision", "/values", "/ecosystem", "/privacy", "/terms", "/support", "/download", "/demo", "/site.css", "/demo.js", "/img/forest-road-1280.jpg", "/fonts/arvo/Arvo-Bold.woff2", "/download/toll-gate.zip"];
+  for (const path of assets) assert.equal(workerHandles(path), false, path + " is a static file");
+  assert.equal(workerHandles("/mission/"), false);
+  assert.equal(workerHandles("/search/"), true);
+  const site = readFileSync(ROOT + "packages/edge-cf/src/site.ts", "utf8");
+  assert.match(site, /if \(!workerHandles\(url\.pathname\)\) return env\.ASSETS\.fetch\(req\)/);
+});
