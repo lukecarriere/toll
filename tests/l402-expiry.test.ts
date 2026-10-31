@@ -236,3 +236,46 @@ for (const expiredRetry of [false, true]) {
     }
   });
 }
+
+test("an expired paid quote the mint keeps refusing books one loss at the cap, and a later mint reverses it", async () => {
+  const env = await boot();
+  try {
+    const { quote, exp, send } = await paidOffer(env);
+    env.mint.failNextMints(1000);
+    for (let i = 0; i < 6; i++) {
+      const early = await send();
+      assert.equal(early.status, 503, "refusals before expiry stay retryable and do not count toward the cap");
+      await early.body?.cancel();
+    }
+    assert.deepEqual(booked(env, quote), { stored: 0, lost: 0 });
+    env.clock.now = exp + 1;
+    for (let i = 1; i < 5; i++) {
+      const refused = await send();
+      const body = await refused.json();
+      assert.equal(refused.status, 503, `refusal ${i}: ${JSON.stringify(body)}`);
+      assert.equal(refused.headers.get("retry-after"), "5");
+      assert.deepEqual(booked(env, quote), { stored: 0, lost: 0 });
+    }
+    for (let i = 5; i < 8; i++) {
+      const capped = await send();
+      const body = await capped.json();
+      assert.equal(capped.status, 401, `refusal ${i}: ${JSON.stringify(body)}`);
+      assert.equal(body.error, "expired");
+      assert.equal(capped.headers.get("retry-after"), null, "an expired macaroon past the cap is not invited to retry");
+      assert.deepEqual(booked(env, quote), { stored: 0, lost: 10 }, "the loss is booked once across further retries");
+    }
+    assert.equal(await quoteState(env.mint.url, quote), "PAID");
+    assert.deepEqual((env.demo.store.mintQuoteLossRows?.() ?? []).filter((o) => o.quote === quote), [{ quote, action: "write", amount: 10, reason: "mint_refused", recovered: false }]);
+    env.mint.failNextMints(0);
+    const healed = await send();
+    assert.equal(healed.status, 401);
+    assert.equal((await healed.json()).error, "expired");
+    assert.equal(await quoteState(env.mint.url, quote), "ISSUED");
+    assert.deepEqual(booked(env, quote), { stored: 10, lost: 0 }, "a later mint reverses the capped loss");
+    const again = await send();
+    assert.equal(again.status, 401);
+    assert.deepEqual(booked(env, quote), { stored: 10, lost: 0 });
+  } finally {
+    await env.close();
+  }
+});

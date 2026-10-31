@@ -96,6 +96,7 @@ export interface SettlementEngine {
     finishMintQuote?: (row: { quote: string; proofs: { amount: number; secret: string; id: string; C: string }[] }) => Promise<boolean>;
     claimMintQuote?: (row: { quote: string; action: string; amount: number; mint: string; proofs: { amount: number; secret: string; id: string; C: string }[] }) => Promise<boolean>;
     noteMintQuoteLoss?: (x: { quote: string; action: string; amount: number; reason?: string }) => Promise<void>;
+    mintQuoteRefusalsLeft?: (quote: string, cap: number) => Promise<number>;
   }): Promise<Paid>;
   /** Second offer from a NUT-04 quote on the Cashu mint. Absent unless the test hook or the production flag is on. */
   mintQuote?(o: { site: string; cls: PaidClass; amount_msat: number; now: number; ttl_s?: number }): Promise<QuoteOffer>;

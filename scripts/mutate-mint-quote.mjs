@@ -190,6 +190,31 @@ const mutants = [
     from: "        this.sql.exec(\"UPDATE cashu_meta SET n = ? WHERE k = 'losses'\", Math.max(0, this.lossN() - num(lost[0].amount)));\n",
     to: "",
   },
+  {
+    name: "the expired refusal cap is never reached",
+    test: "an expired paid quote the mint keeps refusing books one loss at the cap",
+    from: "(await o.refusalsLeft(c.quote, EXPIRED_REFUSAL_CAP)) <= 0",
+    to: "(await o.refusalsLeft(c.quote, EXPIRED_REFUSAL_CAP)) < -1",
+  },
+  {
+    name: "unexpired refusals count toward the cap",
+    test: "an expired paid quote the mint keeps refusing books one loss at the cap",
+    from: "if (expired && o.refusalsLeft && (await",
+    to: "if (o.refusalsLeft && (await",
+  },
+  {
+    name: "a capped refusal is not booked as a loss",
+    test: "an expired paid quote the mint keeps refusing books one loss at the cap",
+    from: '      await o.noteLoss({ quote: c.quote, action: c.cls, amount, reason: "mint_refused" });\n',
+    to: "",
+  },
+  {
+    file: MS,
+    name: "memory loss record loses its dedup",
+    test: "an expired paid quote the mint keeps refusing books one loss at the cap",
+    from: "    if (this.losses.some((row) => row.quote === o.quote)) return;\n",
+    to: "",
+  },
 ];
 
 /** TAP summary counts, or null when the run printed no TAP summary (a crash, not a test result). */

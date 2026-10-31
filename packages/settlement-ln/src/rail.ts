@@ -30,6 +30,7 @@ export interface RailOptions {
   finishMintQuote?: (row: { quote: string; proofs: { amount: number; secret: string; id: string; C: string }[] }) => Promise<boolean>;
   claimMintQuote?: (row: { quote: string; action: string; amount: number; mint: string; proofs: { amount: number; secret: string; id: string; C: string }[] }) => Promise<boolean>;
   noteMintQuoteLoss?: (x: { quote: string; action: string; amount: number; reason?: string }) => Promise<void>;
+  mintQuoteRefusalsLeft?: (quote: string, cap: number) => Promise<number>;
   onDegraded?: (reason: string) => void;
   onSettled?: (o: { cls: ActionClass; amount_msat: number; fee_msat: number }) => void;
 }
@@ -148,7 +149,7 @@ export function createSettlementRail(o: RailOptions) {
     try {
       paid = await o.engine.verifyPaid({
         site: o.site, proof, now, action: isActionClass(body.action) ? body.action : undefined, firstUse: o.firstUse,
-        hasMintQuote: o.hasMintQuote, reserveMintQuote: o.reserveMintQuote, claimOpenMintQuote: o.claimOpenMintQuote, releaseMintQuote: o.releaseMintQuote, unlockMintQuote: o.unlockMintQuote, finishMintQuote: o.finishMintQuote, claimMintQuote: o.claimMintQuote, noteMintQuoteLoss: o.noteMintQuoteLoss,
+        hasMintQuote: o.hasMintQuote, reserveMintQuote: o.reserveMintQuote, claimOpenMintQuote: o.claimOpenMintQuote, releaseMintQuote: o.releaseMintQuote, unlockMintQuote: o.unlockMintQuote, finishMintQuote: o.finishMintQuote, claimMintQuote: o.claimMintQuote, noteMintQuoteLoss: o.noteMintQuoteLoss, mintQuoteRefusalsLeft: o.mintQuoteRefusalsLeft,
       });
     } catch (e) {
       if (e instanceof TollError && e.code === "replay") replayRejected++;

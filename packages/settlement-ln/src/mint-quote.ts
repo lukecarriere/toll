@@ -178,6 +178,17 @@ function asProofs(rows: unknown, amount: number): HeldProof[] | null {
  * A paid quote whose sats did not reach the store. `reason` says why. The store reverses it when the
  * quote's proofs are stored later (finishMintQuote), so a recovered quote is counted once, as stored.
  */
+/**
+ * Refusals of an expired PAID quote before Toll books it as lost and answers 401 expired instead of
+ * a retryable 503. Each refused presentation posts the mint twice, so the cap bounds the posts at
+ * 10, about 25 s of Retry-After: 5 retries. Only expired presentations count: an unexpired caller
+ * can still earn a pass, and the macaroon lifetime bounds those. The count lives in the store's
+ * consume counter (key f:mqr:<quote>, one day), so isolates share it. A later presentation still
+ * tries the mint; if it signs, finish stores the proofs and reverses this loss.
+ */
+export const EXPIRED_REFUSAL_CAP = 5;
+export const REFUSAL_COUNT_TTL_S = 86_400;
+
 export interface LossNote { quote: string; action: string; amount: number; reason: string }
 
 export async function verifyMintQuote(o: {
@@ -193,6 +204,8 @@ export async function verifyMintQuote(o: {
   unlock: (quote: string) => Promise<void>;
   finish: (row: { quote: string; proofs: HeldProof[] }) => Promise<boolean>;
   noteLoss: (x: LossNote) => Promise<void>;
+  /** Spends one expired-refusal slot for the quote; returns what is left (0 on the slot that reaches the cap). Absent: no cap. */
+  refusalsLeft?: (quote: string, cap: number) => Promise<number>;
 }): Promise<Paid> {
   const bare = o.preimage === "";
   if (!bare && !/^[0-9a-f]{64}$/.test(o.preimage)) throw new TollError("malformed");
@@ -274,6 +287,11 @@ export async function verifyMintQuote(o: {
   if (missed === "released") {
     // MINT_QUOTE_GUARD release: a mint refusal that did not sign drops the reservation.
     if (!(await o.release(c.quote))) throw new TollError("replay");
+    // MINT_QUOTE_GUARD refusal-cap: an expired quote the mint keeps refusing is booked once at the cap and no longer invited to retry.
+    if (expired && o.refusalsLeft && (await o.refusalsLeft(c.quote, EXPIRED_REFUSAL_CAP)) <= 0) {
+      await o.noteLoss({ quote: c.quote, action: c.cls, amount, reason: "mint_refused" });
+      throw new TollError("expired");
+    }
     throw new TollError("store_unavailable");
   }
   if (missed !== "kept") {
@@ -318,6 +336,7 @@ export function withQuoteOffer(base: SettlementEngine, o: {
         ...bound, site: x.site, action: x.action, offer_id: x.proof.offer_id,
         macaroon: x.proof.credential, preimage: x.proof.preimage, now: x.now,
         has: x.hasMintQuote, reserve: x.reserveMintQuote, claimOpen: x.claimOpenMintQuote, release: x.releaseMintQuote, unlock: x.unlockMintQuote, finish: x.finishMintQuote, noteLoss: x.noteMintQuoteLoss,
+        refusalsLeft: x.mintQuoteRefusalsLeft,
       });
     },
   };

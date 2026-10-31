@@ -103,13 +103,14 @@ export class CashuTestEngine implements SettlementEngine {
     finishMintQuote?: (row: { quote: string; proofs: MintQuoteRow["proofs"] }) => Promise<boolean>;
     claimMintQuote?: (row: MintQuoteRow) => Promise<boolean>;
     noteMintQuoteLoss?: (x: { quote: string; action: string; amount: number; reason?: string }) => Promise<void>;
+    mintQuoteRefusalsLeft?: (quote: string, cap: number) => Promise<number>;
   }): Promise<Paid> {
     if (o.proof.kind !== "cashu") {
       if (!o.action || !("preimage" in o.proof) || !o.hasMintQuote || !o.reserveMintQuote || !o.claimOpenMintQuote || !o.releaseMintQuote || !o.unlockMintQuote || !o.finishMintQuote || !o.noteMintQuoteLoss) throw new TollError("malformed");
       return verifyMintQuote({
         secret: this.secret, mint: this.mint, site: o.site, action: o.action, offer_id: o.proof.offer_id,
         macaroon: o.proof.credential, preimage: o.proof.preimage, now: o.now,
-        has: o.hasMintQuote, reserve: o.reserveMintQuote, claimOpen: o.claimOpenMintQuote, release: o.releaseMintQuote, unlock: o.unlockMintQuote, finish: o.finishMintQuote, noteLoss: o.noteMintQuoteLoss,
+        has: o.hasMintQuote, reserve: o.reserveMintQuote, claimOpen: o.claimOpenMintQuote, release: o.releaseMintQuote, unlock: o.unlockMintQuote, finish: o.finishMintQuote, noteLoss: o.noteMintQuoteLoss, refusalsLeft: o.mintQuoteRefusalsLeft,
       });
     }
     const c = await open(this.secret, o.proof.credential);
