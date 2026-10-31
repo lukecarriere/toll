@@ -154,3 +154,34 @@ test("a retryable 503 carries Retry-After and the unrecoverable 503 does not", a
     await env.close();
   }
 });
+
+test("a proxy's 502 page in place of the mint keeps the reservation and the retry passes once", async () => {
+  const env = await boot();
+  try {
+    const { quote, send } = await paidOffer(env);
+    const posts = env.mint.mintPosts();
+    env.box.fault = (path, init) => path === "/v1/mint/bolt11" && init?.method === "POST"
+      ? new Response("<html><body><h1>502 Bad Gateway</h1></body></html>", { status: 502, headers: { "content-type": "text/html" } })
+      : null;
+    const failed = await send();
+    const failedBody = await failed.json();
+    assert.equal(failed.status, 503, JSON.stringify(failedBody));
+    assert.equal(failedBody.error, "unavailable");
+    assert.equal(failed.headers.get("retry-after"), "5");
+    assert.equal(await env.demo.store.hasMintQuote?.(quote), true, "a page that is not the mint's answer is ambiguous");
+    assert.equal(await quoteState(env.mint.url, quote), "PAID");
+    assert.deepEqual(booked(env, quote), { stored: 0, lost: 0 });
+    env.box.fault = null;
+    const ok = await send();
+    const okBody = await ok.json();
+    assert.equal(ok.status, 200, JSON.stringify(okBody));
+    assert.equal(okBody.rail, "settle");
+    const again = await send();
+    assert.equal(again.status, 401);
+    assert.equal((await again.json()).error, "replay");
+    assert.equal(env.mint.mintPosts(), posts + 1, "the kept outputs are posted once to the real mint");
+    assert.deepEqual(booked(env, quote), { stored: 10, lost: 0 });
+  } finally {
+    await env.close();
+  }
+});

@@ -138,6 +138,12 @@ const mutants = [
     from: 'return detail === MINT_SIGNED_UNRECOVERABLE ? {} :',
     to: 'return detail === "" ? {} :',
   },
+  {
+    name: "any non-200 mint reply is read as a refusal",
+    test: "a proxy's 502 page in place of the mint keeps the reservation",
+    from: 'return typeof body.detail === "string" || typeof body.code === "number" ? "refused" : "unknown";',
+    to: 'return "refused";',
+  },
 ];
 
 /** TAP summary counts, or null when the run printed no TAP summary (a crash, not a test result). */
