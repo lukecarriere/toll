@@ -56,7 +56,7 @@ function toll_gate_handle_save(): void
         elseif ($r['error'] === 'down') toll_gate_set_notice('warning', toll_gate_s('n_down'));
         else toll_gate_set_notice('error', toll_gate_s('n_wd_failed'));
     } else {
-        $in = wp_unslash($_POST['toll_gate'] ?? []);
+        $in = isset($_POST['toll_gate']) && is_array($_POST['toll_gate']) ? map_deep(wp_unslash($_POST['toll_gate']), 'sanitize_text_field') : [];
         $in = is_array($in) ? $in : [];
         $s = toll_gate_settings();
         foreach (array_keys(TOLL_GATE_DEFAULTS['forms']) as $f) $s['forms'][$f] = empty($in['forms'][$f]) ? 0 : 1;

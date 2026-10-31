@@ -212,6 +212,10 @@ function gate_stubs(): void
     function wp_parse_url(string $u, int $c = -1) { return parse_url($u, $c); }
     function wp_json_encode($d, int $f = 0, int $depth = 512) { return json_encode($d, $f, $depth); }
     function wp_unslash($v) { return is_string($v) ? stripslashes($v) : $v; }
+    // Close to WordPress's own: no tags, no percent octets, whitespace collapsed and trimmed.
+    function sanitize_text_field($s): string { $s = strip_tags((string) $s); $s = preg_replace('/%[a-f0-9]{2}/i', '', $s); return trim((string) preg_replace('/[\r\n\t ]+/', ' ', $s)); }
+    function esc_url_raw(string $u, ?array $p = null): string { return $u; }
+    function map_deep($v, callable $f) { return is_array($v) ? array_map(fn ($x) => map_deep($x, $f), $v) : $f($v); }
     function esc_html(string $s): string { return htmlspecialchars($s, ENT_QUOTES); }
     function esc_attr(string $s): string { return htmlspecialchars($s, ENT_QUOTES); }
     function wp_kses(string $s, array $a): string { return $s; }

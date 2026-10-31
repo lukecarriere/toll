@@ -139,7 +139,7 @@ test("TOLL_TRUSTED_PROXIES from wp-config: unset or empty reads REMOTE_ADDR only
 
 test("the challenge rate limit still keys on REMOTE_ADDR (toll_gate_ip unchanged); only the network for pricing uses the proxy list", () => {
   const issuer = readFileSync(ROOT + "packages/wp-toll-gate/includes/issuer.php", "utf8");
-  assert.match(issuer, /function toll_gate_ip\(\): string\s*\{\s*return \(string\) \(\$_SERVER\['REMOTE_ADDR'\] \?\? '\?'\);\s*\}/);
+  assert.match(issuer, /function toll_gate_ip\(\): string\s*\{\s*return isset\(\$_SERVER\['REMOTE_ADDR'\]\) \? sanitize_text_field\(wp_unslash\(\$_SERVER\['REMOTE_ADDR'\]\)\) : '\?';\s*\}/);
   assert.match(issuer, /md5\(toll_gate_ip\(\) \. '\|'/);
   const plugin = ["issuer.php", "gate.php", "payouts.php", "discovery.php", "network.php"].map((f) => readFileSync(ROOT + "packages/wp-toll-gate/includes/" + f, "utf8")).join("\n");
   assert.equal((plugin.match(/HTTP_X_FORWARDED_FOR/g) ?? []).length, 1, "X-Forwarded-For is read in one place: toll_gate_client_ip");

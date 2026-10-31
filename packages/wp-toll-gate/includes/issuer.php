@@ -41,7 +41,7 @@ function toll_gate_json(array $body, int $status = 200, array $headers = []): WP
 
 function toll_gate_ip(): string
 {
-    return (string) ($_SERVER['REMOTE_ADDR'] ?? '?');
+    return isset($_SERVER['REMOTE_ADDR']) ? sanitize_text_field(wp_unslash($_SERVER['REMOTE_ADDR'])) : '?';
 }
 
 /** Per-IP challenge rate limit (spec §16), counted per minute in a transient. */
@@ -140,10 +140,13 @@ function toll_gate_redeem_paid(array $b): WP_REST_Response
 
 function toll_gate_token_from_request(?WP_REST_Request $req = null): ?string
 {
-    $auth = $req ? (string) $req->get_header('authorization') : (string) ($_SERVER['HTTP_AUTHORIZATION'] ?? '');
+    $auth = $req ? (string) $req->get_header('authorization') : (isset($_SERVER['HTTP_AUTHORIZATION']) ? sanitize_text_field(wp_unslash($_SERVER['HTTP_AUTHORIZATION'])) : '');
     if (preg_match('/^Toll\s+(\S+)$/i', $auth, $m)) return $m[1];
-    if (isset($_POST['toll-pass']) && is_string($_POST['toll-pass']) && $_POST['toll-pass'] !== '') return wp_unslash($_POST['toll-pass']);
-    if (isset($_COOKIE['toll_pass']) && is_string($_COOKIE['toll_pass'])) return wp_unslash($_COOKIE['toll_pass']);
+    // The signed pass is this request's proof (verified by signature), so there is no nonce to check.
+    // phpcs:ignore WordPress.Security.NonceVerification.Missing
+    $posted = isset($_POST['toll-pass']) && is_string($_POST['toll-pass']) ? sanitize_text_field(wp_unslash($_POST['toll-pass'])) : '';
+    if ($posted !== '') return $posted;
+    if (isset($_COOKIE['toll_pass']) && is_string($_COOKIE['toll_pass'])) return sanitize_text_field(wp_unslash($_COOKIE['toll_pass']));
     return null;
 }
 

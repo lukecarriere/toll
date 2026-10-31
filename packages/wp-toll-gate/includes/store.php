@@ -8,6 +8,10 @@ if (!defined('ABSPATH')) exit;
 
 final class Toll_Gate_Store_Error extends \RuntimeException {}
 
+// The replay cache must read and write the database directly: first use and decrements have to be
+// atomic across requests, and a cached answer would let a pass be replayed.
+// phpcs:disable WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+
 /** True the first time a challenge id is seen; false on a replay. */
 function toll_gate_first_use(string $id, int $exp): bool
 {
@@ -60,3 +64,4 @@ function toll_gate_store_cleanup(): void
         }
     }
 }
+// phpcs:enable WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching

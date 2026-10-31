@@ -116,8 +116,9 @@ function toll_gate_turned_away(string $action): void
 /** An automated client (docs/settlement.md Q2): client=agent in the query or a Toll-Client: agent header. */
 function toll_gate_is_agent(?string $query = null, ?string $header = null): bool
 {
-    $query ??= is_string($_GET['client'] ?? null) ? $_GET['client'] : '';
-    $header ??= (string) ($_SERVER['HTTP_TOLL_CLIENT'] ?? '');
+    // A read-only client flag on any request; it changes no state, so there is no nonce to check.
+    $query ??= isset($_GET['client']) && is_string($_GET['client']) ? sanitize_text_field(wp_unslash($_GET['client'])) : ''; // phpcs:ignore WordPress.Security.NonceVerification.Recommended
+    $header ??= isset($_SERVER['HTTP_TOLL_CLIENT']) ? sanitize_text_field(wp_unslash($_SERVER['HTTP_TOLL_CLIENT'])) : '';
     return $query === 'agent' || strtolower(trim($header)) === 'agent';
 }
 
@@ -154,7 +155,7 @@ function toll_gate_agent_refusal(string $action, string $path): array
     $body = ['error' => 'toll_required'];
     if ($ok) {
         try {
-            $body['challenge'] = toll_gate_mint($action, $path, isset($_SERVER['HTTP_USER_AGENT']) ? (string) $_SERVER['HTTP_USER_AGENT'] : null);
+            $body['challenge'] = toll_gate_mint($action, $path, isset($_SERVER['HTTP_USER_AGENT']) ? sanitize_text_field(wp_unslash($_SERVER['HTTP_USER_AGENT'])) : null);
         } catch (\Throwable $e) {
             // No challenge in the 403 rather than an error page.
         }
@@ -169,7 +170,7 @@ function toll_gate_agent_refusal(string $action, string $path): array
  */
 function toll_gate_presented_response(string $action): ?array
 {
-    $raw = isset($_SERVER['HTTP_X_CASHU']) && is_string($_SERVER['HTTP_X_CASHU']) ? $_SERVER['HTTP_X_CASHU'] : '';
+    $raw = isset($_SERVER['HTTP_X_CASHU']) && is_string($_SERVER['HTTP_X_CASHU']) ? sanitize_text_field(wp_unslash($_SERVER['HTTP_X_CASHU'])) : '';
     if ($raw === '') return null;
     $p = \Toll\Settlement::presentedCashu($raw);
     if ($p === null) return null;
@@ -192,7 +193,7 @@ function toll_gate_refuse_agent(string $action, string $path): never
 /** Path of this request, for the challenge a refusal carries ("/" when it can't be read). */
 function toll_gate_request_path(): string
 {
-    $p = wp_parse_url((string) ($_SERVER['REQUEST_URI'] ?? '/'), PHP_URL_PATH);
+    $p = wp_parse_url(isset($_SERVER['REQUEST_URI']) ? esc_url_raw(wp_unslash($_SERVER['REQUEST_URI'])) : '/', PHP_URL_PATH);
     return is_string($p) && $p !== '' ? $p : '/';
 }
 
@@ -267,7 +268,9 @@ function toll_gate_check_comment(array $data): array
 function toll_gate_check_login($user)
 {
     if ($user instanceof WP_Error && $user->get_error_code() === 'toll_required') return $user;
-    if (($GLOBALS['pagenow'] ?? '') !== 'wp-login.php' || ($_SERVER['REQUEST_METHOD'] ?? '') !== 'POST' || !isset($_POST['log'])) return $user;
+    // wp-login.php has no nonce: the Toll pass checked below is this form's proof.
+    $method = isset($_SERVER['REQUEST_METHOD']) ? sanitize_text_field(wp_unslash($_SERVER['REQUEST_METHOD'])) : '';
+    if (($GLOBALS['pagenow'] ?? '') !== 'wp-login.php' || $method !== 'POST' || !isset($_POST['log'])) return $user; // phpcs:ignore WordPress.Security.NonceVerification.Missing
     if (toll_gate_verify_request('account')[0]) return $user;
     if (toll_gate_is_agent()) toll_gate_refuse_agent('account', '/wp-login.php');
     toll_gate_turned_away('account');
