@@ -14,7 +14,7 @@ const mutants = [
   {
     name: "replay guard removed",
     test: "a paid quote grants a pass, and a replay is refused",
-    from: 'if (!(await o.claim({ quote: c.quote, action: c.cls, amount, mint: c.mint, proofs }))) throw new TollError("replay");',
+    from: 'if (!(await o.reserve({ quote: c.quote, action: c.cls, amount, mint: c.mint }))) throw new TollError("replay");',
     to: "if (false) throw new TollError(\"replay\");",
   },
   {

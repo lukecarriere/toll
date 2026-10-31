@@ -27,7 +27,8 @@ async function read(res: Response): Promise<{ status: number; headers: Headers; 
 before(async () => {
   execFileSync(process.execPath, [ROOT + "packages/edge-cf/build.mjs"], { cwd: ROOT });
   mint = await startTestMint();
-  writeFileSync(ROOT + ".dev.vars", `SITE_SECRET="edge-quote-test-secret-0001"\nTOLL_TEST_HOOKS=1\nCASHU_FETCH_PROXY="${mint.url}"\n`, { mode: 0o600 });
+  // The site config sets the production flag. This file exercises the loopback invoice, so the local override turns that flag off. Only "1" is on.
+  writeFileSync(ROOT + ".dev.vars", `SITE_SECRET="edge-quote-test-secret-0001"\nTOLL_TEST_HOOKS=1\nL402_ENABLED=0\nCASHU_FETCH_PROXY="${mint.url}"\n`, { mode: 0o600 });
   const free = await new Promise<number>((r) => { const t = createServer().listen(0, "127.0.0.1", () => { const p = (t.address() as AddressInfo).port; t.close(() => r(p)); }); });
   const persist = mkdtempSync(join(tmpdir(), "toll-edge-quote-"));
   wr = spawn(ROOT + "node_modules/.bin/wrangler", ["dev", "--local", "--ip", "127.0.0.1", "--port", String(free), "--persist-to", persist, "--show-interactive-dev-session=false"], {

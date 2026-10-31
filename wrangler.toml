@@ -34,7 +34,8 @@ SITE_ID = "site_demo"
 WRITE_PATHS = '["/demo/contact"]'
 # Cashu receive. The path is part of the mint. No new binding: proofs live in TOLL_STORE.
 CASHU_MINTS = '["https://mint.minibits.cash/Bitcoin"]'
-# L402_ENABLED is not set. The 402 stays the cashu offer until an operator sets that var to 1.
+# Production quote offer (docs/settlement.md section 18). Cashu stays the first offer. Only "1" turns it on.
+L402_ENABLED = "1"
 # SITE_SECRET is a Worker secret (local: .dev.vars, copied from .dev.vars.example). Never commit it.
 
 [[durable_objects.bindings]]

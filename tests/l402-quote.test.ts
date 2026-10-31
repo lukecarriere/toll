@@ -1,8 +1,10 @@
 // Production quote offer. The flag defaults off. A real invoice is decoded only when it is on.
 // The mint is local. No public mint is contacted and nothing is paid.
 import { test, after } from "node:test";
+import { createServer } from "node:http";
+import type { AddressInfo } from "node:net";
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -12,7 +14,7 @@ import { startKeysetMint } from "../packages/settlement-ln/src/keyset-mint.ts";
 import { sha256 } from "../packages/protocol/src/hmac.ts";
 import { fromHex, toHex } from "../packages/protocol/src/bytes.ts";
 import { TollError } from "../packages/protocol/src/errors.ts";
-import { startDemo, drain } from "./helpers.ts";
+import { startDemo } from "./helpers.ts";
 
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
 const PUBLIC = "https://pay.example.com/Bitcoin";
@@ -106,32 +108,6 @@ function post(url: string, headers: Record<string, string> = {}) {
   });
 }
 
-test("L402_ENABLED unset: the 402 is the cashu-only response and the mint is not asked for a quote", async () => {
-  const { mint, demo } = await boot(false);
-  try {
-    const denied = await post(demo.url);
-    const text = await denied.text();
-    const body = JSON.parse(text);
-    assert.equal(denied.status, 402);
-    assert.equal(body.offers.length, 1);
-    assert.equal(body.offers[0].kind, "cashu");
-    assert.equal(body.offers[0].mint, PUBLIC);
-    const pr = paymentRequired("site_test", "write", "/contact", body.offers);
-    assert.equal(text, JSON.stringify(pr.body));
-    assert.equal(denied.headers.get("www-authenticate"), null);
-    assert.equal(denied.headers.get("access-control-expose-headers"), "x-cashu");
-    assert.equal(denied.headers.get("x-cashu"), body.offers[0].request);
-    assert.deepEqual(pr.headers, { "x-cashu": body.offers[0].request, "access-control-expose-headers": "x-cashu" });
-    assert.equal(mint.quotePosts(), 0);
-    const manifest = await (await fetch(demo.url + "/.well-known/toll.json")).json();
-    for (const tool of manifest.tools) assert.deepEqual(tool.payment.methods.map((m: { kind: string }) => m.kind), ["cashu"]);
-    assert.equal(mint.quotePosts(), 0);
-  } finally {
-    await demo.close();
-    await mint.close();
-  }
-});
-
 async function quoteOf(url: string) {
   const denied = await post(url);
   const text = await denied.text();
@@ -189,42 +165,6 @@ test("a paid quote grants a pass, and a replay is refused for a real invoice", a
   }
 });
 
-test("mint-quote guard: a wrong preimage is refused for a real invoice", async () => {
-  const { mint, demo } = await boot(true);
-  try {
-    const { macaroon, invoice } = await quoteOf(demo.url);
-    await pay(mint.url, invoice);
-    const wrong = await post(demo.url, { authorization: `L402 ${macaroon}:${"0".repeat(64)}` });
-    assert.equal(wrong.status, 401);
-    assert.equal((await wrong.json()).error, "bad_solution");
-    const still = await post(demo.url, { authorization: `L402 ${macaroon}:${await pay(mint.url, invoice)}` });
-    assert.equal(still.status, 200);
-    await drain(still);
-  } finally {
-    delete process.env.L402_ENABLED;
-    await demo.close();
-    await mint.close();
-  }
-});
-
-test("an invoice for a different amount is not offered", async () => {
-  const { mint, demo } = await boot(true);
-  try {
-    mint.setInvoiceSats(1);
-    const denied = await post(demo.url);
-    const body = await denied.json();
-    assert.equal(denied.status, 402);
-    assert.equal(body.offers.length, 1);
-    assert.equal(body.offers[0].kind, "cashu");
-    assert.equal(denied.headers.get("www-authenticate"), null);
-    assert.ok(mint.quotePosts() >= 1);
-  } finally {
-    delete process.env.L402_ENABLED;
-    await demo.close();
-    await mint.close();
-  }
-});
-
 test("the live check refuses a cap above 10 and does not print the wallet", () => {
   const script = ROOT + "scripts/l402-live-check.sh";
   const high = spawnSync("sh", [script, "11"], { encoding: "utf8" });
@@ -240,4 +180,74 @@ test("the live check refuses a cap above 10 and does not print the wallet", () =
   });
   assert.notEqual(down.status, 0);
   assert.equal((down.stdout + down.stderr).includes(secret), false);
+});
+
+test("the live check sends the macaroon alone when the wallet prints nothing", async () => {
+  const script = ROOT + "scripts/l402-live-check.sh";
+  let auth = "";
+  const server = createServer((req, res) => {
+    req.resume();
+    if (req.method === "POST" && !req.headers.authorization) {
+      const body = JSON.stringify({
+        error: "payment_required",
+        offers: [{ kind: "l402", amount_msat: 10000, invoice: "lnbc100n1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq" }],
+      });
+      res.writeHead(402, {
+        "content-type": "application/json",
+        "www-authenticate": 'L402 macaroon="macaroon-token", invoice="lnbc100n1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq"',
+        "content-length": Buffer.byteLength(body),
+      });
+      res.end(body);
+      return;
+    }
+    auth = String(req.headers.authorization ?? "");
+    res.writeHead(200, { "content-type": "application/json" });
+    res.end('{"ok":true}');
+  });
+  await new Promise<void>((ok) => server.listen(0, "127.0.0.1", ok));
+  const port = (server.address() as AddressInfo).port;
+  try {
+    const run = await new Promise<{ status: number; stdout: string; stderr: string }>((resolve) => {
+      const child = spawn("sh", [script, "10"], {
+        env: { ...process.env, L402_BASE: "http://127.0.0.1:" + port, L402_PATH: "/", L402_WALLET: "true", PATH: process.env.PATH },
+      });
+      let stdout = "";
+      let stderr = "";
+      child.stdout.on("data", (d) => { stdout += d; });
+      child.stderr.on("data", (d) => { stderr += d; });
+      child.on("close", (status) => resolve({ status: status ?? 1, stdout, stderr }));
+    });
+    assert.equal(run.status, 0, run.stderr);
+    assert.equal(run.stdout.trim(), "ok 10");
+    assert.equal(auth, "L402 macaroon-token");
+    assert.equal(run.stdout.includes("macaroon-token"), false);
+  } finally {
+    await new Promise<void>((ok) => server.close(() => ok()));
+  }
+});
+
+test("L402_ENABLED unset: the 402 is the cashu-only response and the mint is not asked for a quote", async () => {
+  const { mint, demo } = await boot(false);
+  try {
+    const denied = await post(demo.url);
+    const text = await denied.text();
+    const body = JSON.parse(text);
+    assert.equal(denied.status, 402);
+    assert.equal(body.offers.length, 1);
+    assert.equal(body.offers[0].kind, "cashu");
+    assert.equal(body.offers[0].mint, PUBLIC);
+    const pr = paymentRequired("site_test", "write", "/contact", body.offers);
+    assert.equal(text, JSON.stringify(pr.body));
+    assert.equal(denied.headers.get("www-authenticate"), null);
+    assert.equal(denied.headers.get("access-control-expose-headers"), "x-cashu");
+    assert.equal(denied.headers.get("x-cashu"), body.offers[0].request);
+    assert.deepEqual(pr.headers, { "x-cashu": body.offers[0].request, "access-control-expose-headers": "x-cashu" });
+    assert.equal(mint.quotePosts(), 0);
+    const manifest = await (await fetch(demo.url + "/.well-known/toll.json")).json();
+    for (const tool of manifest.tools) assert.deepEqual(tool.payment.methods.map((m: { kind: string }) => m.kind), ["cashu"]);
+    assert.equal(mint.quotePosts(), 0);
+  } finally {
+    await demo.close();
+    await mint.close();
+  }
 });

@@ -13,7 +13,7 @@ if (!defined('ABSPATH')) exit;
 
 use Toll\Settlement;
 
-const TOLL_GATE_MANIFEST_DESCRIPTION = 'A small check for writes. Heavy clients do work on each write, or pay in test mode. Page views stay free. Does not identify the caller.';
+const TOLL_GATE_MANIFEST_DESCRIPTION = 'A small check for writes. Heavy clients do work on each write, or pay. Page views stay free. Does not identify the caller.';
 const TOLL_GATE_NOT_FOR = ['page views', 'crawler blocking', 'citation licensing'];
 // No search: on WordPress search is a page load (/?s=) and stays a free read (Amendment 2 / M10), so
 // the manifest, its tool schemas and /price list no search price or action (docs/copy.md, PM Oct 1).

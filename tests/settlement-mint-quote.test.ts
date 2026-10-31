@@ -118,6 +118,7 @@ test("a foreign mint of the quote does not grant a pass", async () => {
 test("eight concurrent retries of one paid quote yield one pass and seven replays", async () => {
   const { macaroon, invoice } = await quoteOffer("/contact");
   const preimage = await pay(invoice);
+  const mintsBefore = mint.mintPosts();
   const results = await Promise.all(Array.from({ length: 8 }, () => post("/contact", auth(macaroon, preimage))));
   const rows = [];
   for (const r of results) rows.push({ status: r.status, body: await r.json() });
@@ -128,6 +129,7 @@ test("eight concurrent retries of one paid quote yield one pass and seven replay
   assert.equal(passed[0].body.rail, "settle");
   assert.equal(replays.length, 7, JSON.stringify(rows));
   assert.equal(internals.length, 0, JSON.stringify(rows));
+  assert.equal(mint.mintPosts(), mintsBefore + 1, "one reservation, one mint");
 });
 
 test("spending those proofs before the retry does not grant a pass", async () => {
@@ -202,8 +204,8 @@ test("a throw after the mint signs is refused and recorded as a loss", async () 
   const { macaroon, invoice } = await quoteOffer("/contact");
   const preimage = await pay(invoice);
   const store = demo.store;
-  const orig = store.claimMintQuote!.bind(store);
-  store.claimMintQuote = async () => { throw new Error("boom"); };
+  const orig = store.finishMintQuote!.bind(store);
+  store.finishMintQuote = async () => { throw new Error("boom"); };
   try {
     const retry = await post("/contact", auth(macaroon, preimage));
     const body = await retry.json();
@@ -214,7 +216,7 @@ test("a throw after the mint signs is refused and recorded as a loss", async () 
     assert.deepEqual(losses[0], { quote: caveatsOf(macaroon).quote, action: "write", amount: 10 });
     assert.ok(demo.lines.some((l) => l.includes("mint_quote_loss") && l.includes(losses[0].quote) && !l.includes(preimage) && !l.includes(macaroon)));
   } finally {
-    store.claimMintQuote = orig;
+    store.finishMintQuote = orig;
   }
 });
 
@@ -240,4 +242,32 @@ test("an expired token and an action mismatch are refused", async () => {
   const matched = await post("/search", auth(search.macaroon, searchPreimage));
   assert.equal(matched.status, 200);
   await drain(matched);
+});
+
+test("a paid quote with no preimage grants a pass, and a replay is refused", async () => {
+  const { macaroon, invoice } = await quoteOffer("/contact");
+  await pay(invoice);
+  const paid = await post("/contact", { authorization: `L402 ${macaroon}` });
+  const body = await paid.json();
+  assert.equal(paid.status, 200, JSON.stringify(body));
+  assert.equal(body.rail, "settle");
+  const again = await post("/contact", { authorization: `L402 ${macaroon}:` });
+  assert.equal(again.status, 401);
+  assert.equal((await again.json()).error, "replay");
+});
+
+test("an unpaid quote with no preimage is refused", async () => {
+  const { macaroon } = await quoteOffer("/contact");
+  const unpaid = await post("/contact", { authorization: `L402 ${macaroon}` });
+  assert.equal(unpaid.status, 401);
+  assert.equal((await unpaid.json()).error, "bad_solution");
+});
+
+test("a forged macaroon is refused", async () => {
+  const { macaroon, invoice } = await quoteOffer("/contact");
+  await pay(invoice);
+  const forged = macaroon.slice(0, -1) + (macaroon.endsWith("a") ? "b" : "a");
+  const res = await post("/contact", { authorization: `L402 ${forged}` });
+  assert.equal(res.status, 401);
+  assert.notEqual((await res.json()).error, undefined);
 });

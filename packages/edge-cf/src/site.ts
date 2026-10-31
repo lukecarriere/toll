@@ -45,6 +45,7 @@ const handler = createEdgeHandler<SiteEnv>({
   store: storeFor,
   proofStore: (env) => new DurableProofStore(stub(env)),
   preserveFields: false,
+  payPath: "/v1/demo/agent",
   async forward(req, env, url) {
     // In-worker origin. The body is not read, stored, echoed or logged.
     if (req.method.toUpperCase() === "POST" && url.pathname === "/demo/contact") {

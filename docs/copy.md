@@ -133,7 +133,7 @@ The meaning stays: page views stay free, Toll checks writes, and gating page vie
 ## Amendment 3: agent discovery (Oct 1, 2026)
 Wording, unlocked Oct 1; a later brand call may reword it:
 - `website/ecosystem.md` catalog paragraph, HOLD until the day of the first catalog listing, then add before the closing line, exact: "Agents that need a write check can find Toll in public tool catalogs. The article stays free. The tool call has a cost. Being quoted in an answer is not the same as being chosen as the tool."
-- Manifest and MCP `description`, exact (Oct 1; 135 characters): "A small check for writes. Heavy clients do work on each write, or pay in test mode. Page views stay free. Does not identify the caller."
+- Manifest and MCP `description`, exact (Oct 31; 122 characters): "A small check for writes. Heavy clients do work on each write, or pay. Page views stay free. Does not identify the caller."
 
 Tool names and descriptions (PM copy; the description is the ranking signal, so it must state each tool's job and what it does not do):
 - `price_write_action`: "Returns the current USD price, and the work alternative, for one write on a Toll-protected site: a comment, signup, login, form post, or state-changing API call. Use it before a write to choose between paying and doing the work. Not for page views, which are free and need no call. Does not identify the caller."

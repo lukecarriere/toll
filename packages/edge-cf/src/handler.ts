@@ -43,7 +43,7 @@ export interface EdgeEnv {
   /** Test-only. Unset in wrangler.toml. Enables the cashu fault header and the loopback fetch proxy. */
   TOLL_TEST_HOOKS?: string;
   /**
-   * Production quote offer. Unset in wrangler.toml. "1" adds the second 402 offer.
+   * Production quote offer. The site worker sets "1" in wrangler.toml.
    * Any other value, including unset, leaves the cashu-only 402. Not a test hook.
    */
   L402_ENABLED?: string;
@@ -75,6 +75,11 @@ export interface EdgeOptions<E extends EdgeEnv> {
   freshStore?: boolean;
   /** Durable proof store. Required before CASHU_MINTS turns receive on. */
   proofStore?(env: E): ProofStore;
+  /**
+   * Path that answers an unpaid POST with the 402 offer and a paid POST with a pass,
+   * without an agent header. The site worker sets `/v1/demo/agent`.
+   */
+  payPath?: string;
 }
 
 const PASS_COOKIE = "toll_pass";
@@ -297,7 +302,7 @@ export function createEdgeHandler<E extends EdgeEnv>(options: EdgeOptions<E>) {
         methods = live ? ["cashu", ...(quote ? [QUOTE_KIND] : [])] : [];
       }
       const doc = path === "/.well-known/toll.json"
-        ? buildManifest({ api: url.origin + "/v1", docs: siteUrl(env.TOLL_SITE_URL), status: mints.length ? "cashu" : "stub", prices, method: mints.length ? "cashu" : "ln402", methods })
+        ? buildManifest({ api: url.origin + "/v1", docs: siteUrl(env.TOLL_SITE_URL), status: mints.length ? "cashu" : "stub", prices, method: mints.length ? "cashu" : "ln402", methods, pay: options.payPath ? url.origin + options.payPath : undefined })
         : agentsPointer(url.origin + "/.well-known/toll.json");
       discoveryMetrics.discovery(path === "/.well-known/toll.json" ? "manifest" : "agents_json");
       return json(doc, 200, { "access-control-allow-origin": "*", "cache-control": "public, max-age=60" });
@@ -307,6 +312,24 @@ export function createEdgeHandler<E extends EdgeEnv>(options: EdgeOptions<E>) {
     if ((method === "GET" || method === "HEAD" || method === "OPTIONS") && !path.startsWith("/v1/") && !path.startsWith("/toll/v1/")) return forward(req, env, url);
     const { toll, free, store } = await getToll(env);
     try {
+      if (options.payPath && path === options.payPath && method === "POST") {
+        const action = "write" as const;
+        const presented = await cashuPresented(req, toll, action, true);
+        if (presented) return presented;
+        const quoted = await quotePresented(req, toll, action, true);
+        if (quoted) return quoted;
+        if (!(await allow(toll, store, req))) return json({ error: "toll_required" }, 403);
+        const offers = await toll.offersFor({ action, path, client: "agent", userAgent: req.headers.get("user-agent"), ip: ip(req), source: "middleware" }).catch(() => []);
+        if (offers.length > 0) {
+          toll.metrics.offerShown({ cls: action, amount_msat: offers[0].amount_msat, offers: offers.length });
+          const pr = paymentRequired(toll.config.site_id, action, path, offers);
+          return json(pr.body, pr.status, pr.headers);
+        }
+        toll.metrics.turnedAway();
+        await note(store, "rejected");
+        const challenge = await toll.issueChallenge({ action, path, client: "agent", userAgent: req.headers.get("user-agent"), ip: ip(req), source: "middleware" });
+        return json({ error: "toll_required", challenge }, 403);
+      }
       if (path === "/toll/v1/toll.js") return new Response(TOLL_JS, { headers: { "content-type": "text/javascript; charset=utf-8", "cache-control": "public, max-age=300" } });
       if (path === "/toll/v1/toll.worker.js") return new Response(TOLL_WORKER_JS, { headers: { "content-type": "text/javascript; charset=utf-8", "cache-control": "public, max-age=300" } });
       if (path.startsWith("/v1/")) return await facade(req, env, url, toll, store);

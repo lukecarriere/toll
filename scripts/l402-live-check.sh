@@ -4,7 +4,8 @@
 #   sat-cap is an integer from 1 to 10. An offer above the cap is not paid.
 # Env (neither is printed):
 #   L402_BASE    issuer origin, no trailing path
-#   L402_WALLET  command that reads one invoice on stdin and writes a 64-hex preimage on stdout
+#   L402_WALLET  command that reads one invoice on stdin and writes a 64-hex preimage on stdout.
+#                An empty stdout is the mint-settled proof: the script sends the macaroon alone.
 #   L402_PATH    gated path (default /demo/contact)
 # Each run pays once. A crash after the wallet runs may already have paid; run it again only on purpose.
 set -eu
@@ -33,7 +34,7 @@ esac
 dir=$(mktemp -d)
 trap 'rm -rf "$dir"' EXIT INT TERM
 
-code=$(curl -sS -o "$dir/body" -D "$dir/hdr" -w '%{http_code}' -X POST \
+code=$(curl -sS --max-time 20 -o "$dir/body" -D "$dir/hdr" -w '%{http_code}' -X POST \
   -H 'accept: application/json' -H 'content-type: application/json' -H 'toll-client: agent' \
   --data '{}' "$base$path" || true)
 if [ "$code" != "402" ]; then
@@ -73,11 +74,17 @@ if ! preimage=$(sh -c "$L402_WALLET" < "$dir/invoice" 2>"$dir/wallet.err"); then
   exit 1
 fi
 preimage=$(printf '%s' "$preimage" | tr -d '[:space:]')
-printf '%s' "$preimage" | grep -Eq '^[0-9a-f]{64}$' || { echo "wallet did not return a preimage" >&2; exit 1; }
-
 mac=$(cat "$dir/macaroon")
-printf 'header = "Authorization: L402 %s:%s"\n' "$mac" "$preimage" > "$dir/curl.cfg"
-paid=$(curl -sS -o "$dir/paid" -w '%{http_code}' -K "$dir/curl.cfg" -X POST \
+# An empty preimage is the mint-settled proof: send the macaroon alone.
+if [ -z "$preimage" ]; then
+  printf 'header = "Authorization: L402 %s"\n' "$mac" > "$dir/curl.cfg"
+elif printf '%s' "$preimage" | grep -Eq '^[0-9a-f]{64}$'; then
+  printf 'header = "Authorization: L402 %s:%s"\n' "$mac" "$preimage" > "$dir/curl.cfg"
+else
+  echo "wallet did not return a preimage" >&2
+  exit 1
+fi
+paid=$(curl -sS --max-time 20 -o "$dir/paid" -w '%{http_code}' -K "$dir/curl.cfg" -X POST \
   -H 'accept: application/json' -H 'content-type: application/json' -H 'toll-client: agent' \
   --data '{}' "$base$path" || true)
 rm -rf "$dir"

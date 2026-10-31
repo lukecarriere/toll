@@ -295,22 +295,40 @@ export class TollStoreDO extends DurableObject {
     return { ok: true };
   }
 
-  /** Quote row, proofs, and the single-use mark. One call, so the SQL is one transaction. */
-  claimMintQuote(row: { quote: string; action: string; amount: number; mint: string; proofs: { amount: number; secret: string; id: string; C: string }[] }): boolean {
+  /** Single-use mark before the mint signs. One call. Proofs are written later, in finishMintQuote. */
+  reserveMintQuote(row: { quote: string; action: string; amount: number; mint: string }): boolean {
     if (this.sql.exec("SELECT quote FROM cashu_mint_quote WHERE quote = ?", row.quote).toArray().length) return false;
     this.sql.exec(
-      "INSERT INTO cashu_mint_quote (quote, action, amount, mint, proofs) VALUES (?, ?, ?, ?, ?)",
-      row.quote, row.action, row.amount, row.mint, JSON.stringify(row.proofs),
+      "INSERT INTO cashu_mint_quote (quote, action, amount, mint, proofs) VALUES (?, ?, ?, ?, '[]')",
+      row.quote, row.action, row.amount, row.mint,
     );
-    for (const p of row.proofs) {
-      this.sql.exec(
-        "INSERT INTO cashu_proof (secret, mint, unit, amount, keyset, c) VALUES (?, ?, 'sat', ?, ?, ?)",
-        p.secret, row.mint, p.amount, p.id, p.C,
-      );
-    }
     const exp = this.now() + 180;
     this.sql.exec("INSERT INTO kv (k, v, exp) VALUES (?, '1', ?)", "f:mq:" + row.quote, exp);
     return true;
+  }
+
+  /** Proofs for a reserved quote. One call, so the proof rows and the used mark land together. */
+  finishMintQuote(row: { quote: string; proofs: { amount: number; secret: string; id: string; C: string }[] }): boolean {
+    const rows = this.sql.exec("SELECT mint, proofs FROM cashu_mint_quote WHERE quote = ?", row.quote).toArray();
+    if (!rows.length) return false;
+    let existing: unknown = [];
+    try { existing = JSON.parse(String(rows[0].proofs)); } catch { return false; }
+    if (!Array.isArray(existing) || existing.length > 0) return false;
+    this.sql.exec("UPDATE cashu_mint_quote SET proofs = ? WHERE quote = ?", JSON.stringify(row.proofs), row.quote);
+    const mint = String(rows[0].mint);
+    for (const p of row.proofs) {
+      this.sql.exec(
+        "INSERT INTO cashu_proof (secret, mint, unit, amount, keyset, c) VALUES (?, ?, 'sat', ?, ?, ?)",
+        p.secret, mint, p.amount, p.id, p.C,
+      );
+    }
+    return true;
+  }
+
+  /** Quote row, proofs, and the single-use mark. Reserve then finish, each its own statement list. */
+  claimMintQuote(row: { quote: string; action: string; amount: number; mint: string; proofs: { amount: number; secret: string; id: string; C: string }[] }): boolean {
+    if (!this.reserveMintQuote(row)) return false;
+    return this.finishMintQuote(row);
   }
 
   hasMintQuote(quote: string): boolean {
@@ -406,6 +424,8 @@ export interface TollDoStub {
   cashuLose(o: { id: string; marks: string[] }): Promise<{ ok: true }>;
   cashuNoteSigned(amount: number, marks: string[]): Promise<{ ok: true }>;
   cashuRecover(): Promise<{ ok: true }>;
+  reserveMintQuote(row: { quote: string; action: string; amount: number; mint: string }): Promise<boolean>;
+  finishMintQuote(row: { quote: string; proofs: { amount: number; secret: string; id: string; C: string }[] }): Promise<boolean>;
   claimMintQuote(row: { quote: string; action: string; amount: number; mint: string; proofs: { amount: number; secret: string; id: string; C: string }[] }): Promise<boolean>;
   hasMintQuote(quote: string): Promise<boolean>;
   noteMintQuoteLoss(o: { quote: string; action: string; amount: number }): Promise<void>;
@@ -489,6 +509,12 @@ export class DurableObjectStore implements TollStore {
   windowHit(key: string, window_s: number) { return this.run(() => this.stub.windowHit(key, window_s)); }
   windowCount(key: string, window_s: number) { return this.run(() => this.stub.windowCount(key, window_s)); }
   note(kind: "accepted" | "rejected") { return this.run(async () => { await this.stub.note(kind); }); }
+  reserveMintQuote(row: { quote: string; action: string; amount: number; mint: string }) {
+    return this.run(() => this.stub.reserveMintQuote(row));
+  }
+  finishMintQuote(row: { quote: string; proofs: { amount: number; secret: string; id: string; C: string }[] }) {
+    return this.run(() => this.stub.finishMintQuote(row));
+  }
   claimMintQuote(row: { quote: string; action: string; amount: number; mint: string; proofs: { amount: number; secret: string; id: string; C: string }[] }) {
     return this.run(() => this.stub.claimMintQuote(row));
   }

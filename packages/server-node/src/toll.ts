@@ -160,6 +160,14 @@ export function createToll(config: TollConfig, opts: TollOptions = {}) {
       now,
       firstUse: (key, ttl) => store.firstUse(key, ttl),
       hasMintQuote: (quote) => store.hasMintQuote ? store.hasMintQuote(quote) : Promise.resolve(false),
+      reserveMintQuote: (row) => {
+        if (!store.reserveMintQuote) return Promise.reject(new TollError("store_unavailable"));
+        return store.reserveMintQuote(row);
+      },
+      finishMintQuote: (row) => {
+        if (!store.finishMintQuote) return Promise.reject(new TollError("store_unavailable"));
+        return store.finishMintQuote(row);
+      },
       claimMintQuote: (row) => {
         if (!store.claimMintQuote) return Promise.reject(new TollError("store_unavailable"));
         return store.claimMintQuote(row);
