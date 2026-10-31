@@ -113,6 +113,10 @@ test("a foreign mint of the quote does not grant a pass", async () => {
   const body = await retry.json();
   assert.equal(retry.status, 401, JSON.stringify(body));
   assert.equal(body.error, "bad_solution");
+  const again = await post("/contact", auth(macaroon, await pay(invoice)));
+  assert.equal(again.status, 401);
+  const losses = (demo.store.mintQuoteLosses?.() ?? []).filter((o) => o.quote === quote);
+  assert.deepEqual(losses, [{ quote, action: "write", amount: 10 }], "an issued quote with no row is booked as one loss");
 });
 
 test("eight concurrent retries of one paid quote yield one pass and seven replays", async () => {
@@ -211,7 +215,7 @@ test("a throw after the mint signs is refused and recorded as a loss", async () 
     const body = await retry.json();
     assert.equal(retry.status, 500, JSON.stringify(body));
     assert.equal(body.error, "internal");
-    const losses = store.mintQuoteLosses?.() ?? [];
+    const losses = (store.mintQuoteLosses?.() ?? []).filter((o) => o.quote === caveatsOf(macaroon).quote);
     assert.equal(losses.length, 1, JSON.stringify(losses));
     assert.deepEqual(losses[0], { quote: caveatsOf(macaroon).quote, action: "write", amount: 10 });
     assert.ok(demo.lines.some((l) => l.includes("mint_quote_loss") && l.includes(losses[0].quote) && !l.includes(preimage) && !l.includes(macaroon)));

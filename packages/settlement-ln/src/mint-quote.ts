@@ -226,8 +226,12 @@ export async function verifyMintQuote(o: {
     throw new TollError("replay");
   }
   if (state !== "PAID" && state !== "ISSUED") throw new TollError("bad_solution");
-  // MINT_QUOTE_GUARD issued: mint state ISSUED is not payment when this store has no row.
-  if (state === "ISSUED") throw new TollError("bad_solution");
+  if (state === "ISSUED") {
+    // MINT_QUOTE_GUARD issued-loss: a paid quote this store holds no row for is booked as a loss, once.
+    await o.noteLoss({ quote: c.quote, action: c.cls, amount });
+    // MINT_QUOTE_GUARD issued: mint state ISSUED is not payment when this store has no row.
+    throw new TollError("bad_solution");
+  }
   let outputs: MintQuoteOutput[] = [];
   if (mode === "bolt11") {
     const built = await buildOutputs(o.mint, amount, fetchImpl, o.guard, o.allowlist);
@@ -237,15 +241,15 @@ export async function verifyMintQuote(o: {
   // The single-use mark lands before the mint is asked to sign, so eight retries mint once.
   // MINT_QUOTE_GUARD replay: the reservation is the single-use mark.
   if (!(await o.reserve({ quote: c.quote, action: c.cls, amount, mint: c.mint, outputs }))) throw new TollError("replay");
-  const proofs = await mintOnce(ctx, outputs);
-  if (proofs) {
-    await commitProofs(o, c.quote, c.cls, amount, proofs);
+  const first = await mintOnce(ctx, outputs);
+  if (first.proofs) {
+    await commitProofs(o, c.quote, c.cls, amount, first.proofs);
     return paid();
   }
   // One more post while the lease is held. A single 500 among concurrent retries still yields one pass.
-  const missed = await afterMiss(ctx, outputs);
+  const missed = await afterMiss(ctx, outputs, first.outcome);
   if (missed === "released") {
-    // MINT_QUOTE_GUARD release: a failed mint that did not sign drops the reservation.
+    // MINT_QUOTE_GUARD release: a mint refusal that did not sign drops the reservation.
     if (!(await o.release(c.quote))) throw new TollError("replay");
     throw new TollError("store_unavailable");
   }
@@ -305,14 +309,27 @@ async function readMint(
   return { status: got.status, body: objectBody(got.text) };
 }
 
-async function mintLoopback(mint: string, quote: string, amount: number, fetchImpl: typeof fetch): Promise<HeldProof[] | null> {
+/**
+ * How one mint post ended. `refused` is a mint error reply (a JSON `detail` or `code`), so nothing was signed.
+ * `unknown` is a timeout, a dropped call, or a reply that is not the mint's: it may have signed.
+ */
+type MintOutcome = "signed" | "refused" | "unknown";
+interface Minted { proofs: HeldProof[] | null; outcome: MintOutcome }
+
+function refusal(status: number, body: Record<string, unknown>): MintOutcome {
+  if (status === 200) return "unknown";
+  return typeof body.detail === "string" || typeof body.code === "number" ? "refused" : "unknown";
+}
+
+async function mintLoopback(mint: string, quote: string, amount: number, fetchImpl: typeof fetch): Promise<Minted> {
   let minted: { status: number; body: Record<string, unknown> };
   try {
     minted = await readJson(mint + "/v1/mint/bolt11", {
       method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ quote }),
     }, fetchImpl);
-  } catch { return null; }
-  return minted.status === 200 ? asProofs(minted.body.proofs, amount) : null;
+  } catch { return { proofs: null, outcome: "unknown" }; }
+  const proofs = minted.status === 200 ? asProofs(minted.body.proofs, amount) : null;
+  return proofs ? { proofs, outcome: "signed" } : { proofs: null, outcome: refusal(minted.status, minted.body) };
 }
 
 interface MintCtx {
@@ -327,59 +344,65 @@ interface MintCtx {
 
 type OpenResult = HeldProof[] | "unsigned" | "unrecoverable" | "later";
 
-/** Continue an open reservation. `unsigned` means the mint still has not signed these outputs. */
+/**
+ * Continue an open reservation. The quote state comes first: ISSUED is fetched back with the
+ * stored outputs, PAID is posted again with the same outputs. `unsigned` means the mint refused
+ * and still has not signed these outputs, so the row may be given up.
+ */
 async function recoverOpen(ctx: MintCtx, outputs: MintQuoteOutput[]): Promise<OpenResult> {
-  if (ctx.mode !== "bolt11" || outputs.length === 0) {
-    const proofs = await mintLoopback(ctx.mint, ctx.quote, ctx.amount, ctx.fetchImpl);
-    if (proofs) return proofs;
-    const state = await quoteState(ctx);
-    if (state === "PAID") return "unsigned";
-    if (state === "ISSUED") return "unrecoverable";
-    return "later";
-  }
-  const posted = await postBolt11(ctx, outputs);
-  if (posted.proofs) return posted.proofs;
-  const restored = await restoreBolt11(ctx, outputs);
-  if (restored.kind === "proofs") return restored.proofs;
   const state = await quoteState(ctx);
-  if (state === "PAID" && restored.kind === "none") return "unsigned";
+  const bolt11 = ctx.mode === "bolt11" && outputs.length > 0;
+  // MINT_QUOTE_GUARD issued-first: an issued quote is restored, never treated as unsigned.
   if (state === "ISSUED") {
-    // A dropped connection can still be fetched. A refusal, or an empty restore, cannot.
-    if (posted.transport && restored.kind === "inconclusive") return "later";
-    return "unrecoverable";
+    if (bolt11) {
+      const restored = await restoreBolt11(ctx, outputs);
+      if (restored.kind === "proofs") return restored.proofs;
+      if (restored.kind === "none") return "unrecoverable";
+    }
+    // No restore answer (or loopback): the same outputs posted again return the signatures on a NUT-04 mint.
+    const again = await mintOnce(ctx, outputs);
+    if (again.proofs) return again.proofs;
+    return again.outcome === "refused" && !bolt11 ? "unrecoverable" : "later";
   }
-  return "later";
+  if (state !== "PAID") return "later";
+  const posted = await mintOnce(ctx, outputs);
+  if (posted.proofs) return posted.proofs;
+  return (await unsignedAfter(ctx, outputs, [posted.outcome])) ?? "later";
 }
 
 /**
  * The mint call failed while this request holds the lease.
- * A quote that is still PAID is posted once more, then released when restore shows no signatures.
- * ISSUED keeps the outputs for the next presentation.
+ * A quote that is still PAID is posted once more with the same outputs.
+ * Only refusals followed by an empty restore release the row; anything ambiguous keeps it.
  */
-async function afterMiss(ctx: MintCtx, outputs: MintQuoteOutput[]): Promise<HeldProof[] | "released" | "kept"> {
+async function afterMiss(ctx: MintCtx, outputs: MintQuoteOutput[], first: MintOutcome): Promise<HeldProof[] | "released" | "kept"> {
   const state = await quoteState(ctx);
   if (state !== "PAID") return "kept";
-  if (ctx.mode === "bolt11" && outputs.length > 0) {
-    const posted = await postBolt11(ctx, outputs);
-    if (posted.proofs) return posted.proofs;
-    const restored = await restoreBolt11(ctx, outputs);
-    if (restored.kind === "proofs") return restored.proofs;
-    const again = await quoteState(ctx);
-    if (again === "PAID" && restored.kind === "none") return "released";
-    return "kept";
-  }
-  const proofs = await mintLoopback(ctx.mint, ctx.quote, ctx.amount, ctx.fetchImpl);
-  if (proofs) return proofs;
-  const again = await quoteState(ctx);
-  if (again === "PAID") return "released";
-  return "kept";
+  const again = await mintOnce(ctx, outputs);
+  if (again.proofs) return again.proofs;
+  const settled = await unsignedAfter(ctx, outputs, [first, again.outcome]);
+  if (settled === "unsigned") return "released";
+  return Array.isArray(settled) ? settled : "kept";
 }
 
-async function mintOnce(ctx: MintCtx, outputs: MintQuoteOutput[]): Promise<HeldProof[] | null> {
-  if (ctx.mode === "bolt11") {
-    const posted = await postBolt11(ctx, outputs);
-    return posted.proofs;
+/**
+ * After failed posts: proofs if restore finds them, `unsigned` when every post was refused,
+ * restore shows nothing and the quote is still PAID. Null keeps the row.
+ */
+async function unsignedAfter(ctx: MintCtx, outputs: MintQuoteOutput[], outcomes: MintOutcome[]): Promise<HeldProof[] | "unsigned" | null> {
+  let empty = true;
+  if (ctx.mode === "bolt11" && outputs.length > 0) {
+    const restored = await restoreBolt11(ctx, outputs);
+    if (restored.kind === "proofs") return restored.proofs;
+    empty = restored.kind === "none";
   }
+  // MINT_QUOTE_GUARD ambiguous: a timeout or dropped call may have signed, so it never releases the row.
+  if (!outcomes.every((x) => x === "refused")) return null;
+  return empty && (await quoteState(ctx)) === "PAID" ? "unsigned" : null;
+}
+
+async function mintOnce(ctx: MintCtx, outputs: MintQuoteOutput[]): Promise<Minted> {
+  if (ctx.mode === "bolt11") return postBolt11(ctx, outputs);
   return mintLoopback(ctx.mint, ctx.quote, ctx.amount, ctx.fetchImpl);
 }
 
@@ -470,20 +493,20 @@ function unblindAll(outputs: MintQuoteOutput[], signatures: unknown, keys: Recor
   return proofs.reduce((n, p) => n + p.amount, 0) === amount ? proofs : null;
 }
 
-/** NUT-04 with the outputs this store already saved. `transport` is a dropped call or a 5xx. */
-async function postBolt11(ctx: MintCtx, outputs: MintQuoteOutput[]): Promise<{ proofs: HeldProof[] | null; transport: boolean }> {
+/** NUT-04 with the outputs this store already saved. Keys that do not load mean nothing was sent. */
+async function postBolt11(ctx: MintCtx, outputs: MintQuoteOutput[]): Promise<Minted> {
   const active = await loadKeys(ctx.mint, ctx.fetchImpl, ctx.guard, ctx.allowlist);
-  if (!active) return { proofs: null, transport: true };
+  if (!active) return { proofs: null, outcome: "unknown" };
   let minted: { status: number; text: string };
   try {
     minted = await mintFetch(ctx.mint, "/v1/mint/bolt11", {
       method: "POST", headers: { "content-type": "application/json" },
       body: JSON.stringify({ quote: ctx.quote, outputs: outputBody(outputs) }),
     }, { ...ctx.guard, fetch: ctx.fetchImpl }, ctx.allowlist ?? [ctx.mint]);
-  } catch { return { proofs: null, transport: true }; }
-  if (minted.status >= 500) return { proofs: null, transport: true };
-  if (minted.status !== 200) return { proofs: null, transport: false };
-  return { proofs: unblindAll(outputs, objectBody(minted.text).signatures, active.keys, ctx.amount), transport: false };
+  } catch { return { proofs: null, outcome: "unknown" }; }
+  const body = objectBody(minted.text);
+  const proofs = minted.status === 200 ? unblindAll(outputs, body.signatures, active.keys, ctx.amount) : null;
+  return proofs ? { proofs, outcome: "signed" } : { proofs: null, outcome: refusal(minted.status, body) };
 }
 
 type RestoreResult = { kind: "proofs"; proofs: HeldProof[] } | { kind: "none" } | { kind: "inconclusive" };
