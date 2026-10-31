@@ -6,6 +6,8 @@ Reads stay free. A write with no pass gets `403` and `toll_required`. The pass c
 
 Paid requests in this version use a local test backend. No real money moves.
 
+The hosted demo at lessspam.dev is the exception: it settles real Cashu payments through the Minibits mint.
+
 ## Node
 
 ```sh
