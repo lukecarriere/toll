@@ -207,6 +207,8 @@ Toll can take a Cashu payment from an allowlisted mint and keep the resulting pr
 
 Settings, by name: `settlement.enabled`, `settlement.cashu.enabled`, `settlement.cashu.mints`, `settlement.cashu.store`. `settlement.backend` stays `stub`. Do not set `mode: live`.
 
+A second offer, the mint quote, is off unless the process environment sets `L402_ENABLED=1`. The config file has no key for it. `TOLL_TEST_HOOKS` does not turn it on. With the flag unset the 402 is the Cashu offer alone. With the flag set, the same allowlist's `POST /v1/mint/quote/bolt11` supplies the invoice, and the proofs come back through `POST /v1/mint/bolt11` into the store's quote row. See docs/settlement.md §18. Do not set the flag in this tree.
+
 The allowlist entry for the mint exercised in production is `https://mint.minibits.cash/Bitcoin`. The bare host is not a mint. The active keyset id is version 01 (33 bytes, hex prefix `01`). Tokens carry the short form, the first 8 bytes. A decoder has to load the mint's keyset ids (`GET /v1/keysets`) and map that prefix to exactly one full id before `POST /v1/swap`. The swap returns proofs the operator keeps in `settlement.cashu.store`.
 
 An Ecashu-style client pays a Toll-gated endpoint with `@lessspam/agent`:

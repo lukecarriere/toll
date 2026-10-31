@@ -18,7 +18,7 @@ import { buildManifest, agentsPointer, priceBody, PAID_CLASSES } from "../../ser
 import { offerAmountMsat } from "../../settlement-ln/src/stub-engine.ts";
 import { CashuReceiveEngine } from "../../settlement-ln/src/cashu-receive.ts";
 import { parseCashuMints } from "../../settlement-ln/src/cashu-net.ts";
-import { parseL402Authorization, paymentHashOf, paymentRequired, presentedCashu, QUOTE_KIND, stubEngineSecret, withQuoteOffer } from "../../settlement-ln/src/index.ts";
+import { parseL402Authorization, paymentHashOf, paymentRequired, presentedCashu, QUOTE_KIND, quoteMode, stubEngineSecret, withQuoteOffer } from "../../settlement-ln/src/index.ts";
 import type { ProofStore } from "../../settlement-ln/src/cashu-store.ts";
 import type { KVLike } from "./kv-store.ts";
 import { cashuFaultSlot, cashuFetch, holdBeforeSwap, mintFetches, releaseBeforeSwap } from "./cashu-edge.ts";
@@ -42,6 +42,11 @@ export interface EdgeEnv {
   CASHU_MINTS?: string;
   /** Test-only. Unset in wrangler.toml. Enables the cashu fault header and the loopback fetch proxy. */
   TOLL_TEST_HOOKS?: string;
+  /**
+   * Production quote offer. Unset in wrangler.toml. "1" adds the second 402 offer.
+   * Any other value, including unset, leaves the cashu-only 402. Not a test hook.
+   */
+  L402_ENABLED?: string;
   /** Test-only fetch stand-in for the allowlisted mint. Ignored unless TOLL_TEST_HOOKS is "1". */
   CASHU_FETCH_PROXY?: string;
 }
@@ -162,7 +167,7 @@ export function createEdgeHandler<E extends EdgeEnv>(options: EdgeOptions<E>) {
   async function getToll(env: E) {
     const routesFromKv = env.TOLL_KV ? await env.TOLL_KV.get("toll_routes").catch(() => null) : null;
     const mints = cashuMints(env, options.proofStore);
-    const key = [env.SITE_ID, env.SITE_SECRET?.length, env.WRITE_PATHS, env.SEARCH_PATHS, env.ACCOUNT_PATHS, env.FREE_PATHS, routesFromKv, mints.join(",")].join("|");
+    const key = [env.SITE_ID, env.SITE_SECRET?.length, env.WRITE_PATHS, env.SEARCH_PATHS, env.ACCOUNT_PATHS, env.FREE_PATHS, routesFromKv, mints.join(","), env.L402_ENABLED === "1" ? "1" : ""].join("|");
     if (!options.freshStore && cached && cached.key === key) return cached;
     let routes: { prefix: string; class: ActionClass }[];
     try { routes = routesFromKv ? JSON.parse(routesFromKv) : []; } catch { routes = []; }
@@ -204,7 +209,12 @@ export function createEdgeHandler<E extends EdgeEnv>(options: EdgeOptions<E>) {
       },
       afterSwap: () => { if (cashuFaultSlot.getStore() === "crash-after-swap") throw new TollError("store_unavailable"); },
     }) : undefined;
-    const engine = base && env.TOLL_TEST_HOOKS === "1" ? withQuoteOffer(base, { secret, mint: mints[0], fetchImpl }) : base;
+    const mode = quoteMode(env);
+    const engine = base && mode !== "off" ? withQuoteOffer(base, {
+      secret, mint: mints[0], fetchImpl, mode,
+      guard: { lookup: env.TOLL_TEST_HOOKS === "1" ? async () => ["1.1.1.1"] : undefined, fetch: fetchImpl },
+      allowlist: mints,
+    }) : base;
     const toll = createToll(config, {
       store,
       metrics: new Metrics((l) => console.log(l)),
@@ -283,7 +293,7 @@ export function createEdgeHandler<E extends EdgeEnv>(options: EdgeOptions<E>) {
           await r.arrayBuffer();
           live = r.ok;
         } catch { live = false; }
-        const quote = live && await loopbackQuoteOffered(env, mints);
+        const quote = env.L402_ENABLED === "1" ? true : await loopbackQuoteOffered(env, mints);
         methods = live ? ["cashu", ...(quote ? [QUOTE_KIND] : [])] : [];
       }
       const doc = path === "/.well-known/toll.json"

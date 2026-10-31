@@ -32,8 +32,11 @@ import {
   StubSettler,
   createSettlementRail,
   offerIdOf,
+  type MintGuard,
   QUOTE_KIND,
+  l402Enabled,
   stubEngineSecret,
+  withQuoteOffer,
   workChallengeUrl,
 } from "../../settlement-ln/src/index.ts";
 import { type TollConfig, classifyPath, PAGE_VIEW_WARNING } from "./config.ts";
@@ -52,7 +55,7 @@ export interface TollOptions {
    */
   pickCounter?: (counter_max: number) => number;
   /** Paid-request wiring overrides (tests and the demo). Only used when settlement.enabled is true. */
-  settlement?: { settler?: StubSettler; engine?: SettlementEngine; fx?: FxSource; ledger?: MemoryLedger };
+  settlement?: { settler?: StubSettler; engine?: SettlementEngine; fx?: FxSource; ledger?: MemoryLedger; mintGuard?: MintGuard };
 }
 
 export interface IssueInput {
@@ -119,7 +122,18 @@ export function createToll(config: TollConfig, opts: TollOptions = {}) {
     const settler = so.engine ? so.settler : (so.settler ?? new StubSettler());
     const ready: Promise<SettlementEngine> = so.engine ? Promise.resolve(so.engine) : stubEngineSecret(config.secret).then((k) => {
       const cashu = config.settlement.cashu;
-      if (cashu && "mints" in cashu) return new CashuReceiveEngine({ secret: k, mints: cashu.mints, store: cashu.store });
+      if (cashu && "mints" in cashu) {
+        const receive = new CashuReceiveEngine({
+          secret: k, mints: cashu.mints, store: cashu.store,
+          fetch: so.mintGuard?.fetch, lookup: so.mintGuard?.lookup, loopbackHttp: so.mintGuard?.loopbackHttp,
+        });
+        // The flag is read here, not from the config file, so a merged tree does not turn the offer on.
+        if (!l402Enabled(process.env.L402_ENABLED)) return receive;
+        return withQuoteOffer(receive, {
+          secret: k, mint: cashu.mints[0], fetchImpl: so.mintGuard?.fetch ?? fetch, mode: "bolt11",
+          guard: so.mintGuard, allowlist: cashu.mints,
+        });
+      }
       if (cashu && "mint" in cashu) return new CashuTestEngine({ secret: k, mint: cashu.mint });
       return new StubEngine({ secret: k, settler });
     });
@@ -336,7 +350,7 @@ export function createToll(config: TollConfig, opts: TollOptions = {}) {
   }
 
   /**
-   * An agent retried with Authorization on a loopback-mint issuer. The token binds the quote.
+   * An agent retried with Authorization. The token binds the quote.
    * The pass is minted only after the quote is paid and the proofs are in this process.
    */
   async function redeemQuoted(o: { macaroon: string; preimage: string; action: ActionClass; ip?: string | null }): Promise<PaidRedeemResult> {
@@ -481,7 +495,8 @@ export function createToll(config: TollConfig, opts: TollOptions = {}) {
       if (!paid || !paid.rail.isCollecting() || !cashu) return undefined;
       const st = await paid.rail.status();
       if (!st.healthy) return [];
-      return "mint" in cashu ? ["cashu", QUOTE_KIND] : ["cashu"];
+      if ("mint" in cashu) return ["cashu", QUOTE_KIND];
+      return l402Enabled(process.env.L402_ENABLED) ? ["cashu", QUOTE_KIND] : ["cashu"];
     },
     classCovers,
   };

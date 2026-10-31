@@ -40,7 +40,7 @@ export interface CashuOffer extends OfferBase {
   amount: number;
 }
 
-/** Mint-quote offer. `kind` is `l402`. The invoice is loopback-only. */
+/** Mint-quote offer. `kind` is `l402`. The invoice is the loopback stand-in, or a real one when the production flag is on. */
 export interface QuoteOffer extends OfferBase {
   kind: "l402";
   invoice: string;
@@ -87,7 +87,7 @@ export interface SettlementEngine {
     claimMintQuote?: (row: { quote: string; action: string; amount: number; mint: string; proofs: { amount: number; secret: string; id: string; C: string }[] }) => Promise<boolean>;
     noteMintQuoteLoss?: (x: { quote: string; action: string; amount: number }) => Promise<void>;
   }): Promise<Paid>;
-  /** Second offer from a NUT-04 quote on the Cashu mint. Absent when the mint is not the loopback test mint. */
+  /** Second offer from a NUT-04 quote on the Cashu mint. Absent unless the test hook or the production flag is on. */
   mintQuote?(o: { site: string; cls: PaidClass; amount_msat: number; now: number; ttl_s?: number }): Promise<QuoteOffer>;
   /** Health for the degraded-mode switch (spec §8.6.8): when false, offers are [] and work still flows. */
   healthy(): Promise<boolean>;

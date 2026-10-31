@@ -6,7 +6,7 @@ import { readFileSync, existsSync, statSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { type ActionClass, TollError, isActionClass, timingSafeEqual, utf8, verifyPassToken, classCovers, clientIp as resolveClientIp } from "../../protocol/src/index.ts";
-import { asCashuPayment, l402Challenge, parseL402Authorization, paymentRequired, presentedCashu, StubSettler } from "../../settlement-ln/src/index.ts";
+import { asCashuPayment, l402Challenge, l402Enabled, parseL402Authorization, paymentRequired, presentedCashu, StubSettler } from "../../settlement-ln/src/index.ts";
 import type { Toll } from "./toll.ts";
 import { buildManifest, agentsPointer, priceBody, PAID_CLASSES } from "./manifest.ts";
 
@@ -499,12 +499,15 @@ async function reject(toll: Toll, req: Req, res: ServerResponse, action: ActionC
 }
 
 /**
- * Agent retry with `Authorization` on a loopback-mint issuer. Cashu is tried first.
- * Null when this request is not that retry. The token and the secret are not logged.
+ * Agent retry with `Authorization`. Cashu is tried first. The loopback mint always accepts it.
+ * A public mint accepts it only when L402_ENABLED is 1. Null when this request is not that retry.
+ * The token and the secret are not logged.
  */
 async function quotedPassResponse(toll: Toll, header: string | string[] | undefined, agent: boolean, action: ActionClass, ip: string | null): Promise<{ status: number; body: unknown } | null> {
   const cashu = toll.config.settlement.cashu;
-  if (!agent || !cashu || !("mint" in cashu)) return null;
+  if (!agent || !cashu) return null;
+  const quoteOn = "mint" in cashu || ("mints" in cashu && l402Enabled(process.env.L402_ENABLED));
+  if (!quoteOn) return null;
   const raw = Array.isArray(header) ? header[0] : header;
   const parsed = parseL402Authorization(raw, "x");
   if (!parsed || !("preimage" in parsed)) return null;

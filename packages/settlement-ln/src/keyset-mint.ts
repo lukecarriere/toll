@@ -4,6 +4,8 @@ import { createServer, type Server, type IncomingMessage, type ServerResponse } 
 import type { AddressInfo } from "node:net";
 import { secp256k1 } from "@noble/curves/secp256k1.js";
 import { fromHex, randomBytes, toHex } from "../../protocol/src/bytes.ts";
+import { sha256 } from "../../protocol/src/hmac.ts";
+import { encodeBolt11 } from "./bolt11.ts";
 import { CASHU_UNIT, encodeTokenV4, stripMint, type CashuProof } from "./cashu.ts";
 import { deriveKeysetIdV2, proofMatches, pubkeyHex, secretY, shortKeysetId, signBlind, signSecret, splitAmount } from "./cashu-crypto.ts";
 
@@ -42,10 +44,14 @@ export interface KeysetMint {
   signedSats: () => number;
   /** Issue a cashuB token for `amount` sats. The keyset id in the token is the short form. */
   token: (amount: number) => string;
+  /** How many quote invoices were created. Stays 0 unless `quotes` was set. */
+  quotePosts: () => number;
+  /** Force the next quote invoice to this sat amount. Null restores the requested amount. */
+  setInvoiceSats: (sats: number | null) => void;
   close: () => Promise<void>;
 }
 
-export async function startKeysetMint(): Promise<KeysetMint> {
+export async function startKeysetMint(opts: { quotes?: boolean } = {}): Promise<KeysetMint> {
   const secrets = new Map<number, Uint8Array>();
   const pubs: Record<string, string> = {};
   for (const amount of DENOMS) {
@@ -65,6 +71,9 @@ export async function startKeysetMint(): Promise<KeysetMint> {
   const faults = new Map<string, string>();
   let uppercaseSigs = false;
   let signedReply: { status: number; body: string; type: string } | null = null;
+  let quotePosts = 0;
+  let invoiceSats: number | null = null;
+  const quoteRows = new Map<string, { amount: number; preimage: string; request: string; state: "UNPAID" | "PAID" | "ISSUED"; signatures: { id: string; amount: number; C_: string }[] | null }>();
 
   function faultFor(path: string): string | null {
     if (faults.has(path)) return faults.get(path) ?? null;
@@ -188,6 +197,55 @@ export async function startKeysetMint(): Promise<KeysetMint> {
         const states = Ys.map((Y: unknown) => ({ Y, state: forced ?? known.get(String(Y)) ?? "UNSPENT" }));
         return json(res, 200, { states });
       }
+      if (opts.quotes && req.method === "POST" && path === "/v1/mint/quote/bolt11") {
+        quotePosts++;
+        const body = await readJson(req);
+        const amount = body?.amount;
+        if (body?.unit !== CASHU_UNIT || !Number.isSafeInteger(amount) || amount <= 0 || amount > 1_000_000) return json(res, 400, { detail: "bad amount", code: 11000 });
+        const preimage = toHex(randomBytes(32));
+        const id = toHex(randomBytes(16));
+        const shown = invoiceSats ?? amount;
+        const request = encodeBolt11({ amountMsat: shown * 1000, paymentHash: toHex(await sha256(fromHex(preimage))) });
+        quoteRows.set(id, { amount, preimage, request, state: "UNPAID", signatures: null });
+        return json(res, 200, { quote: id, request, state: "UNPAID", expiry: Math.floor(Date.now() / 1000) + 600 });
+      }
+      const quoted = opts.quotes ? /^\/v1\/mint\/quote\/bolt11\/([0-9a-f]+)$/.exec(path) : null;
+      if (req.method === "GET" && quoted) {
+        const q = quoteRows.get(quoted[1]);
+        if (!q) return json(res, 404, { detail: "unknown", code: 404 });
+        return json(res, 200, { quote: quoted[1], request: q.request, state: q.state, expiry: Math.floor(Date.now() / 1000) + 600 });
+      }
+      if (opts.quotes && req.method === "POST" && path === "/test/pay") {
+        const body = await readJson(req);
+        const q = [...quoteRows.values()].find((row) => row.request === body?.request);
+        if (!q) return json(res, 400, { detail: "unknown", code: 11000 });
+        if (q.state === "UNPAID") q.state = "PAID";
+        return json(res, 200, { preimage: q.preimage });
+      }
+      if (opts.quotes && req.method === "POST" && path === "/v1/mint/bolt11") {
+        const body = await readJson(req);
+        const q = quoteRows.get(typeof body?.quote === "string" ? body.quote : "");
+        if (!q || q.state === "UNPAID") return json(res, 400, { detail: "unpaid", code: 11000 });
+        if (!q.signatures) {
+          const outputs = Array.isArray(body?.outputs) ? body.outputs : null;
+          if (!outputs || outputs.length === 0 || outputs.length > 64) return json(res, 400, { detail: "bad output", code: 11000 });
+          let outSum = 0;
+          const signatures: { id: string; amount: number; C_: string }[] = [];
+          for (const output of outputs) {
+            const outAmount = output?.amount;
+            const id = typeof output?.id === "string" ? output.id.toLowerCase() : "";
+            const B_ = typeof output?.B_ === "string" ? output.B_ : "";
+            const sk = secrets.get(outAmount);
+            if (!sk || id !== keysetId || !B_) return json(res, 400, { detail: "bad output", code: 11000 });
+            outSum += outAmount;
+            signatures.push({ id: keysetId, amount: outAmount, C_: signBlind(sk, B_) });
+          }
+          if (outSum !== q.amount) return json(res, 400, { detail: "amount", code: 11000 });
+          q.signatures = signatures;
+          q.state = "ISSUED";
+        }
+        return json(res, 200, { signatures: q.signatures });
+      }
       return json(res, 404, { detail: "unknown", code: 404 });
     } catch {
       if (!res.headersSent) json(res, 400, { detail: "bad request", code: 11000 });
@@ -226,6 +284,8 @@ export async function startKeysetMint(): Promise<KeysetMint> {
     signatureFor: (B_) => signed.get(B_)?.C_,
     signedSats: () => [...signed.values()].reduce((n, s) => n + s.amount, 0),
     token: issue,
+    quotePosts: () => quotePosts,
+    setInvoiceSats: (sats) => { invoiceSats = sats; },
     close: () => new Promise<void>((ok) => { server.closeAllConnections?.(); server.close(() => ok()); }),
   };
 }
