@@ -1,12 +1,13 @@
-// robots.txt (QA NO-GO, Oct 3): allow everything, no Sitemap line and no domain (the domain never ships; see
-// TOLL_SITE_URL). Exactly "User-agent: *" then "Allow: /", ending in a newline, served at /robots.txt.
+// robots.txt allows everything. The source file and a build with an explicit empty site root name no host
+// and have no Sitemap line. A build with a site root appends one Sitemap line for that root.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync, existsSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 // @ts-ignore plain JS build script
-import { build, SITE_FILES } from "../website/build.mjs";
+import { build, cliSiteRaw, SITE_FILES } from "../website/build.mjs";
+import { parseSiteUrl } from "../packages/protocol/src/site-url.ts";
 
 const ROOT = new URL("..", import.meta.url).pathname;
 const DIST = ROOT + "website/dist/";
@@ -22,12 +23,21 @@ function check(dir: string, label: string) {
   assert.doesNotMatch(t, /^\s*disallow/im, label + ": nothing disallowed");
 }
 
-test("robots.txt: website/robots.txt and the built file allow everything, with no Sitemap line and no domain", () => {
+test("robots.txt: the source and an empty site root allow everything, with no Sitemap line and no domain", () => {
   assert.ok(SITE_FILES.includes("robots.txt"), "build.mjs ships it");
   check(ROOT + "website/", "website/");
   check(build(mkdtempSync(join(tmpdir(), "toll-robots-")) + "/", ""), "fresh build");
-  check(build(mkdtempSync(join(tmpdir(), "toll-robots-set-")) + "/", "https://site.example", () => {}), "fresh build with a site root");
-  assert.ok(existsSync(DIST), "website/dist/ is missing: run `npm run build` (or `npm run build:website`) first");
-  check(DIST, "website/dist");
-  assert.ok(readFileSync(DIST + "robots.txt").equals(readFileSync(ROOT + "website/robots.txt")), "copied unchanged");
+  assert.ok(readFileSync(build(mkdtempSync(join(tmpdir(), "toll-robots-")) + "/", "") + "robots.txt").equals(readFileSync(ROOT + "website/robots.txt")), "empty site root copies the source");
+});
+
+test("robots.txt: a site root adds one Sitemap line and nothing else", () => {
+  const site = "https://site.example";
+  const dir = build(mkdtempSync(join(tmpdir(), "toll-robots-set-")) + "/", site, () => {});
+  const t = readFileSync(dir + "robots.txt", "utf8");
+  assert.equal(t, EXPECTED + `Sitemap: ${site}/sitemap.xml\n`);
+  assert.doesNotMatch(t, /^\s*disallow/im);
+  const base = parseSiteUrl(cliSiteRaw()).url;
+  assert.ok(base, "the CLI build has a site root");
+  assert.ok(existsSync(DIST + "robots.txt"), "website/dist/robots.txt");
+  assert.equal(readFileSync(DIST + "robots.txt", "utf8"), EXPECTED + `Sitemap: ${base}/sitemap.xml\n`);
 });

@@ -30,7 +30,8 @@ Preconditions:
 - **Mission pages.** Fetch `mission.html`, `vision.html`, `values.html`, and `ecosystem.html`. Headings are `Mission`, `Vision`, `Values`, and `Where Toll fits`.
 - **Docs and download.** Fetch each `docs/*.html` page and `download/index.html`. Headings are Docs, Quick start, Widget, Server, Agent SDK, MCP server, WordPress plugin, Self-hosting, and Download.
 - **Legal pages.** Fetch `privacy.html`, `terms.html`, and `support.html`. Headings are Privacy, Terms, and Support.
-- **Robots.** `curl -fsS http://127.0.0.1:8791/robots.txt` contains `User-agent: *` and `Allow: /`.
+- **Robots.** `curl -fsS http://127.0.0.1:8791/robots.txt` contains `User-agent: *`, `Allow: /`, and a `Sitemap:` line.
+- **Sitemap and llms.txt.** `curl -fsS http://127.0.0.1:8791/sitemap.xml` contains `<loc>`. `curl -fsS http://127.0.0.1:8791/llms.txt` starts with `# Toll`. The homepage contains `rel="canonical"`.
 - **Worker pages.** Fetch `/`, `/mission`, `/docs`, each guide, `/download`, `/privacy`, `/terms`, and `/support` on port 8788. Each status is 200 and the heading matches the static page.
 - **Phone width.** `npm test` already ran `tests/viewport.test.ts`. The reporter shows `# fail 0`.
 

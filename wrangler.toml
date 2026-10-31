@@ -22,7 +22,11 @@ directory = "website/dist"
 binding = "ASSETS"
 html_handling = "drop-trailing-slash"
 not_found_handling = "none"
-run_worker_first = [ "/v1/*", "/toll/v1/*", "/demo/*", "/.well-known/toll.json", "/.well-known/agents.json" ]
+# The worker runs first so www.<apex> can 308 to the apex for every path. Static pages
+# and files (/, /docs/*, /pricing, sitemap.xml, llms.txt, robots.txt, and the rest of
+# the built site) are then served by ASSETS and are not gated. Other paths, including
+# POST /search, stay on the worker.
+run_worker_first = true
 
 [vars]
 TOLL_SITE_URL = "https://lessspam.dev"

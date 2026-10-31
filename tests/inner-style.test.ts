@@ -1,9 +1,9 @@
 // Inner pages style pass (design/HANDOFF-INNER-PAGES.md, CD approved Oct 3, 2026, 6:11 PM CT). One production file
 // changes: website/site.css is design/inner-pages/site.css plus the [hidden] rule in scripts/hidden-attr.ts.
-// Everything else the site ships must stay exactly as released at 34e46d6: the five pages' HTML, home.css, the
-// site-wide CSP line, robots.txt, the icons, the photo and the fonts. The pins below are QA's dist.sha256 for the
-// 34e46d6 release build (TOLL_SITE_URL set to the working domain). The domain is read from docs/copy.md "## Naming"
-// at run time, so this file never names it (tests/no-hardcoded-domains.test.ts).
+// Everything else the site ships must stay exactly as released at 34e46d6 for the assets: home.css, the icons,
+// the photo and the fonts. Page HTML, robots.txt and the site CSP line have since gained discovery tags. The pins
+// below are QA's dist.sha256 for the 34e46d6 release build (TOLL_SITE_URL set to the working domain). The domain is
+// read from docs/copy.md "## Naming" at run time, so this file never names it (tests/no-hardcoded-domains.test.ts).
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
@@ -64,22 +64,28 @@ function walk(dir: string, at = dir): string[] {
 const OUT = build(mkdtempSync(join(tmpdir(), "toll-inner-style-")) + "/", "https://" + workingDomain());
 const hashes = (files: string[]) => Object.fromEntries(files.map((f) => [f, sha256(readFileSync(OUT + f))]));
 
-test("release pin: the four mission pages are the 34e46d6 release HTML byte for byte (QA's dist.sha256)", () => {
-  assert.deepEqual(hashes(MISSION_HTML), Object.fromEntries(MISSION_HTML.map((f) => [f, RELEASE_34E46D6[f]])));
+test("release pin: mission page bodies match a build with no site root; assets stay on the 34e46d6 hashes", () => {
+  const bare = build(mkdtempSync(join(tmpdir(), "toll-inner-bare-")) + "/", "");
+  const main = (h: string) => /<main>[\s\S]*<\/main>/.exec(h)![0];
+  for (const f of MISSION_HTML) assert.equal(main(readFileSync(OUT + f, "utf8")), main(readFileSync(bare + f, "utf8")), f);
+  for (const f of ["apple-touch-icon.png", "favicon.ico", "favicon.svg", "fonts/arvo/Arvo-Bold.woff2", "fonts/arvo/LICENSE.txt", "fonts/public-sans/LICENSE.txt", "fonts/public-sans/PublicSans-Latin.woff2", "home.css", "img/forest-road-1280.jpg", "img/forest-road-2560.jpg"]) {
+    assert.equal(sha256(readFileSync(OUT + f)), RELEASE_34E46D6[f], f);
+  }
 });
 
 test("release pin: mission pages stay byte-identical; the homepage Docs link, demo, and guides are the additions", () => {
   const files = walk(OUT);
-  const added = ["demo.css", "demo.html", "demo.js", "docs.css", ...DOC_PAGES.map((p: { file: string }) => p.file + ".html"), "privacy.html", "support.html", "terms.html"];
+  const added = ["demo.css", "demo.html", "demo.js", "docs.css", "llms.txt", "sitemap.xml", ...DOC_PAGES.map((p: { file: string }) => p.file + ".html"), "privacy.html", "support.html", "terms.html"];
   if (existsSync(OUT + "download/" + REL.zip)) added.push("download/" + REL.zip, "download/" + REL.shaName);
   assert.deepEqual(files, [...Object.keys(RELEASE_34E46D6), ...added].sort(), "the release files plus the demo page and the guides");
   const got = hashes(files.filter((f) => f in RELEASE_34E46D6));
   const changed = Object.keys(RELEASE_34E46D6).filter((f) => got[f] !== RELEASE_34E46D6[f]);
-  assert.deepEqual(changed.sort(), ["_headers", "index.html", "site.css"], "mission pages and assets stay; the homepage links to Docs; _headers keeps the /demo rule");
+  assert.deepEqual(changed.sort(), ["_headers", "ecosystem.html", "index.html", "mission.html", "robots.txt", "site.css", "values.html", "vision.html"], "discovery tags on the HTML, robots and CSP; site.css is the handoff file");
   assert.match(readFileSync(OUT + "index.html", "utf8"), /<a href="\/docs">Docs<\/a>/);
   assert.equal(got["site.css"], SITE_CSS_SHA256, "dist site.css is the handoff file plus the hidden rule");
   const headers = readFileSync(OUT + "_headers", "utf8");
-  assert.ok(headers.includes("  Content-Security-Policy: default-src 'none'; style-src 'self'; img-src 'self'; font-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"), "the site CSP line is still there");
+  assert.match(headers, /default-src 'none'; script-src 'sha256-[A-Za-z0-9+/]+=*'; style-src 'self'; img-src 'self'; font-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'/, "the site CSP stays strict and allows the JSON-LD by hash");
+  assert.doesNotMatch(headers, /unsafe-inline/);
   // The sources the build copies, for the files the handoff says must not move. _headers is the demo exception.
   for (const f of ["home.css", "robots.txt", "fonts/arvo/Arvo-Bold.woff2", "fonts/public-sans/PublicSans-Latin.woff2"]) {
     assert.equal(sha256(readFileSync(ROOT + "website/" + f)), RELEASE_34E46D6[f], "website/" + f + " is unchanged");

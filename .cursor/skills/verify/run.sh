@@ -138,6 +138,9 @@ site=http://127.0.0.1:8791
   curl -fsS "$site/terms.html" | grep -o "<h1>Terms</h1>"
   curl -fsS "$site/support.html" | grep -o "<h1>Support</h1>"
   curl -fsS "$site/robots.txt"
+  curl -fsS "$site/sitemap.xml" | grep -o "<loc>" | head -n 1
+  curl -fsS "$site/llms.txt" | grep -o "^# Toll"
+  curl -fsS "$site/" | grep -o 'rel="canonical"'
   curl -fsS "$site/" | grep -o 'href="/docs"'
   for p in docs/index.html docs/quick-start.html docs/widget.html docs/server.html docs/agent.html docs/mcp.html docs/wordpress.html docs/self-hosting.html download/index.html; do
     curl -fsS -o /tmp/toll-page.html "$site/$p"
