@@ -127,6 +127,14 @@ export interface MintQuoteOutput {
 /** Body detail when the mint has signed and neither a re-mint nor a restore returned signatures. */
 export const MINT_SIGNED_UNRECOVERABLE = "mint signed; signatures were not recovered";
 
+/** Retry-After seconds on a retryable quote 503. Short against the 120 s quote lifetime. */
+export const MINT_RETRY_AFTER_S = "5";
+
+/** Retry-After for a quote 503: set unless the mint signed and the signatures are gone. */
+export function quoteRetryHeaders(detail: string): Record<string, string> {
+  return detail === MINT_SIGNED_UNRECOVERABLE ? {} : { "retry-after": MINT_RETRY_AFTER_S };
+}
+
 export async function mintQuoteOffer(o: {
   secret: string; mint: string; site: string; cls: PaidClass; amount_msat: number; now: number; ttl_s?: number;
   fetchImpl?: typeof fetch;

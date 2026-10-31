@@ -6,7 +6,7 @@ import { readFileSync, existsSync, statSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { type ActionClass, TollError, isActionClass, timingSafeEqual, utf8, verifyPassToken, classCovers, clientIp as resolveClientIp } from "../../protocol/src/index.ts";
-import { asCashuPayment, l402Challenge, l402Enabled, parseL402Authorization, paymentRequired, presentedCashu, StubSettler } from "../../settlement-ln/src/index.ts";
+import { asCashuPayment, l402Challenge, l402Enabled, parseL402Authorization, paymentRequired, presentedCashu, quoteRetryHeaders, StubSettler } from "../../settlement-ln/src/index.ts";
 import type { Toll } from "./toll.ts";
 import { buildManifest, agentsPointer, priceBody, PAID_CLASSES } from "./manifest.ts";
 
@@ -459,7 +459,7 @@ export function protect(toll: Toll, o: ProtectOptions = {}) {
       const paid = await cashuPassResponse(toll, req.headers["x-cashu"], agent, action, from.ip);
       if (paid) return send(res, paid.status, paid.body);
       const quoted = await quotedPassResponse(toll, req.headers.authorization, agent, action, from.ip);
-      if (quoted) return send(res, quoted.status, quoted.body);
+      if (quoted) return send(res, quoted.status, quoted.body, quoted.headers);
       return reject(toll, req, res, action, o.noJsMessage, true); // first contact: absent, not rejected
     }
     try {
@@ -472,7 +472,7 @@ export function protect(toll: Toll, o: ProtectOptions = {}) {
       const paid = await cashuPassResponse(toll, req.headers["x-cashu"], agent, action, from.ip);
       if (paid) return send(res, paid.status, paid.body);
       const quoted = await quotedPassResponse(toll, req.headers.authorization, agent, action, from.ip);
-      if (quoted) return send(res, quoted.status, quoted.body);
+      if (quoted) return send(res, quoted.status, quoted.body, quoted.headers);
       return reject(toll, req, res, action, o.noJsMessage, false);
     }
   };
@@ -503,7 +503,7 @@ async function reject(toll: Toll, req: Req, res: ServerResponse, action: ActionC
  * A public mint accepts it only when L402_ENABLED is 1. Null when this request is not that retry.
  * The token and the secret are not logged.
  */
-async function quotedPassResponse(toll: Toll, header: string | string[] | undefined, agent: boolean, action: ActionClass, ip: string | null): Promise<{ status: number; body: unknown } | null> {
+async function quotedPassResponse(toll: Toll, header: string | string[] | undefined, agent: boolean, action: ActionClass, ip: string | null): Promise<{ status: number; body: unknown; headers?: Record<string, string> } | null> {
   const cashu = toll.config.settlement.cashu;
   if (!agent || !cashu) return null;
   const quoteOn = "mint" in cashu || ("mints" in cashu && l402Enabled(process.env.L402_ENABLED));
@@ -518,7 +518,7 @@ async function quotedPassResponse(toll: Toll, header: string | string[] | undefi
     if (e instanceof TollError && e.code === "store_unavailable") {
       const body: { error: string; detail?: string } = { error: "unavailable" };
       if (e.message !== e.code) body.detail = e.message;
-      return { status: 503, body };
+      return { status: 503, body, headers: quoteRetryHeaders(body.detail ?? "") };
     }
     return { status: statusFor(e), body: { error: e instanceof TollError ? e.code : "internal" } };
   }
@@ -625,7 +625,7 @@ export function guardFetch(
       const paid = await cashu();
       if (paid) return Response.json(paid.body, { status: paid.status });
       const quoted = await quoteRetry();
-      if (quoted) return Response.json(quoted.body, { status: quoted.status });
+      if (quoted) return Response.json(quoted.body, { status: quoted.status, headers: quoted.headers });
       return refuse(true);
     }
     try {
@@ -636,7 +636,7 @@ export function guardFetch(
       const paid = await cashu();
       if (paid) return Response.json(paid.body, { status: paid.status });
       const quoted = await quoteRetry();
-      if (quoted) return Response.json(quoted.body, { status: quoted.status });
+      if (quoted) return Response.json(quoted.body, { status: quoted.status, headers: quoted.headers });
       return refuse(false);
     }
   };

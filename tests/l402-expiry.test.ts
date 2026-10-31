@@ -134,3 +134,23 @@ test("an expired macaroon on a kept reservation the mint cannot restore books on
     await env.close();
   }
 });
+
+test("a retryable 503 carries Retry-After and the unrecoverable 503 does not", async () => {
+  const env = await boot();
+  try {
+    const { quote, send } = await paidOffer(env);
+    const missed = await timeOutBothPosts(env.mint, quote, send);
+    assert.equal(missed.res.status, 503, JSON.stringify(missed.body));
+    assert.equal(missed.body.detail, undefined);
+    assert.equal(missed.res.headers.get("retry-after"), "5");
+    env.mint.setStuckMint(true);
+    await missed.signLate();
+    const lost = await send();
+    const body = await lost.json();
+    assert.equal(lost.status, 503, JSON.stringify(body));
+    assert.equal(body.detail, LOST);
+    assert.equal(lost.headers.get("retry-after"), null, "retrying cannot recover these signatures");
+  } finally {
+    await env.close();
+  }
+});

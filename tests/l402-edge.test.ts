@@ -276,6 +276,7 @@ test("both mint posts time out on the worker and the mint signs late: the retry 
   const { missed, signLate } = await timeOutBothPosts(macaroon, preimage);
   assert.equal(missed.status, 503, JSON.stringify(missed.body));
   assert.equal(missed.body.detail, undefined);
+  assert.equal(missed.headers.get("retry-after"), "5", "a retryable 503 says when to retry");
   await signLate();
   const ok = await post({ authorization: `L402 ${macaroon}:${preimage}` });
   assert.equal(ok.status, 200, JSON.stringify(ok.body));
@@ -299,6 +300,7 @@ test("a late signature the worker cannot restore records the loss once and grant
       const lost = await post({ authorization: `L402 ${macaroon}:${preimage}` });
       assert.equal(lost.status, 503, JSON.stringify(lost.body));
       assert.equal(lost.body.detail, "mint signed; signatures were not recovered");
+      assert.equal(lost.headers.get("retry-after"), null, "retrying cannot recover these signatures");
     }
     const books = await read(await fetch(base + "/v1/test/cashu-books"));
     assert.equal(books.body.losses, Number(beforeBooks.body.losses) + 10);

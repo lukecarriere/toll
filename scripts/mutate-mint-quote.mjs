@@ -126,6 +126,18 @@ const mutants = [
     from: '      await o.noteLoss({ quote: c.quote, action: c.cls, amount });\n      await o.unlock(c.quote);\n      throw new TollError("store_unavailable", MINT_SIGNED_UNRECOVERABLE);',
     to: '      await o.unlock(c.quote);\n      throw new TollError("store_unavailable", MINT_SIGNED_UNRECOVERABLE);',
   },
+  {
+    name: "a retryable quote 503 has no Retry-After",
+    test: "a retryable 503 carries Retry-After and the unrecoverable 503 does not",
+    from: ': { "retry-after": MINT_RETRY_AFTER_S };',
+    to: ": {};",
+  },
+  {
+    name: "the unrecoverable quote 503 invites a retry",
+    test: "a retryable 503 carries Retry-After and the unrecoverable 503 does not",
+    from: 'return detail === MINT_SIGNED_UNRECOVERABLE ? {} :',
+    to: 'return detail === "" ? {} :',
+  },
 ];
 
 /** TAP summary counts, or null when the run printed no TAP summary (a crash, not a test result). */
