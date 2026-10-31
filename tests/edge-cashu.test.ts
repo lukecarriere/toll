@@ -10,7 +10,7 @@ import { join } from "node:path";
 import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
 import { fileURLToPath } from "node:url";
-import { fromB64url, toHex } from "../packages/protocol/src/bytes.ts";
+import { fromB64url, toB64url, toHex, utf8 } from "../packages/protocol/src/bytes.ts";
 import { cborDecode } from "../packages/settlement-ln/src/cbor.ts";
 import { decodePaymentRequest, decodeToken, decodeTokenV4, encodeTokenV3, encodeTokenV4 } from "../packages/settlement-ln/src/cashu.ts";
 import { CashuReceiveEngine } from "../packages/settlement-ln/src/cashu-receive.ts";
@@ -27,7 +27,21 @@ const UNLISTED = "https://evil.example/Bitcoin";
 
 let wr: ChildProcess;
 let base = "";
+let wrLog = "";
 let mint: Awaited<ReturnType<typeof startKeysetMint>>;
+
+/** cashuA whose keyset id is the mint's full 33-byte id, the shape a wallet sends as-is. */
+function cashuA(token: string): string {
+  const decoded = decodeToken(token);
+  const obj = {
+    token: [{
+      mint: MINT,
+      proofs: decoded.proofs.map((p) => ({ amount: p.amount, id: mint.keysetId, secret: p.secret, C: toHex(p.C) })),
+    }],
+    unit: decoded.unit,
+  };
+  return "cashuA" + toB64url(utf8(JSON.stringify(obj)));
+}
 
 function retarget(token: string, mintUrl: string): string {
   const decoded = decodeTokenV4(token);
@@ -58,13 +72,13 @@ before(async () => {
     env: { ...process.env, WRANGLER_SEND_METRICS: "false", CI: "1" },
     stdio: ["ignore", "pipe", "pipe"],
   });
-  let log = "";
+  wrLog = "";
   await new Promise<void>((resolve, reject) => {
-    const t = setTimeout(() => reject(new Error("wrangler dev did not start:\n" + log)), 90_000);
-    const on = (c: Buffer) => { log += c.toString(); if (/Ready on http/.test(log)) { clearTimeout(t); resolve(); } };
+    const t = setTimeout(() => reject(new Error("wrangler dev did not start:\n" + wrLog)), 90_000);
+    const on = (c: Buffer) => { wrLog += c.toString(); if (/Ready on http/.test(wrLog)) { clearTimeout(t); resolve(); } };
     wr.stdout!.on("data", on);
     wr.stderr!.on("data", on);
-    wr.on("exit", (code) => { clearTimeout(t); reject(new Error("wrangler dev exited " + code + "\n" + log)); });
+    wr.on("exit", (code) => { clearTimeout(t); reject(new Error("wrangler dev exited " + code + "\n" + wrLog)); });
   });
   wr.removeAllListeners("exit");
   base = `http://127.0.0.1:${free}`;
@@ -158,6 +172,75 @@ test("a payment is accepted, the input is marked spent, and a replay is rejected
   assert.equal(mint.swaps(), swaps + 1, "the spent input is refused from the store");
   const held = await call("/v1/test/cashu-books");
   assert.equal(held.body.stored, after.body.stored);
+});
+
+test("parallel receives that share an input: one 200 from the durable object, the rest 4xx, no 500", async () => {
+  const before = await call("/v1/test/cashu-books");
+  const signedBefore = mint.signedSats();
+  const eight = decodeToken(retarget(mint.token(8), MINT));
+  const two = decodeToken(retarget(mint.token(2), MINT));
+  const searchTok = encodeTokenV4({ mint: MINT, unit: eight.unit, proofs: eight.proofs });
+  const writeTok = encodeTokenV4({ mint: MINT, unit: eight.unit, proofs: [...eight.proofs, ...two.proofs] });
+  const N = 8;
+  const results = await Promise.all(Array.from({ length: N }, (_, i) => call(i === 0 ? "/demo/contact" : "/search", {
+    method: "POST",
+    headers: { accept: "application/json", "content-type": "application/json", "toll-client": "agent", "x-cashu": i === 0 ? writeTok : searchTok },
+    body: "{}",
+  })));
+  const ok = results.filter((r) => r.status === 200);
+  const crashed = results.filter((r) => r.status >= 500);
+  assert.equal(crashed.length, 0, JSON.stringify(results.map((r) => [r.status, r.body?.error])));
+  assert.equal(ok.length, 1, JSON.stringify(results.map((r) => [r.status, r.body?.error])));
+  for (const r of results) if (r.status !== 200) assert.ok(r.status >= 400 && r.status < 500, String(r.status));
+  assert.equal(typeof ok[0].body.pass, "string");
+  const after = await call("/v1/test/cashu-books");
+  booksOk(after.body);
+  const signed = mint.signedSats() - signedBefore;
+  assert.equal(after.body.pending, before.body.pending);
+  assert.equal(after.body.stored - before.body.stored, signed);
+  assert.equal(after.body.inSats - before.body.inSats, signed);
+});
+
+test("a claimed durable-object row keeps its lease until the mint answers", async () => {
+  const before = await books();
+  const signedBefore = mint.signedSats();
+  const parts = decodeToken(retarget(mint.token(10), MINT));
+  const shared = parts.proofs[0];
+  const large = encodeTokenV4({ mint: MINT, unit: parts.unit, proofs: parts.proofs });
+  const small = encodeTokenV4({ mint: MINT, unit: parts.unit, proofs: [shared] });
+  const held = pay(large, "hold-before-swap");
+  const deadline = Date.now() + 5_000;
+  let pending = before.pending;
+  while (pending === before.pending) {
+    if (Date.now() > deadline) throw new Error("the claim was not saved");
+    await new Promise((r) => setTimeout(r, 20));
+    pending = (await books()).pending;
+  }
+  assert.equal(pending, before.pending + 10);
+  const overlap = await call("/search", {
+    method: "POST",
+    headers: { accept: "application/json", "content-type": "application/json", "toll-client": "agent", "x-cashu": small },
+    body: "{}",
+  });
+  assert.equal(overlap.status, 401, overlap.text);
+  assert.equal(overlap.body.error, "replay");
+  const mid = await books();
+  booksOk(mid);
+  assert.equal(mid.pending, before.pending + 10, "an overlapping receive must not abort the claimed row");
+  assert.equal(mid.stored, before.stored);
+  const released = await call("/v1/test/release-hold", { method: "POST" });
+  assert.equal(released.status, 200, released.text);
+  const paid = await held;
+  assert.equal(paid.status, 200, paid.text);
+  assert.equal(typeof paid.body.pass, "string");
+  const after = await books();
+  booksOk(after);
+  holds(after);
+  const signed = mint.signedSats() - signedBefore;
+  assert.equal(after.pending, before.pending);
+  assert.equal(after.stored - before.stored, signed);
+  assert.equal(after.stored - before.stored, 10);
+  assert.equal(after.losses, before.losses);
 });
 
 test("an unlisted mint is refused and not fetched", async () => {
@@ -678,6 +761,13 @@ function matrixStore(): ProofStore & { aborts: () => number } {
       losses += p.inSats - p.outSats;
       return p;
     },
+    async lease(id, owner, exp) {
+      const row = pending.find((x) => x.id === id);
+      if (!row || (row.owner !== undefined && row.owner !== owner)) return;
+      if (row.at === undefined) row.at = Date.now();
+      row.owner = owner;
+      row.leaseExp = exp;
+    },
     async commit(o) {
       if (!pending.some((x) => x.id === o.id)) throw new TollError("store_unavailable");
       proofs = proofs.concat(o.proofs);
@@ -711,6 +801,13 @@ function looseStore(): ProofStore & { begins: () => number } {
       return { stored, pending: pendingSats, losses, spent: spent.length, inSats: stored + pendingSats + losses };
     },
     async begin(p) { begins++; pending.push(p); losses += p.inSats - p.outSats; return p; },
+    async lease(id, owner, exp) {
+      const row = pending.find((x) => x.id === id);
+      if (!row || (row.owner !== undefined && row.owner !== owner)) return;
+      if (row.at === undefined) row.at = Date.now();
+      row.owner = owner;
+      row.leaseExp = exp;
+    },
     async commit(o) {
       proofs = proofs.concat(o.proofs);
       for (const h of o.marks) if (!spent.includes(h)) spent.push(h);
@@ -720,6 +817,75 @@ function looseStore(): ProofStore & { begins: () => number } {
     async lose(_o: { id: string; marks: string[] }) { throw new Error("lose"); },
   };
 }
+
+test("a cashuA redeem whose mint refuses in plain text is not an outage, and the swap is not left pending", async () => {
+  const before = await books();
+  const denied = await call("/demo/contact", {
+    method: "POST",
+    headers: { accept: "application/json", "content-type": "application/json", "toll-client": "agent" },
+    body: "{}",
+  });
+  assert.equal(denied.status, 402, denied.text);
+  const offer = denied.body.offers[0];
+  const token = cashuA(mint.token(10));
+  assert.equal(decodeToken(token).proofs[0].id.length, 33);
+  const signed = mint.signedSats();
+  mint.setFault("/v1/swap", "plain-422");
+  try {
+    const redeem = await call("/v1/redeem", {
+      method: "POST",
+      headers: { "content-type": "application/json", "toll-client": "agent" },
+      body: JSON.stringify({ offer_id: offer.id, kind: "cashu", token, credential: offer.credential }),
+    });
+    assert.equal(redeem.status, 401, redeem.text);
+    assert.equal(redeem.body.error, "bad_solution");
+    const after = await books();
+    booksOk(after);
+    assert.equal(after.pending, before.pending);
+    assert.equal(after.stored, before.stored);
+    assert.equal(after.losses, before.losses);
+    assert.equal(mint.signedSats(), signed);
+    holds(after);
+    assert.match(wrLog, /"event":"mint"/);
+    assert.equal(wrLog.includes(decodeToken(token).proofs[0].secret), false);
+  } finally {
+    mint.setFault(null, null);
+  }
+});
+
+test("a cashuA swap the mint never took is cleared on the next request", async () => {
+  const before = await books();
+  const crashed = await pay(cashuA(mint.token(10)), "crash-before-swap");
+  assert.equal(crashed.status, 503, crashed.text);
+  assert.equal(crashed.body.error, "store_unavailable");
+  const mid = await books();
+  booksOk(mid);
+  assert.equal(mid.pending, before.pending + 10);
+  assert.equal(mid.stored, before.stored);
+  const paid = await pay(cashuA(mint.token(10)));
+  assert.equal(paid.status, 200, paid.text);
+  const after = await books();
+  booksOk(after);
+  holds(after);
+  assert.equal(after.pending, before.pending);
+  assert.equal(after.stored, before.stored + 10);
+  assert.equal(after.losses, before.losses);
+});
+
+test("check-live-state.sh sends the agent header, expects 402, and reads the gate tool", async () => {
+  const r = await new Promise<{ status: number | null; stdout: string; stderr: string }>((resolve) => {
+    const child = spawn("sh", [ROOT + "scripts/check-live-state.sh", base]);
+    let stdout = "";
+    let stderr = "";
+    child.stdout.on("data", (c) => { stdout += c.toString(); });
+    child.stderr.on("data", (c) => { stderr += c.toString(); });
+    child.on("close", (status) => resolve({ status, stdout, stderr }));
+  });
+  assert.equal(r.status, 0, r.stdout + r.stderr);
+  assert.match(r.stdout, /gate_form_write/);
+  assert.match(r.stdout, /cashu/);
+  assert.match(r.stdout, /\b402\b/);
+});
 
 test("a visitor without a payment still clears the work check", async () => {
   const denied = await call("/demo/contact", {

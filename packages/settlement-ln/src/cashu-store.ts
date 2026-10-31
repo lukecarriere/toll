@@ -29,6 +29,11 @@ export interface PendingOutput {
  */
 export interface PendingSwap {
   id: string;
+  /** Unix ms when the owner stamped the row, after begin(). */
+  at?: number;
+  /** Set after begin(). A sweeper does not delete the row while this is in the future. */
+  owner?: string;
+  leaseExp?: number;
   mint: string;
   unit: "sat";
   inSats: number;
@@ -55,6 +60,26 @@ export interface ProofSnapshot {
   losses: number;
 }
 
+/** True when both lists are the same set of input marks, in any order. */
+export function sameInputSet(a: string[], b: string[]): boolean {
+  if (a.length !== b.length) return false;
+  const set = new Set(b);
+  return a.every((h) => set.has(h));
+}
+
+/**
+ * The pending row that already holds this input set, or null when none of the marks are taken.
+ * A shared mark that is not the same set is replay: one stored swap, one input set.
+ * The file store and the Durable Object both use this, inside the write that inserts the row.
+ */
+export function claimPending(rows: PendingSwap[], p: PendingSwap): PendingSwap | null {
+  const hit = rows.find((x) => x.marks.some((h) => p.marks.includes(h)));
+  if (!hit) return null;
+  // CASHU_GUARD overlap: one stored swap per input set. A shared mark is not this swap.
+  if (hit.mint === p.mint && sameInputSet(hit.marks, p.marks)) return hit;
+  throw new TollError("replay");
+}
+
 /**
  * Proofs, spent inputs, and in-flight swaps. `begin` returns only after the pending swap is durable.
  * `commit` returns only after the new proofs and the spent marks are durable.
@@ -63,11 +88,18 @@ export interface ProofStore {
   read(): Promise<ProofSnapshot>;
   books(): Promise<CashuBooks>;
   begin(p: PendingSwap): Promise<PendingSwap>;
+  /** Stamp `at` if unset and set the owner's lease. A different owner is ignored. */
+  lease(id: string, owner: string, exp: number): Promise<void>;
   commit(o: { id: string; proofs: StoredProof[]; marks: string[] }): Promise<void>;
   /** The mint never took the inputs. Drops the pending swap and its fee. */
   abort(id: string): Promise<void>;
   /** Inputs are spent and the outputs cannot be restored. Counts `outSats` as a loss and marks the inputs spent. */
   lose(o: { id: string; marks: string[] }): Promise<void>;
+  /**
+   * The mint signed `amount` and the pending row is gone, so commit cannot store the proofs.
+   * Count `amount` once. A live row or marks already spent are left alone.
+   */
+  noteSigned?(amount: number, marks: string[]): Promise<void>;
 }
 
 interface FileShape {
@@ -162,12 +194,24 @@ export class FileProofStore implements ProofStore {
     return queue(this.path, async () => {
       const file = await readStore(this.path);
       if (p.marks.some((h) => file.spent.includes(h))) throw new TollError("replay");
-      const existing = file.pending.find((x) => x.marks.some((h) => p.marks.includes(h)));
+      const existing = claimPending(file.pending, p);
       if (existing) return existing;
       file.pending.push(p);
       file.losses += p.inSats - p.outSats;
       await writeStore(this.path, file);
       return p;
+    });
+  }
+
+  async lease(id: string, owner: string, exp: number): Promise<void> {
+    return queue(this.path, async () => {
+      const file = await readStore(this.path);
+      const pending = file.pending.find((x) => x.id === id);
+      if (!pending || (pending.owner !== undefined && pending.owner !== owner)) return;
+      if (pending.at === undefined) pending.at = Date.now();
+      pending.owner = owner;
+      pending.leaseExp = exp;
+      await writeStore(this.path, file);
     });
   }
 
@@ -196,6 +240,18 @@ export class FileProofStore implements ProofStore {
       file.losses -= pending.inSats - pending.outSats;
       if (file.losses < 0) file.losses = 0;
       file.pending = file.pending.filter((x) => x.id !== id);
+      await writeStore(this.path, file);
+    });
+  }
+
+  async noteSigned(amount: number, marks: string[]): Promise<void> {
+    return queue(this.path, async () => {
+      const file = await readStore(this.path);
+      if (marks.length > 0 && marks.every((h) => file.spent.includes(h))) return;
+      if (file.pending.some((p) => p.marks.some((h) => marks.includes(h)))) return;
+      if (!Number.isSafeInteger(amount) || amount <= 0) return;
+      file.losses += amount;
+      for (const h of marks) if (!file.spent.includes(h)) file.spent.push(h);
       await writeStore(this.path, file);
     });
   }

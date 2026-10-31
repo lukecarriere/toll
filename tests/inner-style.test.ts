@@ -1,10 +1,9 @@
 // Inner pages style pass (design/HANDOFF-INNER-PAGES.md, CD approved Oct 3, 2026, 6:11 PM CT). One production file
-// changes: website/site.css becomes design/inner-pages/site.css, byte for byte. Everything else the site ships must
-// stay exactly as released at 34e46d6 for the assets: home.css, the icons, the photo and the fonts.
-// Page HTML, robots.txt and the site CSP line have since gained discovery tags. The pins below are QA's
-// dist.sha256 for the 34e46d6 release build
-// (TOLL_SITE_URL set to the working domain). The domain is read from docs/copy.md "## Naming" at run time, so this
-// file never names it (tests/no-hardcoded-domains.test.ts).
+// changes: website/site.css is design/inner-pages/site.css plus the [hidden] rule in scripts/hidden-attr.ts.
+// Everything else the site ships must stay exactly as released at 34e46d6 for the assets: home.css, the icons,
+// the photo and the fonts. Page HTML, robots.txt and the site CSP line have since gained discovery tags. The pins
+// below are QA's dist.sha256 for the 34e46d6 release build (TOLL_SITE_URL set to the working domain). The domain is
+// read from docs/copy.md "## Naming" at run time, so this file never names it (tests/no-hardcoded-domains.test.ts).
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
@@ -13,6 +12,7 @@ import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
 // @ts-ignore plain JS build script
 import { build, DOC_PAGES, pluginRelease } from "../website/build.mjs";
+import { withHiddenRule } from "../scripts/hidden-attr.ts";
 
 const ROOT = new URL("..", import.meta.url).pathname;
 const HANDOFF_CSS = ROOT + "design/inner-pages/site.css";
@@ -20,6 +20,8 @@ const sha256 = (b: Buffer) => createHash("sha256").update(b).digest("hex");
 
 /** sha256 of design/inner-pages/site.css as approved for the inner pages (Oct 3, 2026). */
 const HANDOFF_CSS_SHA256 = "2ebe7ea9386497fed5f1a3e54ac0531e7ad104bd340a7907a2f99e306896ec1b";
+/** sha256 of website/site.css: the handoff file plus the [hidden] rule. */
+const SITE_CSS_SHA256 = "f5a38c728e038b419bb45e97ebc6d75c6e4ef8f08dc9fa64dfb19b5313da5a5d";
 
 /** QA's dist.sha256 for the 34e46d6 release build: all 18 files. */
 const RELEASE_34E46D6: Record<string, string> = {
@@ -80,7 +82,7 @@ test("release pin: mission pages stay byte-identical; the homepage Docs link, de
   const changed = Object.keys(RELEASE_34E46D6).filter((f) => got[f] !== RELEASE_34E46D6[f]);
   assert.deepEqual(changed.sort(), ["_headers", "ecosystem.html", "index.html", "mission.html", "robots.txt", "site.css", "values.html", "vision.html"], "discovery tags on the HTML, robots and CSP; site.css is the handoff file");
   assert.match(readFileSync(OUT + "index.html", "utf8"), /<a href="\/docs">Docs<\/a>/);
-  assert.equal(got["site.css"], HANDOFF_CSS_SHA256, "dist site.css is the handoff file");
+  assert.equal(got["site.css"], SITE_CSS_SHA256, "dist site.css is the handoff file plus the hidden rule");
   const headers = readFileSync(OUT + "_headers", "utf8");
   assert.match(headers, /default-src 'none'; script-src 'sha256-[A-Za-z0-9+/]+=*'; style-src 'self'; img-src 'self'; font-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'/, "the site CSP stays strict and allows the JSON-LD by hash");
   assert.doesNotMatch(headers, /unsafe-inline/);
@@ -90,9 +92,9 @@ test("release pin: mission pages stay byte-identical; the homepage Docs link, de
   }
 });
 
-test("site.css: website/site.css is the CD-approved design/inner-pages/site.css byte for byte (pinned hash)", () => {
+test("site.css: website/site.css is the inner-pages handoff plus the hidden rule (pinned hash)", () => {
   const src = readFileSync(ROOT + "website/site.css");
-  assert.equal(sha256(src), HANDOFF_CSS_SHA256, "website/site.css");
+  assert.equal(sha256(src), SITE_CSS_SHA256, "website/site.css");
   assert.deepEqual(readFileSync(OUT + "site.css"), src, "the build copies it unchanged");
   // Self-contained, and it fetches only fonts that ship: no @import, no remote URL, every url() a file in website/.
   const css = src.toString("utf8");
@@ -105,7 +107,8 @@ test("site.css: website/site.css is the CD-approved design/inner-pages/site.css 
   assert.match(css, /\bh1:before\{content:"";[^}]*background:var\(--amber\)/);
 });
 
-test("site.css: byte for byte the live handoff file in design/inner-pages/", { skip: existsSync(HANDOFF_CSS) ? false : "design/ not present (gitignored)" }, () => {
-  assert.equal(sha256(readFileSync(HANDOFF_CSS)), HANDOFF_CSS_SHA256, "the pinned hash is the handoff file's");
-  assert.deepEqual(readFileSync(ROOT + "website/site.css"), readFileSync(HANDOFF_CSS));
+test("site.css: the live handoff file plus the hidden rule", { skip: existsSync(HANDOFF_CSS) ? false : "design/ not present (gitignored)" }, () => {
+  const handoff = readFileSync(HANDOFF_CSS, "utf8");
+  assert.equal(sha256(Buffer.from(handoff)), HANDOFF_CSS_SHA256, "the pinned hash is the handoff file's");
+  assert.equal(readFileSync(ROOT + "website/site.css", "utf8"), withHiddenRule(handoff));
 });

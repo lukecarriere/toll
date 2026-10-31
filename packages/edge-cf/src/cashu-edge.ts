@@ -15,6 +15,20 @@ export interface CashuEnv {
 /** URLs the worker was about to fetch from a mint. Cleared by the test endpoint. Test hooks only. */
 export const mintFetches: string[] = [];
 
+/** Test hook. The worker holds the request after the claim and before the mint call. */
+let releaseHold: (() => void) | null = null;
+
+export function holdBeforeSwap(): Promise<void> | undefined {
+  if (cashuFaultSlot.getStore() !== "hold-before-swap") return;
+  return new Promise((resolve) => { releaseHold = resolve; });
+}
+
+export function releaseBeforeSwap(): void {
+  const release = releaseHold;
+  releaseHold = null;
+  release?.();
+}
+
 export function cashuFetch(env: CashuEnv, mints: string[]): typeof fetch {
   return async (input, init) => {
     const href = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;

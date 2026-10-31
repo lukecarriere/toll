@@ -84,6 +84,19 @@ export function payment(status: PriceStatus, paid: boolean, method: "ln402" | "c
   return { status: "stub" as const, protocol: "HTTP 402", methods: [{ kind: "ln402", status }], x402: { status: "stub" as const } };
 }
 
+/**
+ * One list on every tool. An empty list is protocol none, including when the mint is down.
+ * The stub row keeps the price status. Every other row reports its own method name, so a second
+ * method is not labelled cashu. The name is the value already in the list: a settlement import
+ * here would copy that package's declarations onto a public type surface.
+ */
+export function paymentFor(status: PriceStatus, paid: boolean, methods: readonly string[]) {
+  if (!paid || methods.length === 0) return payment(status, false);
+  const rows = methods.map((kind) => ({ kind, status: kind === "ln402" ? status : kind === "cashu" ? "cashu" as const : kind }));
+  const top = methods.every((kind) => kind === "ln402") ? "stub" as const : "cashu" as const;
+  return { status: top, protocol: "HTTP 402" as const, methods: rows, x402: { status: "stub" as const } };
+}
+
 export type PriceTable = Partial<Record<Exclude<ActionClass, "read">, { amount_msat: number; usd: string | undefined }>> | null;
 
 /** Per paid action: true when this site's 402 offer for it can rise with load (a load multiplier is applied). */
@@ -94,7 +107,7 @@ export type LoadPricing = Partial<Record<Exclude<ActionClass, "read">, boolean>>
  * status "stub". `api` is the /v1 facade base (Node and edge `<origin>/v1`, WordPress
  * `<home>/wp-json/toll/v1`).
  */
-export function buildManifest(o: { api: string; docs: string | null; status: PriceStatus; prices: PriceTable; loadPricing?: LoadPricing; method?: "ln402" | "cashu" }) {
+export function buildManifest(o: { api: string; docs: string | null; status: PriceStatus; prices: PriceTable; loadPricing?: LoadPricing; method?: "ln402" | "cashu"; methods?: readonly string[] }) {
   const paid = !!o.prices;
   const canRise = paid && PAID_CLASSES.some((c) => !!o.prices?.[c] && o.loadPricing?.[c] === true);
   const by_action: Record<string, Price & { basis: "base" }> = {};
@@ -103,6 +116,7 @@ export function buildManifest(o: { api: string; docs: string | null; status: Pri
     by_action[c] = base(p ? price(p.amount_msat, p.usd, o.status) : price(null, null, "stub"));
   }
   const tool = (name: ToolName) => TOOLS.find((t) => t.name === name)!;
+  const offered = o.methods ? paymentFor(o.status, paid, o.methods) : null;
   return {
     name: "Toll",
     description: MANIFEST_DESCRIPTION,
@@ -111,9 +125,9 @@ export function buildManifest(o: { api: string; docs: string | null; status: Pri
     reads_free: true,
     not_for: [...NOT_FOR],
     tools: [
-      { ...tool("price_write_action"), input_schema: INPUT_SCHEMAS.price_write_action, endpoint: o.api + "/price?action={action}", price: base(FREE(o.status)), payment: payment(o.status, false) },
-      { ...tool("gate_form_write"), input_schema: INPUT_SCHEMAS.gate_form_write, endpoint: o.api + "/challenge?action={action}&path={path}&client=agent", price: { ...by_action.write, ...(canRise ? { note: BASE_PRICE_NOTE } : {}), by_action }, payment: payment(o.status, paid, o.method ?? "ln402") },
-      { ...tool("verify_write_pass"), input_schema: INPUT_SCHEMAS.verify_write_pass, endpoint: o.api + "/siteverify", price: base(FREE(o.status)), payment: payment(o.status, false) },
+      { ...tool("price_write_action"), input_schema: INPUT_SCHEMAS.price_write_action, endpoint: o.api + "/price?action={action}", price: base(FREE(o.status)), payment: offered ?? payment(o.status, false) },
+      { ...tool("gate_form_write"), input_schema: INPUT_SCHEMAS.gate_form_write, endpoint: o.api + "/challenge?action={action}&path={path}&client=agent", price: { ...by_action.write, ...(canRise ? { note: BASE_PRICE_NOTE } : {}), by_action }, payment: offered ?? payment(o.status, paid, o.method ?? "ln402") },
+      { ...tool("verify_write_pass"), input_schema: INPUT_SCHEMAS.verify_write_pass, endpoint: o.api + "/siteverify", price: base(FREE(o.status)), payment: offered ?? payment(o.status, false) },
     ],
   };
 }

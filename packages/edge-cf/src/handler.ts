@@ -18,10 +18,10 @@ import { buildManifest, agentsPointer, priceBody, PAID_CLASSES } from "../../ser
 import { offerAmountMsat } from "../../settlement-ln/src/stub-engine.ts";
 import { CashuReceiveEngine } from "../../settlement-ln/src/cashu-receive.ts";
 import { parseCashuMints } from "../../settlement-ln/src/cashu-net.ts";
-import { paymentRequired, presentedCashu, stubEngineSecret } from "../../settlement-ln/src/index.ts";
+import { parseL402Authorization, paymentHashOf, paymentRequired, presentedCashu, QUOTE_KIND, stubEngineSecret, withQuoteOffer } from "../../settlement-ln/src/index.ts";
 import type { ProofStore } from "../../settlement-ln/src/cashu-store.ts";
 import type { KVLike } from "./kv-store.ts";
-import { cashuFaultSlot, cashuFetch, mintFetches } from "./cashu-edge.ts";
+import { cashuFaultSlot, cashuFetch, holdBeforeSwap, mintFetches, releaseBeforeSwap } from "./cashu-edge.ts";
 // Widget files, bundled as text by build.mjs.
 import TOLL_JS from "../../widget/dist/toll.js";
 import TOLL_WORKER_JS from "../../widget/dist/toll.worker.js";
@@ -190,15 +190,21 @@ export function createEdgeHandler<E extends EdgeEnv>(options: EdgeOptions<E>) {
     if (mints.length) config.settlement.cashu = { enabled: true, mints, store: "durable-object" };
     const store = options.store(env);
     const proof = mints.length && options.proofStore ? options.proofStore(env) : undefined;
-    const engine = proof ? new CashuReceiveEngine({
-      secret: await stubEngineSecret(env.SITE_SECRET),
+    const fetchImpl = cashuFetch(env, mints);
+    const secret = proof ? await stubEngineSecret(env.SITE_SECRET) : "";
+    const base = proof ? new CashuReceiveEngine({
+      secret,
       mints,
       store: proof,
       lookup: env.TOLL_TEST_HOOKS === "1" ? async () => ["1.1.1.1"] : undefined,
-      fetch: cashuFetch(env, mints),
-      beforeSwap: () => { if (cashuFaultSlot.getStore() === "crash-before-swap") throw new TollError("store_unavailable"); },
+      fetch: fetchImpl,
+      beforeSwap: async () => {
+        if (cashuFaultSlot.getStore() === "crash-before-swap") throw new TollError("store_unavailable");
+        await holdBeforeSwap();
+      },
       afterSwap: () => { if (cashuFaultSlot.getStore() === "crash-after-swap") throw new TollError("store_unavailable"); },
     }) : undefined;
+    const engine = base && env.TOLL_TEST_HOOKS === "1" ? withQuoteOffer(base, { secret, mint: mints[0], fetchImpl }) : base;
     const toll = createToll(config, {
       store,
       metrics: new Metrics((l) => console.log(l)),
@@ -229,6 +235,19 @@ export function createEdgeHandler<E extends EdgeEnv>(options: EdgeOptions<E>) {
     return url.searchParams.get("client") === "agent" || (req.headers.get("toll-client") ?? "").trim().toLowerCase() === "agent";
   }
 
+  async function quotePresented(req: Request, toll: ReturnType<typeof createToll>, action: ActionClass, agent: boolean): Promise<Response | null> {
+    if (!agent || !toll.config.settlement.cashu?.enabled) return null;
+    const parsed = parseL402Authorization(req.headers.get("authorization") ?? undefined, "x");
+    if (!parsed || !("preimage" in parsed)) return null;
+    try {
+      const r = await toll.redeemQuoted({ macaroon: parsed.credential, preimage: parsed.preimage, action, ip: ip(req) });
+      return json({ pass: r.pass, exp: r.exp, cls: r.cls, rail: r.rail });
+    } catch (e) {
+      const code = e instanceof TollError ? e.code : "internal";
+      return json({ error: code }, code === "store_unavailable" ? 503 : code === "malformed" || code === "unsupported" ? 400 : 401);
+    }
+  }
+
   async function cashuPresented(req: Request, toll: ReturnType<typeof createToll>, action: ActionClass, agent: boolean): Promise<Response | null> {
     if (!agent || !toll.config.settlement.cashu?.enabled) return null;
     const presented = presentedCashu(req.headers.get("x-cashu"));
@@ -256,8 +275,19 @@ export function createEdgeHandler<E extends EdgeEnv>(options: EdgeOptions<E>) {
     if ((path === "/.well-known/toll.json" || path === "/.well-known/agents.json") && (method === "GET" || method === "HEAD")) {
       const mints = cashuMints(env, options.proofStore);
       const prices = mints.length ? Object.fromEntries(PAID_CLASSES.map((c) => [c, { amount_msat: offerAmountMsat(c), usd: undefined }])) : null;
+      let methods: string[] | undefined;
+      if (mints.length) {
+        let live = false;
+        try {
+          const r = await cashuFetch(env, mints)(mints[0] + "/v1/info");
+          await r.arrayBuffer();
+          live = r.ok;
+        } catch { live = false; }
+        const quote = live && await loopbackQuoteOffered(env, mints);
+        methods = live ? ["cashu", ...(quote ? [QUOTE_KIND] : [])] : [];
+      }
       const doc = path === "/.well-known/toll.json"
-        ? buildManifest({ api: url.origin + "/v1", docs: siteUrl(env.TOLL_SITE_URL), status: mints.length ? "cashu" : "stub", prices, method: mints.length ? "cashu" : "ln402" })
+        ? buildManifest({ api: url.origin + "/v1", docs: siteUrl(env.TOLL_SITE_URL), status: mints.length ? "cashu" : "stub", prices, method: mints.length ? "cashu" : "ln402", methods })
         : agentsPointer(url.origin + "/.well-known/toll.json");
       discoveryMetrics.discovery(path === "/.well-known/toll.json" ? "manifest" : "agents_json");
       return json(doc, 200, { "access-control-allow-origin": "*", "cache-control": "public, max-age=60" });
@@ -291,6 +321,8 @@ export function createEdgeHandler<E extends EdgeEnv>(options: EdgeOptions<E>) {
       }
       const presented = await cashuPresented(req, toll, action, agent);
       if (presented) return presented;
+      const quoted = await quotePresented(req, toll, action, agent);
+      if (quoted) return quoted;
       if ((req.headers.get("accept") ?? "").includes("text/html") && !(req.headers.get("accept") ?? "").includes("application/json")) {
         toll.metrics.turnedAway();
         await note(store, "rejected");
@@ -322,6 +354,10 @@ export function createEdgeHandler<E extends EdgeEnv>(options: EdgeOptions<E>) {
       const proof = options.proofStore?.(env);
       if (!proof) return json({ error: "not_found" }, 404);
       return json(await proof.books());
+    }
+    if (env.TOLL_TEST_HOOKS === "1" && path === "/v1/test/release-hold" && req.method === "POST") {
+      releaseBeforeSwap();
+      return json({ ok: true });
     }
     if (env.TOLL_TEST_HOOKS === "1" && path === "/v1/test/mint-fetches" && req.method === "GET") {
       const urls = mintFetches.slice();
@@ -421,6 +457,27 @@ export function createEdgeHandler<E extends EdgeEnv>(options: EdgeOptions<E>) {
   }
 
   return { fetch };
+}
+
+/** True when test hooks are on and the mint's quote invoice is the loopback form the 402 can offer. */
+async function loopbackQuoteOffered(env: EdgeEnv, mints: string[]): Promise<boolean> {
+  if (env.TOLL_TEST_HOOKS !== "1" || mints.length === 0) return false;
+  try {
+    const r = await cashuFetch(env, mints)(mints[0] + "/v1/mint/quote/bolt11", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ amount: 1, unit: "sat" }),
+    });
+    const text = await r.text();
+    if (!r.ok) return false;
+    const parsed: unknown = text ? JSON.parse(text) : null;
+    const request = parsed && typeof parsed === "object" && "request" in parsed ? (parsed as { request?: unknown }).request : undefined;
+    if (typeof request !== "string") return false;
+    paymentHashOf(request);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function cashuMints<E extends EdgeEnv>(env: E, proofStore: EdgeOptions<E>["proofStore"]): string[] {

@@ -11,6 +11,7 @@ import { chromium } from "playwright";
 import { build, PAGES, ICON_TAGS } from "../website/build.mjs";
 // @ts-ignore plain JS helper
 import { runLint } from "../scripts/copy-lint.mjs";
+import { withHiddenRule } from "../scripts/hidden-attr.ts";
 
 const ROOT = new URL("..", import.meta.url).pathname;
 const OUT = build(mkdtempSync(join(tmpdir(), "toll-website-")) + "/", ""); // TOLL_SITE_URL unset: no canonical tags
@@ -160,6 +161,6 @@ test("built pages match the Designer's template byte for byte, apart from the EM
     .replace("</title>", description ? `</title><meta name="description" content="${description.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;").replace(/>/g, "&gt;")}">` : "</title>")
     .replace('<link rel="stylesheet" href="site.css">', ICON_TAGS + '<link rel="stylesheet" href="/site.css">');
   for (const p of PAGES) assert.equal(html(p.file), links(readFileSync(ROOT + "design/proto/website/" + p.file + ".html", "utf8"), p.description), p.file + ".html");
-  // Inner pages handoff (CD approved, Oct 3): site.css is now design/inner-pages/site.css, byte for byte (pinned by hash in tests/inner-style.test.ts).
-  assert.deepEqual(readFileSync(OUT + "site.css"), readFileSync(ROOT + "design/inner-pages/site.css"), "site.css");
+  // Inner pages handoff (CD approved, Oct 3) plus the [hidden] rule. The hash pin is tests/inner-style.test.ts.
+  assert.equal(readFileSync(OUT + "site.css", "utf8"), withHiddenRule(readFileSync(ROOT + "design/inner-pages/site.css", "utf8")), "site.css");
 });

@@ -6,7 +6,8 @@ import {
   type ActionClass, TollError, canonicalJson, fromB64url, fromUtf8, hmacSha256, hmacVerify, randomHex, sha256, toB64url, toHex, utf8,
 } from "../../protocol/src/index.ts";
 import { CASHU_UNIT, decodeToken, encodePaymentRequest, stripMint, type DecodedToken } from "./cashu.ts";
-import type { CashuOffer, Paid, PaidClass, PaidProof, SettlementEngine } from "./engine.ts";
+import type { CashuOffer, Paid, PaidClass, PaidProof, QuoteOffer, SettlementEngine } from "./engine.ts";
+import { mintQuoteOffer, verifyMintQuote, type MintQuoteRow } from "./mint-quote.ts";
 
 const SEAL_PREFIX = "toll-cashu-v1.";
 const MINT_TIMEOUT_MS = 1500;
@@ -87,8 +88,25 @@ export class CashuTestEngine implements SettlementEngine {
     return { id, kind: "cashu", amount_msat: o.amount_msat, amount, unit: CASHU_UNIT, mint: this.mint, request, credential, exp };
   }
 
-  async verifyPaid(o: { site: string; proof: PaidProof; now: number; firstUse: (key: string, ttl_s: number) => Promise<boolean> }): Promise<Paid> {
-    if (o.proof.kind !== "cashu") throw new TollError("unsupported");
+  mintQuote(o: { site: string; cls: PaidClass; amount_msat: number; now: number; ttl_s?: number }): Promise<QuoteOffer> {
+    return mintQuoteOffer({ ...o, secret: this.secret, mint: this.mint });
+  }
+
+  async verifyPaid(o: {
+    site: string; proof: PaidProof; now: number; action?: ActionClass;
+    firstUse: (key: string, ttl_s: number) => Promise<boolean>;
+    hasMintQuote?: (quote: string) => Promise<boolean>;
+    claimMintQuote?: (row: MintQuoteRow) => Promise<boolean>;
+    noteMintQuoteLoss?: (x: { quote: string; action: string; amount: number }) => Promise<void>;
+  }): Promise<Paid> {
+    if (o.proof.kind !== "cashu") {
+      if (!o.action || !("preimage" in o.proof) || !o.hasMintQuote || !o.claimMintQuote || !o.noteMintQuoteLoss) throw new TollError("malformed");
+      return verifyMintQuote({
+        secret: this.secret, mint: this.mint, site: o.site, action: o.action, offer_id: o.proof.offer_id,
+        macaroon: o.proof.credential, preimage: o.proof.preimage, now: o.now,
+        has: o.hasMintQuote, claim: o.claimMintQuote, noteLoss: o.noteMintQuoteLoss,
+      });
+    }
     const c = await open(this.secret, o.proof.credential);
     if (c.offer_id !== o.proof.offer_id) throw new TollError("bad_sig");
     if (c.site !== o.site) throw new TollError("wrong_site");
