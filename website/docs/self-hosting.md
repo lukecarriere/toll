@@ -16,7 +16,7 @@ Install the published packages at version 0.1.0 and run them yourself. You do no
 
 ## This site's worker
 
-The toll-site worker serves this static site and a work-only demo. The store is one SQLite-backed Durable Object, `TollStoreDO`. From a clean checkout:
+The toll-site worker serves this static site and the hosted demo. People pass the work check. Agents can pay real Cashu, settled through the Minibits mint in `CASHU_MINTS`. The store is one SQLite-backed Durable Object, `TollStoreDO`. From a clean checkout:
 
 ```sh
 npm ci

@@ -37,7 +37,7 @@ export const ICON_TAGS = '<link rel="icon" href="/favicon.ico" sizes="32x32"><li
 /** Files at the site root that are not pages; copied unchanged from website/ to dist/. */
 export const SITE_FILES = ["_headers", "robots.txt"];
 
-/** The work-only demo page. Not part of the four mission pages; those stay byte-identical. */
+/** The hosted demo page (people do the work check; agents can pay real Cashu). Not part of the four mission pages; those stay byte-identical. */
 export const DEMO_FILES = ["demo.html", "demo.css", "demo.js"];
 
 /**

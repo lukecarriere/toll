@@ -142,10 +142,12 @@ test("discovery files are served, unknown paths stay 404, and a static POST is n
   assert.match(robots.body, /^User-agent: \*\nAllow: \/\nSitemap: https:\/\/lessspam\.dev\/sitemap\.xml\n$/);
   const sm = curl("/sitemap.xml");
   assert.equal(sm.status, 200);
+  assert.match(sm.headers, /^content-type:\s*application\/xml\b/im, "sitemap.xml content type");
   assert.match(sm.body, /<loc>https:\/\/lessspam\.dev\/<\/loc>/);
   assert.doesNotMatch(sm.body, /\/v1\/|toll\.json|\.html</);
   const llms = curl("/llms.txt");
   assert.equal(llms.status, 200);
+  assert.match(llms.headers, /^content-type:\s*text\/plain\b/im, "llms.txt content type");
   assert.match(llms.body, /^# Toll\n/);
   assert.doesNotMatch(llms.body, /\b(cashu|ecash|sats|bitcoin)\b/i);
   const missing = curl("/not-a-real-page");
