@@ -64,8 +64,11 @@ function toll_gate_handle_save(): void
         $s['longest_s'] = in_array((int) ($in['longest_s'] ?? 8), [4, 8, 12], true) ? (int) $in['longest_s'] : 8;
         $s['payouts'] = empty($in['payouts']) ? 0 : 1;
         $s['connection'] = ($in['connection'] ?? 'test') === 'server' ? 'server' : 'test';
-        $url = trim((string) ($in['server_url'] ?? ''));
-        $s['server_url'] = $url !== '' && preg_match('#^https?://#i', $url) ? esc_url_raw($url, ['http', 'https']) : '';
+        // esc_url_raw only, after the scheme check. sanitize_text_field deletes %xx, so /owner%2Fapi would be stored wrong.
+        // esc_url_raw itself would prepend http:// to a schemeless string, which this field has always rejected.
+        // phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized -- wp_unslash here; toll_gate_clean_server_url() runs esc_url_raw
+        $posted_url = isset($_POST['toll_gate']['server_url']) && is_string($_POST['toll_gate']['server_url']) ? wp_unslash($_POST['toll_gate']['server_url']) : '';
+        $s['server_url'] = toll_gate_clean_server_url($posted_url);
         toll_gate_update_settings($s);
         $key = trim((string) ($in['server_key'] ?? ''));
         if ($key !== '') update_option('toll_gate_server_key', sanitize_text_field($key), false);
@@ -74,6 +77,18 @@ function toll_gate_handle_save(): void
     }
     wp_safe_redirect(toll_gate_page_url());
     exit;
+}
+
+/**
+ * Payment server address from the settings form. Empty unless it is an http(s) URL.
+ * esc_url_raw keeps percent-encoded octets; sanitize_text_field would remove them.
+ */
+function toll_gate_clean_server_url(string $raw): string
+{
+    $url = trim($raw);
+    if ($url === '' || !preg_match('#^https?://#i', $url)) return '';
+    $clean = esc_url_raw($url, ['http', 'https']);
+    return is_string($clean) && preg_match('#^https?://#i', $clean) ? $clean : '';
 }
 
 /** Owner-initiated download of the counters. Nothing is sent anywhere. */
