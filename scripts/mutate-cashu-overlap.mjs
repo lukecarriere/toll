@@ -29,7 +29,7 @@ const mutants = [
 
 function runGuard() {
   // Node 23+ uses the spec reporter on a pipe, which has no "# fail N" line. Pin TAP.
-  return spawnSync(process.execPath, ["--test", "--test-concurrency=1", "--test-name-pattern", "overlap guard:", "tests/settlement-cashu-receive.test.ts"], {
+  return spawnSync(process.execPath, ["--test", "--test-reporter=tap", "--test-concurrency=1", "--test-name-pattern", "overlap guard:", "tests/settlement-cashu-receive.test.ts"], {
     encoding: "utf8",
     maxBuffer: 16 * 1024 * 1024,
   });

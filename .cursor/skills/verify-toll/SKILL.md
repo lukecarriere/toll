@@ -7,7 +7,7 @@ description: Run Toll's scripted pre-merge gate and the post-deploy check. Use f
 
 Read `VERIFY.md`. Run the commands from the repository root. Do not deploy, publish, or change DNS. Do not print `TOLL_SECRET`, `TOLL_OWNER_KEY`, `demo/.owner-key`, the worker `SITE_SECRET`, a payment string, a proof, or a pass.
 
-Needs Node 22, Node 24 (`node24` or `NODE_24`), PHP `>=8.1`, Composer, and full git history. PHP without sodium is allowed: the Argon2id miss is KNOWN when every FAIL line is that vector and the runner's own pass, fail, and skip counts add up. Any other PHP failure is FAIL. The mutant scripts run on Node 22. gitleaks 8.30.1 is downloaded into `~/.local/bin` when it is not on `PATH`.
+Needs Node 22, Node 24, PHP `>=8.1`, Composer, and full git history. Set `NODE_22` and `NODE_24` to absolute paths when those binaries are not on `PATH` as `node22` and `node24`. The gate also checks `node` itself, `~/.local/node-v<major>*`, `/usr/local/node-v<major>*`, and the highest match under `${NVM_DIR:-$HOME/.nvm}/versions/node/v<major>.*`. PHP without sodium is allowed: the Argon2id miss is KNOWN when every FAIL line is that vector and the runner's own pass, fail, and skip counts add up. Any other PHP failure is FAIL. The mutant scripts run on Node 22. gitleaks 8.30.1 is downloaded into `~/.local/bin`, which is appended to `PATH`, when it is not already on `PATH`.
 
 ## Pre-merge
 

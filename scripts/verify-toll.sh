@@ -8,7 +8,9 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-export PATH="${HOME}/.local/bin:${PATH}"
+# Append. A php or node the caller put on PATH has to stay ahead of a copy in ~/.local/bin.
+# gitleaks is installed there when it is not already on PATH.
+export PATH="${PATH}:${HOME}/.local/bin"
 
 REF="HEAD"
 BASE=""
@@ -155,6 +157,25 @@ find_node() {
       return 0
     fi
   done
+  # nvm keeps one directory per version. Take the highest v<major>.* that has a node binary.
+  local nvm_root="${NVM_DIR:-${HOME}/.nvm}"
+  local dir match version best_version="" best=""
+  shopt -s nullglob
+  for dir in "${nvm_root}/versions/node/v${major}."*; do
+    match="${dir}/bin/node"
+    if [[ -x "$match" ]]; then
+      version="$(basename "$dir")"
+      if [[ -z "$best_version" ]] || [[ "$(printf '%s\n%s\n' "$best_version" "$version" | sort -V | tail -n 1)" == "$version" ]]; then
+        best_version="$version"
+        best="$match"
+      fi
+    fi
+  done
+  shopt -u nullglob
+  if [[ -n "$best" ]]; then
+    echo "$best"
+    return 0
+  fi
   return 1
 }
 

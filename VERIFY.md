@@ -4,7 +4,7 @@ A verifier runs a script and reads PASS, FAIL, or KNOWN. The scripts do not depl
 
 ## Pull request
 
-From a clean checkout, with Node 22, Node 24, PHP 8.1 or newer, Composer, and a full git history:
+Start from a clean checkout. You need Node 22, Node 24, PHP 8.1 or newer, Composer, and a full git history. `NODE_22` and `NODE_24` are optional absolute paths to those binaries. The gate uses the variable when it is set, then `node22` or `node24` on `PATH`, then `node` when its major matches, then `~/.local/node-v<major>*` and `/usr/local/node-v<major>*`, then the highest `v<major>.*` under `${NVM_DIR:-$HOME/.nvm}/versions/node`. `~/.local/bin` is appended to `PATH` so a php or node you already chose stays first. gitleaks is installed there when it is not already on `PATH`.
 
 ```sh
 bash scripts/verify-toll.sh --ref <pr-sha> --base <base-sha>
