@@ -3,7 +3,8 @@
 import { createServer } from "node:http";
 import { startKeysetMint } from "../packages/settlement-ln/src/index.ts";
 
-export type StubAnswer = "unknown" | "refused";
+/** unknown: posts fail with no detail; refused: the mint refuses; real: every call goes to the keyset mint. */
+export type StubAnswer = "unknown" | "refused" | "real";
 
 export async function startSweepStubMint(port = 0) {
   const keyset = await startKeysetMint({ quotes: true });
@@ -15,14 +16,17 @@ export async function startSweepStubMint(port = 0) {
     const i = u.pathname.indexOf("/v1/");
     const p = i >= 0 ? u.pathname.slice(i) : u.pathname;
     calls.push((req.method ?? "GET") + " " + p);
-    for await (const _ of req) { /* drain */ }
+    const chunks: Buffer[] = [];
+    for await (const c of req) chunks.push(c as Buffer);
+    const body = Buffer.concat(chunks).toString();
     const send = (status: number, body: unknown) => {
       res.writeHead(status, { "content-type": "application/json" });
       res.end(JSON.stringify(body));
     };
-    if (p.startsWith("/v1/keys")) {
-      const r = await fetch(origin + p);
-      return send(r.status, await r.json());
+    if (p.startsWith("/v1/keys") || answer === "real") {
+      const r = await fetch(origin + p + u.search, req.method === "POST" ? { method: "POST", headers: { "content-type": "application/json" }, body } : undefined);
+      res.writeHead(r.status, { "content-type": "application/json" });
+      return res.end(await r.text());
     }
     if (p.startsWith("/v1/mint/quote/bolt11/")) return send(200, { quote: decodeURIComponent(p.split("/").pop() ?? ""), state: "PAID", amount: 10, unit: "sat", request: "lnbc1", expiry: null });
     if (p === "/v1/restore") return send(200, { outputs: [], signatures: [] });
@@ -33,6 +37,7 @@ export async function startSweepStubMint(port = 0) {
   const url = "http://127.0.0.1:" + (typeof addr === "object" && addr ? addr.port : port);
   return {
     url,
+    keysetUrl: keyset.url,
     calls,
     set: (a: StubAnswer) => { answer = a; },
     close: async () => {

@@ -192,7 +192,7 @@ test("sweep backoff: a quote that keeps failing is retried after 1, 2, 4, ... ru
   now += AGE + 1;
   const tries: number[] = [];
   let deferred = 0;
-  for (let run = 1; run <= 80; run++) {
+  for (let run = 1; run <= 130; run++) {
     const s = await sweepMintQuotes(deps(store, { fetchImpl: () => Promise.reject(new Error("no mint call expected")), tags: true }), { batch: 25, budgetMs: 24_000 });
     assert.equal(s.scanned, 1);
     if (s.skipped) tries.push(run);
@@ -200,7 +200,7 @@ test("sweep backoff: a quote that keeps failing is retried after 1, 2, 4, ... ru
     now += 1;
   }
   assert.deepEqual(tries, [1, 3, 7, 15, 31, 63]);
-  assert.equal(deferred, 80 - 6);
+  assert.equal(deferred, 130 - 6, "no try after the sixth, not even at run 127");
   assert.equal(await store.getTag("f:mqsb:" + quote), "6:63");
   assert.deepEqual(store.mintQuoteLosses().map((l) => l.amount), [10], "the loss stays booked");
 });
