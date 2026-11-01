@@ -37,6 +37,11 @@ import {
   QUOTE_KIND,
   REFUSAL_COUNT_TTL_S,
   mintQuoteRechecks,
+  type SweepSummary,
+  SWEEP_CURSOR_KEY,
+  SWEEP_CURSOR_TTL_S,
+  emptySweepSummary,
+  sweepMintQuotes,
   l402Enabled,
   stubEngineSecret,
   withQuoteOffer,
@@ -523,6 +528,28 @@ export function createToll(config: TollConfig, opts: TollOptions = {}) {
     },
     /** "test": paid offers come from the local test backend. "stub": no paid offer here. */
     priceStatus: (): PriceStatus => (paid && paid.rail.isCollecting() ? "test" : "stub"),
+    /**
+     * One bounded pass over stored mint quotes no client will present again (docs: mint-quote sweep).
+     * Empty when no Cashu mint list is configured or the store cannot list candidates. Not scheduled
+     * here: the caller decides when to run it.
+     */
+    sweepMintQuotes: async (o: { batch: number; budgetMs: number }): Promise<SweepSummary> => {
+      const cashu = config.settlement.cashu;
+      if (!config.settlement.enabled || !cashu || !("mints" in cashu) || !store.mintQuoteSweepCandidates) return emptySweepSummary();
+      const list = store.mintQuoteSweepCandidates.bind(store);
+      const so = opts.settlement ?? {};
+      const summary = await sweepMintQuotes({
+        mint: cashu.mints[0], fetchImpl: so.mintGuard?.fetch ?? fetch, mode: "bolt11", guard: so.mintGuard, allowlist: cashu.mints,
+        has: quoteStore.hasMintQuote, reserve: quoteStore.reserveMintQuote, claimOpen: quoteStore.claimOpenMintQuote, release: quoteStore.releaseMintQuote,
+        unlock: quoteStore.unlockMintQuote, finish: quoteStore.finishMintQuote, noteLoss: quoteStore.noteMintQuoteLoss,
+        refusalsLeft: quoteStore.mintQuoteRefusalsLeft, rechecks: quoteStore.mintQuoteRechecks,
+        candidates: list,
+        cursor: { get: () => store.getTag(SWEEP_CURSOR_KEY), set: (quote) => store.setTag(SWEEP_CURSOR_KEY, quote, SWEEP_CURSOR_TTL_S) },
+        clock: () => performance.now(),
+      }, o);
+      metrics.emit("mint_quote_sweep", { ...summary });
+      return summary;
+    },
     /** Empty when the mint is down, so the manifest does not advertise a method the 402 cannot offer. */
     payMethods: async (): Promise<readonly string[] | undefined> => {
       const cashu = config.settlement.cashu;

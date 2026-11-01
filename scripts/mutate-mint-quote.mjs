@@ -13,7 +13,8 @@ const DO = "packages/edge-cf/src/do-store.ts";
 const HTTP = "packages/server-node/src/http.ts";
 const TOLL = "packages/server-node/src/toll.ts";
 const METRICS = "packages/server-node/src/metrics.ts";
-const TEST_FILES = ["tests/edge-do-store.test.ts", "tests/settlement-mint-quote.test.ts", "tests/l402-quote.test.ts", "tests/l402-edge.test.ts", "tests/l402-expiry.test.ts"];
+const SWEEP = "packages/settlement-ln/src/mint-quote-sweep.ts";
+const TEST_FILES = ["tests/edge-do-store.test.ts", "tests/settlement-mint-quote.test.ts", "tests/l402-quote.test.ts", "tests/l402-edge.test.ts", "tests/l402-expiry.test.ts", "tests/mint-quote-sweep.test.ts"];
 const TIMEOUT_MS = 300_000;
 
 const mutants = [
@@ -337,6 +338,54 @@ const mutants = [
     test: "edge store migration: the loss mint column is added once",
     from: 'if (!lossCols.includes("mint")) this.sql.exec("ALTER TABLE cashu_mint_loss ADD COLUMN mint',
     to: 'if (lossCols.length > 0) this.sql.exec("ALTER TABLE cashu_mint_loss ADD COLUMN mint',
+  },
+  {
+    file: SWEEP,
+    name: "the sweep takes up one item more than its batch",
+    test: "sweep batch limit: a run takes up at most",
+    from: "const list = await o.candidates({ after, limit: batch, minAgeS: SWEEP_MIN_AGE_S });",
+    to: "const list = await o.candidates({ after, limit: batch + 1, minAgeS: SWEEP_MIN_AGE_S });",
+  },
+  {
+    file: SWEEP,
+    name: "the sweep's wrap-around ignores what the run already took",
+    test: "sweep batch limit: a run takes up at most",
+    from: "limit: batch - list.length, minAgeS: SWEEP_MIN_AGE_S",
+    to: "limit: batch, minAgeS: SWEEP_MIN_AGE_S",
+  },
+  {
+    file: SWEEP,
+    name: "the sweep ignores its time budget",
+    test: "sweep budget stop:",
+    from: "if (o.clock() - start >= budgetMs) {",
+    to: "if (false) {",
+  },
+  {
+    file: SWEEP,
+    name: "the sweep's budget allows one item past it",
+    test: "sweep budget stop: the budget is checked before each item",
+    from: "if (o.clock() - start >= budgetMs) {",
+    to: "if (o.clock() - start > budgetMs + 40) {",
+  },
+  {
+    file: MS,
+    name: "the Node sweep takes up rows a client may still present",
+    test: "sweep recovery: an open reservation is restored",
+    from: "const cutoff = this.now() - o.minAgeS;",
+    to: "const cutoff = this.now();",
+  },
+  {
+    file: MS,
+    name: "the Node sweep retries issued_no_row losses",
+    test: "sweep nothing recoverable:",
+    from: 'l.mint !== "" && l.reason !== "issued_no_row"',
+    to: 'l.mint !== ""',
+  },
+  {
+    name: "the sweep sends a quote to a mint it was not issued by",
+    test: "sweep nothing recoverable:",
+    from: 'if (row.mint !== o.mint) throw new TollError("bad_sig");',
+    to: "",
   },
 ];
 

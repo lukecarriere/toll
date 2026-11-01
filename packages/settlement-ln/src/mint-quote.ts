@@ -382,6 +382,20 @@ export async function settleMintQuote(deps: MintQuoteDeps, c: MintQuoteFacts): P
   throw new TollError("store_unavailable");
 }
 
+/**
+ * One stored quote retried with no presentation (the sweep). Reads the mint's quote state, then runs
+ * the same tail as an expired presentation: restore an open row, or mint where the re-check schedule
+ * allows. It never grants a pass. Resolves once the proofs are stored; throws what a presentation
+ * would answer otherwise (a held lease reads as expired).
+ */
+export async function recoverMintQuote(o: MintQuoteDeps, row: { quote: string; action: string; amount: number; mint: string }): Promise<void> {
+  if (row.mint !== o.mint) throw new TollError("bad_sig");
+  const looked = await readMint(o.mint, "/v1/mint/quote/bolt11/" + encodeURIComponent(row.quote), undefined, o.fetchImpl ?? fetch, o.mode ?? "loopback", o.guard, o.allowlist);
+  const state = typeof looked.body.state === "string" ? looked.body.state : "";
+  if (looked.status !== 200 || looked.body.quote !== row.quote) throw new TollError(looked.status === 200 ? "bad_solution" : "store_unavailable");
+  await settleMintQuote(o, { quote: row.quote, cls: row.action, mint: row.mint, amount: row.amount, state, expired: true });
+}
+
 async function commitProofs(
   o: { finish: (row: { quote: string; proofs: HeldProof[] }) => Promise<boolean>; noteLoss: (x: LossNote) => Promise<void> },
   quote: string, action: string, amount: number, proofs: HeldProof[],

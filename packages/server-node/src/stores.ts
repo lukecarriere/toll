@@ -47,14 +47,19 @@ export interface TollStore {
   mintQuoteLossMints?(): { quote: string; mint: string }[];
   /** Quotes whose proofs this store holds, for tests and the books. */
   mintQuoteStored?(): { quote: string; action: string; amount: number }[];
+  /**
+   * Quotes the sweep may retry, in quote order after `after`, at most `limit`: open rows (no proofs)
+   * and unrecovered losses that name a mint and are not `issued_no_row`, each at least `minAgeS` old.
+   */
+  mintQuoteSweepCandidates?(o: { after: string; limit: number; minAgeS: number }): Promise<{ quote: string; action: string; amount: number; mint: string; lost: number }[]>;
 }
 
 interface Entry { v: number; tag?: string; until: number }
 
 export class MemoryStore implements TollStore {
   private m = new Map<string, Entry>();
-  private quotes = new Map<string, { quote: string; action: string; amount: number; mint: string; proofs: { amount: number; secret: string; id: string; C: string }[]; outputs: { amount: number; id: string; secret: string; r: string; B_: string }[] }>();
-  private losses: { quote: string; action: string; amount: number; reason: string; recovered: boolean; mint: string }[] = [];
+  private quotes = new Map<string, { quote: string; action: string; amount: number; mint: string; proofs: { amount: number; secret: string; id: string; C: string }[]; outputs: { amount: number; id: string; secret: string; r: string; B_: string }[]; at: number }>();
+  private losses: { quote: string; action: string; amount: number; reason: string; recovered: boolean; mint: string; at: number }[] = [];
   private down = false;
   private now: () => number;
   private sweepAt = 0;
@@ -121,7 +126,7 @@ export class MemoryStore implements TollStore {
     this.check();
     if (this.quotes.has(row.quote) || this.live("f:mq:" + row.quote)) return false;
     const until = this.now() + 30;
-    this.quotes.set(row.quote, { quote: row.quote, action: row.action, amount: row.amount, mint: row.mint, proofs: [], outputs: row.outputs ?? [] });
+    this.quotes.set(row.quote, { quote: row.quote, action: row.action, amount: row.amount, mint: row.mint, proofs: [], outputs: row.outputs ?? [], at: this.now() });
     this.m.set("f:mq:" + row.quote, { v: 1, until });
     return true;
   }
@@ -174,7 +179,7 @@ export class MemoryStore implements TollStore {
   async noteMintQuoteLoss(o: { quote: string; action: string; amount: number; reason?: string; mint?: string }): Promise<void> {
     this.check();
     if (this.losses.some((row) => row.quote === o.quote)) return;
-    this.losses.push({ quote: o.quote, action: o.action, amount: o.amount, reason: o.reason ?? "", recovered: false, mint: o.mint ?? "" });
+    this.losses.push({ quote: o.quote, action: o.action, amount: o.amount, reason: o.reason ?? "", recovered: false, mint: o.mint ?? "", at: this.now() });
   }
 
   mintQuoteLosses() {
@@ -188,6 +193,24 @@ export class MemoryStore implements TollStore {
   /** The mint each loss names ('' when unknown), for tests and audits. */
   mintQuoteLossMints(): { quote: string; mint: string }[] {
     return this.losses.map((o) => ({ quote: o.quote, mint: o.mint }));
+  }
+
+  async mintQuoteSweepCandidates(o: { after: string; limit: number; minAgeS: number }): Promise<{ quote: string; action: string; amount: number; mint: string; lost: number }[]> {
+    this.check();
+    // MINT_QUOTE_GUARD sweep-age: a row younger than the longest macaroon may still be presented.
+    const cutoff = this.now() - o.minAgeS;
+    const out = new Map<string, { quote: string; action: string; amount: number; mint: string; lost: number }>();
+    for (const q of this.quotes.values()) {
+      if (q.proofs.length === 0 && q.at <= cutoff) out.set(q.quote, { quote: q.quote, action: q.action, amount: q.amount, mint: q.mint, lost: 0 });
+    }
+    for (const l of this.losses) {
+      if (l.recovered || l.at > cutoff) continue;
+      const open = out.get(l.quote);
+      if (open) open.lost = l.amount;
+      // A loss with no row: only a mint refusal or a lost restore can still be minted; issued_no_row cannot.
+      else if (!this.quotes.has(l.quote) && l.mint !== "" && l.reason !== "issued_no_row") out.set(l.quote, { quote: l.quote, action: l.action, amount: l.amount, mint: l.mint, lost: l.amount });
+    }
+    return [...out.values()].filter((c) => c.quote > o.after).sort((a, b) => (a.quote < b.quote ? -1 : 1)).slice(0, o.limit);
   }
 
   mintQuoteStored() {
