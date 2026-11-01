@@ -318,6 +318,26 @@ const mutants = [
     from: "this.c.mint_quote_reversed_sats += f.amount;",
     to: "this.c.mint_quote_reversed_sats += 1;",
   },
+  {
+    name: "a loss does not name its mint",
+    test: "a loss names the quote's mint in the Node store",
+    from: "noteLoss: (x) => deps.noteLoss({ ...x, mint: c.mint })",
+    to: "noteLoss: (x) => deps.noteLoss({ ...x })",
+  },
+  {
+    file: DO,
+    name: "the edge loss row drops the mint",
+    test: "edge store migration: the loss mint column is added once",
+    from: 'o.reason ?? "", o.mint ?? "");',
+    to: 'o.reason ?? "", "");',
+  },
+  {
+    file: DO,
+    name: "the edge loss mint column is added on every start",
+    test: "edge store migration: the loss mint column is added once",
+    from: 'if (!lossCols.includes("mint")) this.sql.exec("ALTER TABLE cashu_mint_loss ADD COLUMN mint',
+    to: 'if (lossCols.length > 0) this.sql.exec("ALTER TABLE cashu_mint_loss ADD COLUMN mint',
+  },
 ];
 
 /** TAP summary counts, or null when the run printed no TAP summary (a crash, not a test result). */

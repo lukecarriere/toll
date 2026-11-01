@@ -38,11 +38,13 @@ export interface TollStore {
   claimMintQuote?(row: { quote: string; action: string; amount: number; mint: string; proofs: { amount: number; secret: string; id: string; C: string }[] }): Promise<boolean>;
   hasMintQuote?(quote: string): Promise<boolean>;
   /** A paid quote we will not gate. No secrets. */
-  noteMintQuoteLoss?(o: { quote: string; action: string; amount: number; reason?: string }): Promise<void>;
+  noteMintQuoteLoss?(o: { quote: string; action: string; amount: number; reason?: string; mint?: string }): Promise<void>;
   /** Net losses: a loss whose quote later stored its proofs is recovered and not listed. */
   mintQuoteLosses?(): { quote: string; action: string; amount: number }[];
   /** Every loss record with its reason, recovered or not, for tests and audits. */
   mintQuoteLossRows?(): { quote: string; action: string; amount: number; reason: string; recovered: boolean }[];
+  /** The mint each loss names ('' when unknown). */
+  mintQuoteLossMints?(): { quote: string; mint: string }[];
   /** Quotes whose proofs this store holds, for tests and the books. */
   mintQuoteStored?(): { quote: string; action: string; amount: number }[];
 }
@@ -52,7 +54,7 @@ interface Entry { v: number; tag?: string; until: number }
 export class MemoryStore implements TollStore {
   private m = new Map<string, Entry>();
   private quotes = new Map<string, { quote: string; action: string; amount: number; mint: string; proofs: { amount: number; secret: string; id: string; C: string }[]; outputs: { amount: number; id: string; secret: string; r: string; B_: string }[] }>();
-  private losses: { quote: string; action: string; amount: number; reason: string; recovered: boolean }[] = [];
+  private losses: { quote: string; action: string; amount: number; reason: string; recovered: boolean; mint: string }[] = [];
   private down = false;
   private now: () => number;
   private sweepAt = 0;
@@ -169,10 +171,10 @@ export class MemoryStore implements TollStore {
     return this.quotes.has(quote);
   }
 
-  async noteMintQuoteLoss(o: { quote: string; action: string; amount: number; reason?: string }): Promise<void> {
+  async noteMintQuoteLoss(o: { quote: string; action: string; amount: number; reason?: string; mint?: string }): Promise<void> {
     this.check();
     if (this.losses.some((row) => row.quote === o.quote)) return;
-    this.losses.push({ quote: o.quote, action: o.action, amount: o.amount, reason: o.reason ?? "", recovered: false });
+    this.losses.push({ quote: o.quote, action: o.action, amount: o.amount, reason: o.reason ?? "", recovered: false, mint: o.mint ?? "" });
   }
 
   mintQuoteLosses() {
@@ -180,7 +182,12 @@ export class MemoryStore implements TollStore {
   }
 
   mintQuoteLossRows() {
-    return this.losses.map((o) => ({ ...o }));
+    return this.losses.map((o) => ({ quote: o.quote, action: o.action, amount: o.amount, reason: o.reason, recovered: o.recovered }));
+  }
+
+  /** The mint each loss names ('' when unknown), for tests and audits. */
+  mintQuoteLossMints(): { quote: string; mint: string }[] {
+    return this.losses.map((o) => ({ quote: o.quote, mint: o.mint }));
   }
 
   mintQuoteStored() {

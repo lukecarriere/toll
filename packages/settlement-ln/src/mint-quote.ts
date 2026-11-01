@@ -240,7 +240,8 @@ export function mintQuoteRechecks(store: RecheckCounters): MintQuoteRechecks {
   };
 }
 
-export interface LossNote { quote: string; action: string; amount: number; reason: string }
+/** `mint` is the mint that holds the quote, so a later sweep can retry it. Empty on rows booked before it was recorded. */
+export interface LossNote { quote: string; action: string; amount: number; reason: string; mint?: string }
 
 /** The mint and the store calls the recovery tail needs. A presentation and the sweep both supply them. */
 export interface MintQuoteDeps {
@@ -303,7 +304,9 @@ export async function verifyMintQuote(o: MintQuoteDeps & {
  * mint, booking losses as it goes. Throws the same errors a presentation answers with; returns once
  * the proofs are stored. Needs no request, so the sweep runs it too.
  */
-export async function settleMintQuote(o: MintQuoteDeps, c: MintQuoteFacts): Promise<void> {
+export async function settleMintQuote(deps: MintQuoteDeps, c: MintQuoteFacts): Promise<void> {
+  // MINT_QUOTE_GUARD loss-mint: every loss this quote books names its mint, so the sweep can retry it.
+  const o: MintQuoteDeps = { ...deps, noteLoss: (x) => deps.noteLoss({ ...x, mint: c.mint }) };
   const { amount, state, expired } = c;
   const mode = o.mode ?? "loopback";
   const fetchImpl = o.fetchImpl ?? fetch;

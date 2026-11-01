@@ -43,6 +43,8 @@ export class TollStoreDO extends DurableObject {
     const lossCols = this.sql.exec("PRAGMA table_info(cashu_mint_loss)").toArray().map((c) => String(c.name));
     if (!lossCols.includes("reason")) this.sql.exec("ALTER TABLE cashu_mint_loss ADD COLUMN reason TEXT NOT NULL DEFAULT ''");
     if (!lossCols.includes("recovered")) this.sql.exec("ALTER TABLE cashu_mint_loss ADD COLUMN recovered INTEGER NOT NULL DEFAULT 0");
+    // The mint URL of the quote. Old rows read as '' (unknown mint), which the sweep leaves alone.
+    if (!lossCols.includes("mint")) this.sql.exec("ALTER TABLE cashu_mint_loss ADD COLUMN mint TEXT NOT NULL DEFAULT ''");
   }
 
   /** Several statements, one commit. A throw rolls them back. */
@@ -430,9 +432,9 @@ export class TollStoreDO extends DurableObject {
     return this.sql.exec("SELECT quote FROM cashu_mint_quote WHERE quote = ?", quote).toArray().length > 0;
   }
 
-  noteMintQuoteLoss(o: { quote: string; action: string; amount: number; reason?: string }): void {
+  noteMintQuoteLoss(o: { quote: string; action: string; amount: number; reason?: string; mint?: string }): void {
     if (this.sql.exec("SELECT quote FROM cashu_mint_loss WHERE quote = ?", o.quote).toArray().length) return;
-    this.sql.exec("INSERT INTO cashu_mint_loss (quote, action, amount, reason) VALUES (?, ?, ?, ?)", o.quote, o.action, o.amount, o.reason ?? "");
+    this.sql.exec("INSERT INTO cashu_mint_loss (quote, action, amount, reason, mint) VALUES (?, ?, ?, ?, ?)", o.quote, o.action, o.amount, o.reason ?? "", o.mint ?? "");
     this.addLoss(o.amount);
   }
 
@@ -526,7 +528,7 @@ export interface TollDoStub {
   finishMintQuote(row: { quote: string; proofs: { amount: number; secret: string; id: string; C: string }[] }): Promise<boolean>;
   claimMintQuote(row: { quote: string; action: string; amount: number; mint: string; proofs: { amount: number; secret: string; id: string; C: string }[] }): Promise<boolean>;
   hasMintQuote(quote: string): Promise<boolean>;
-  noteMintQuoteLoss(o: { quote: string; action: string; amount: number; reason?: string }): Promise<void>;
+  noteMintQuoteLoss(o: { quote: string; action: string; amount: number; reason?: string; mint?: string }): Promise<void>;
 }
 
 /**
@@ -620,6 +622,6 @@ export class DurableObjectStore implements TollStore {
     return this.run(() => this.stub.claimMintQuote(row));
   }
   hasMintQuote(quote: string) { return this.run(() => this.stub.hasMintQuote(quote)); }
-  noteMintQuoteLoss(o: { quote: string; action: string; amount: number; reason?: string }) { return this.run(async () => { await this.stub.noteMintQuoteLoss(o); }); }
+  noteMintQuoteLoss(o: { quote: string; action: string; amount: number; reason?: string; mint?: string }) { return this.run(async () => { await this.stub.noteMintQuoteLoss(o); }); }
   counts() { return this.run(() => this.stub.counts()); }
 }
