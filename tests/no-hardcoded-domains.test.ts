@@ -44,6 +44,7 @@ export const ALLOWED_HOSTS = new Map<string, string>([
   ["www.lessspam.dev", "go-live: wrangler.toml custom domain, same worker as the apex"],
   ["workers.dev", "toll-site publishes with workers_dev; the verify guide names that hostname. The site is also served on the custom domains set in wrangler.toml"],
   ["mint.minibits.cash", "docs/adapters.md and docs/settlement.md: the Cashu receive allowlist example. The path is part of the mint URL; the bare host is not a mint."],
+  ["testnut.cashu.space", "scripts/live-checks.mjs spend mode: an unlisted mint the gate must refuse"],
 ]);
 
 /** A dotted host name (letters, digits, '-'; last label starts with a letter). Anything else in the field exempts nothing. */
@@ -223,6 +224,11 @@ test("excluded paths: lockfiles, vendor, node_modules, licence texts, binaries",
   for (const p of ["tests/licence.test.ts", "docs/copy.md", "packages/wp-toll-gate/toll-gate.php", "scripts/build-wp-zip.mjs"]) assert.equal(excludedPath(p), false, p);
   assert.equal(isBinary(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x00, 0x01])), true);
   assert.equal(isBinary(Buffer.from("https://" + CANARY)), false);
+});
+
+test("live checks name the unlisted mint the gate must refuse", () => {
+  const src = readFileSync(join(ROOT, "scripts/live-checks.mjs"), "utf8");
+  assert.match(src, /https:\/\/testnut\.cashu\.space/);
 });
 
 test("the repo: every host in tracked files and commit titles is allowed", (t) => {

@@ -22,6 +22,9 @@ demo/.owner-key
 # Live output from .cursor/skills/verify/run.sh. The saved run in docs/runs/verify-e2e/ stays tracked.
 /.verify-e2e/
 
+# Evidence from scripts/verify-toll.sh, scripts/live-checks.sh, and scripts/release-check.sh.
+/.verify-toll/
+
 # Plugin zip builds (scripts/build-wp-zip.mjs)
 dist-release/
 

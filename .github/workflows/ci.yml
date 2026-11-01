@@ -62,3 +62,20 @@ jobs:
 
       - name: Cashu overlap mutants
         run: node scripts/mutate-cashu-overlap.mjs
+
+  # gitleaks is the pre-merge piece the test job does not run. The rest of
+  # scripts/verify-toll.sh (Node 22 and Node 24, PHP, the mutant scripts, and
+  # the base proof) repeats this job plus a second Node install, so a verifier
+  # runs that command locally. See VERIFY.md.
+  verify-toll:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Scan new commits
+        env:
+          GITHUB_BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: bash scripts/verify-toll.sh --only gitleaks

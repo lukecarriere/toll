@@ -13,6 +13,8 @@ Run from the repository root. One full pass is `bash .cursor/skills/verify/run.s
 
 Do not run `npx wrangler deploy`. Phase 4 stays locked: the demo uses the stub backend, no real money, and no live payouts. The site worker config sets `L402_ENABLED` to `1`; do not change it in this pass, and do not run `scripts/l402-live-check.sh` (it pays one real invoice).
 
+The pre-merge gate and the post-deploy check are `VERIFY.md` and `.cursor/skills/verify-toll/SKILL.md`. A pull request is `bash scripts/verify-toll.sh --ref <pr-sha> --base <base-sha>`. After a deploy, `bash scripts/release-check.sh --commit <sha> --version <worker-version-id>`. This skill still drives the local demo, the static site, and the worker. It does not call the public site.
+
 ## Launch
 
 Install, then build and test. `npm test` is the ready check for the tree. Servers start after it exits 0.

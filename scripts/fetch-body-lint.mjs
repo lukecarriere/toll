@@ -2,6 +2,9 @@
 // Parser.finish then throws assert(!this.paused). That broke agent-pay (f935537) and the
 // WordPress counter test (e6fb4a6). Reading .status or .ok does not read the body.
 // json, text, arrayBuffer, blob, and formData do.
+import { readdirSync, readFileSync, statSync } from "node:fs";
+import { join } from "node:path";
+import { pathToFileURL } from "node:url";
 
 const BODY = "(?:json|text|arrayBuffer|blob|formData)";
 
@@ -73,4 +76,29 @@ export function unreadFetches(src) {
     if (ternaryDrop.test(span) || (status.test(span) && !body.test(span))) hits.push({ line, text });
   }
   return hits;
+}
+
+function walk(dir, out = []) {
+  for (const name of readdirSync(dir)) {
+    if (name === "node_modules" || name === "dist") continue;
+    const p = join(dir, name);
+    let st;
+    try { st = statSync(p); } catch { continue; }
+    if (st.isDirectory()) walk(p, out);
+    else if (/\.(ts|mjs)$/.test(name)) out.push(p);
+  }
+  return out;
+}
+
+const isMain = process.argv[1] !== undefined && import.meta.url === pathToFileURL(process.argv[1]).href;
+if (isMain) {
+  // Same trees as tests/fetch-body.test.ts.
+  const root = new URL("..", import.meta.url).pathname;
+  const files = [...walk(join(root, "tests")), ...walk(join(root, "packages/agent/src"))];
+  const hits = files.flatMap((f) => unreadFetches(readFileSync(f, "utf8")).map((h) => `${f}:${h.line} ${h.text}`));
+  if (hits.length) {
+    for (const h of hits) console.error("fetch-body-lint: " + h);
+    process.exit(1);
+  }
+  console.log(`fetch-body-lint: ${files.length} files, 0 hits`);
 }

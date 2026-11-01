@@ -5,6 +5,7 @@ This directory is the maintained source for verifying Toll. Read the index, then
 ## Baseline preconditions
 
 - Repository root, Node `>=22.18`, PHP `>=8.1` with `ext-sodium`, Composer, full git history.
+- A pull request gate is `bash scripts/verify-toll.sh` (`VERIFY.md`). This map is the local drive that follows it.
 - `bash .cursor/skills/verify/run.sh` installs, runs `npm test`, and starts the demo on `127.0.0.1:8787`, the static site on `127.0.0.1:8791`, and the worker on `127.0.0.1:8788`.
 - Doctor: demo `/v1/health` is `ok` and `settlement` is `stub`. Site and worker return 200.
 - Never print `TOLL_SECRET`, `TOLL_OWNER_KEY`, or `SITE_SECRET`.
