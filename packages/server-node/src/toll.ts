@@ -34,6 +34,7 @@ import {
   offerIdOf,
   type MintGuard,
   QUOTE_KIND,
+  REFUSAL_COUNT_TTL_S,
   l402Enabled,
   stubEngineSecret,
   withQuoteOffer,
@@ -187,8 +188,9 @@ export function createToll(config: TollConfig, opts: TollOptions = {}) {
       noteMintQuoteLoss: async (x) => {
         if (!store.noteMintQuoteLoss) throw new TollError("store_unavailable");
         await store.noteMintQuoteLoss(x);
-        metrics.emit("mint_quote_loss", { quote: x.quote, action: x.action, amount: x.amount });
+        metrics.emit("mint_quote_loss", { quote: x.quote, action: x.action, amount: x.amount, reason: x.reason ?? "" });
       },
+      mintQuoteRefusalsLeft: (quote, cap) => store.consume("f:mqr:" + quote, cap, REFUSAL_COUNT_TTL_S),
       onDegraded: (reason) => metrics.settlementDegraded({ reason }),
       onSettled: (x) => metrics.settled(x.amount_msat),
     });

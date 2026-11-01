@@ -5,6 +5,7 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { decodeBolt11, startKeysetMint } from "../packages/settlement-ln/src/index.ts";
+import { PASS_COOKIE, guardFetch } from "../packages/server-node/src/http.ts";
 import { startDemo } from "./helpers.ts";
 
 const PUBLIC = "https://pay.example.com/Bitcoin";
@@ -55,8 +56,9 @@ async function paidOffer(env: Awaited<ReturnType<typeof boot>>) {
   const macaroon = m[1];
   const quote = JSON.parse(Buffer.from(macaroon.split(".")[0], "base64url").toString()).quote as string;
   const exp = body.offers[1].exp as number;
-  const send = () => fetch(env.demo.url + "/contact", { method: "POST", headers: agentHeaders({ authorization: `L402 ${macaroon}:${preimage}` }), body: "{}" });
-  return { quote, exp, send };
+  const authorization = `L402 ${macaroon}:${preimage}`;
+  const send = () => fetch(env.demo.url + "/contact", { method: "POST", headers: agentHeaders({ authorization }), body: "{}" });
+  return { quote, exp, send, authorization };
 }
 
 function agentHeaders(extra: Record<string, string> = {}) {
@@ -199,6 +201,118 @@ test("a proxy's 502 page in place of the mint keeps the reservation and the retr
     assert.equal((await again.json()).error, "replay");
     assert.equal(env.mint.mintPosts(), posts + 1, "the kept outputs are posted once to the real mint");
     assert.deepEqual(booked(env, quote), { stored: 10, lost: 0 });
+  } finally {
+    await env.close();
+  }
+});
+
+for (const expiredRetry of [false, true]) {
+  test("a restore after a booked unrecoverable loss reverses it, once (" + (expiredRetry ? "expired" : "unexpired") + " retry)", async () => {
+    const env = await boot();
+    try {
+      const { quote, exp, send } = await paidOffer(env);
+      const missed = await timeOutBothPosts(env.mint, quote, send);
+      assert.equal(missed.res.status, 503, JSON.stringify(missed.body));
+      env.mint.setStuckMint(true);
+      await missed.signLate();
+      for (let i = 0; i < 2; i++) {
+        const lost = await send();
+        assert.equal((await lost.json()).detail, LOST);
+      }
+      assert.deepEqual(booked(env, quote), { stored: 0, lost: 10 });
+      env.mint.setStuckMint(false);
+      if (expiredRetry) env.clock.now = exp + 1;
+      const recovered = await send();
+      const body = await recovered.json();
+      assert.equal(recovered.status, expiredRetry ? 401 : 200, JSON.stringify(body));
+      for (let i = 0; i < 2; i++) {
+        const again = await send();
+        assert.equal(again.status, 401);
+        assert.equal((await again.json()).error, expiredRetry ? "expired" : "replay");
+      }
+      assert.deepEqual(booked(env, quote), { stored: 10, lost: 0 }, "the 10 sats are counted once, as stored");
+      const rows = (env.demo.store.mintQuoteLossRows?.() ?? []).filter((o) => o.quote === quote);
+      assert.deepEqual(rows, [{ quote, action: "write", amount: 10, reason: "unrecoverable", recovered: true }], "the loss is kept as a recovered record");
+    } finally {
+      await env.close();
+    }
+  });
+}
+
+test("an expired paid quote the mint keeps refusing books one loss at the cap, and a later mint reverses it", async () => {
+  const env = await boot();
+  try {
+    const { quote, exp, send } = await paidOffer(env);
+    env.mint.failNextMints(1000);
+    for (let i = 0; i < 6; i++) {
+      const early = await send();
+      assert.equal(early.status, 503, "refusals before expiry stay retryable and do not count toward the cap");
+      await early.body?.cancel();
+    }
+    assert.deepEqual(booked(env, quote), { stored: 0, lost: 0 });
+    env.clock.now = exp + 1;
+    for (let i = 1; i < 5; i++) {
+      const refused = await send();
+      const body = await refused.json();
+      assert.equal(refused.status, 503, `refusal ${i}: ${JSON.stringify(body)}`);
+      assert.equal(refused.headers.get("retry-after"), "5");
+      assert.deepEqual(booked(env, quote), { stored: 0, lost: 0 });
+    }
+    for (let i = 5; i < 8; i++) {
+      const capped = await send();
+      const body = await capped.json();
+      assert.equal(capped.status, 401, `refusal ${i}: ${JSON.stringify(body)}`);
+      assert.equal(body.error, "expired");
+      assert.equal(capped.headers.get("retry-after"), null, "an expired macaroon past the cap is not invited to retry");
+      assert.deepEqual(booked(env, quote), { stored: 0, lost: 10 }, "the loss is booked once across further retries");
+    }
+    assert.equal(await quoteState(env.mint.url, quote), "PAID");
+    assert.deepEqual((env.demo.store.mintQuoteLossRows?.() ?? []).filter((o) => o.quote === quote), [{ quote, action: "write", amount: 10, reason: "mint_refused", recovered: false }]);
+    env.mint.failNextMints(0);
+    const healed = await send();
+    assert.equal(healed.status, 401);
+    assert.equal((await healed.json()).error, "expired");
+    assert.equal(await quoteState(env.mint.url, quote), "ISSUED");
+    assert.deepEqual(booked(env, quote), { stored: 10, lost: 0 }, "a later mint reverses the capped loss");
+    const again = await send();
+    assert.equal(again.status, 401);
+    assert.deepEqual(booked(env, quote), { stored: 10, lost: 0 });
+  } finally {
+    await env.close();
+  }
+});
+
+// Ported from QA's #42 check: guardFetch builds its own Response, so its quote 503s need their own header test.
+test("guardFetch sends Retry-After on a retryable quote 503 and none on the unrecoverable one", async () => {
+  const env = await boot();
+  try {
+    const gf = guardFetch(env.demo.demo.toll, () => new Response("ok"), { action: "write", remoteAddr: () => "127.0.0.1" });
+    const sendGF = (authorization: string, cookie?: string) => gf(new Request("http://site.test/contact", {
+      method: "POST", headers: agentHeaders(cookie ? { authorization, cookie } : { authorization }), body: "{}",
+    }));
+
+    const refusedOffer = await paidOffer(env);
+    env.mint.failNextMints(2);
+    const refused = await sendGF(refusedOffer.authorization, `${PASS_COOKIE}=stale`);
+    assert.equal(refused.status, 503, JSON.stringify(await refused.clone().json()));
+    assert.equal(refused.headers.get("retry-after"), "5", "a stale pass cookie beside the macaroon still gets Retry-After");
+    env.mint.failNextMints(0);
+
+    const { quote, authorization } = await paidOffer(env);
+    const missed = await timeOutBothPosts(env.mint, quote, () => sendGF(authorization));
+    assert.equal(missed.res.status, 503, JSON.stringify(missed.body));
+    assert.equal(missed.res.headers.get("retry-after"), "5", "guardFetch says when to retry");
+    env.mint.setStuckMint(true);
+    try {
+      await missed.signLate();
+      const lost = await sendGF(authorization);
+      const body = await lost.json();
+      assert.equal(lost.status, 503, JSON.stringify(body));
+      assert.equal(body.detail, LOST);
+      assert.equal(lost.headers.get("retry-after"), null, "retrying cannot recover these signatures");
+    } finally {
+      env.mint.setStuckMint(false);
+    }
   } finally {
     await env.close();
   }

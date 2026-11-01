@@ -309,3 +309,32 @@ test("a late signature the worker cannot restore records the loss once and grant
     mint.setStuckMint(false);
   }
 });
+
+test("a restore on the worker after a booked unrecoverable loss reverses it, once", async () => {
+  const { macaroon, preimage } = await paidOffer();
+  const beforeBooks = await read(await fetch(base + "/v1/test/cashu-books"));
+  const { missed, signLate } = await timeOutBothPosts(macaroon, preimage);
+  assert.equal(missed.status, 503, JSON.stringify(missed.body));
+  mint.setStuckMint(true);
+  try {
+    await signLate();
+    for (let i = 0; i < 2; i++) {
+      const lost = await post({ authorization: `L402 ${macaroon}:${preimage}` });
+      assert.equal(lost.body.detail, "mint signed; signatures were not recovered");
+    }
+    const mid = await read(await fetch(base + "/v1/test/cashu-books"));
+    assert.equal(mid.body.losses, Number(beforeBooks.body.losses) + 10);
+  } finally {
+    mint.setStuckMint(false);
+  }
+  const ok = await post({ authorization: `L402 ${macaroon}:${preimage}` });
+  assert.equal(ok.status, 200, JSON.stringify(ok.body));
+  for (let i = 0; i < 2; i++) {
+    const again = await post({ authorization: `L402 ${macaroon}:${preimage}` });
+    assert.equal(again.status, 401);
+    assert.equal(again.body.error, "replay");
+  }
+  const books = await read(await fetch(base + "/v1/test/cashu-books"));
+  assert.equal(books.body.stored, Number(beforeBooks.body.stored) + 10);
+  assert.equal(books.body.losses, beforeBooks.body.losses, "the 10 sats are counted once, as stored");
+});

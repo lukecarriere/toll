@@ -38,8 +38,11 @@ export interface TollStore {
   claimMintQuote?(row: { quote: string; action: string; amount: number; mint: string; proofs: { amount: number; secret: string; id: string; C: string }[] }): Promise<boolean>;
   hasMintQuote?(quote: string): Promise<boolean>;
   /** A paid quote we will not gate. No secrets. */
-  noteMintQuoteLoss?(o: { quote: string; action: string; amount: number }): Promise<void>;
+  noteMintQuoteLoss?(o: { quote: string; action: string; amount: number; reason?: string }): Promise<void>;
+  /** Net losses: a loss whose quote later stored its proofs is recovered and not listed. */
   mintQuoteLosses?(): { quote: string; action: string; amount: number }[];
+  /** Every loss record with its reason, recovered or not, for tests and audits. */
+  mintQuoteLossRows?(): { quote: string; action: string; amount: number; reason: string; recovered: boolean }[];
   /** Quotes whose proofs this store holds, for tests and the books. */
   mintQuoteStored?(): { quote: string; action: string; amount: number }[];
 }
@@ -49,7 +52,7 @@ interface Entry { v: number; tag?: string; until: number }
 export class MemoryStore implements TollStore {
   private m = new Map<string, Entry>();
   private quotes = new Map<string, { quote: string; action: string; amount: number; mint: string; proofs: { amount: number; secret: string; id: string; C: string }[]; outputs: { amount: number; id: string; secret: string; r: string; B_: string }[] }>();
-  private losses: { quote: string; action: string; amount: number }[] = [];
+  private losses: { quote: string; action: string; amount: number; reason: string; recovered: boolean }[] = [];
   private down = false;
   private now: () => number;
   private sweepAt = 0;
@@ -150,6 +153,9 @@ export class MemoryStore implements TollStore {
     const held = this.quotes.get(row.quote);
     if (!held || held.proofs.length > 0) return false;
     held.proofs = row.proofs;
+    // MINT_QUOTE_GUARD loss-reversal: a booked loss is reversed by the proofs that recover it, in the same write.
+    const lost = this.losses.find((o) => o.quote === row.quote);
+    if (lost) lost.recovered = true;
     return true;
   }
 
@@ -163,13 +169,17 @@ export class MemoryStore implements TollStore {
     return this.quotes.has(quote);
   }
 
-  async noteMintQuoteLoss(o: { quote: string; action: string; amount: number }): Promise<void> {
+  async noteMintQuoteLoss(o: { quote: string; action: string; amount: number; reason?: string }): Promise<void> {
     this.check();
     if (this.losses.some((row) => row.quote === o.quote)) return;
-    this.losses.push({ quote: o.quote, action: o.action, amount: o.amount });
+    this.losses.push({ quote: o.quote, action: o.action, amount: o.amount, reason: o.reason ?? "", recovered: false });
   }
 
   mintQuoteLosses() {
+    return this.losses.filter((o) => !o.recovered).map((o) => ({ quote: o.quote, action: o.action, amount: o.amount }));
+  }
+
+  mintQuoteLossRows() {
     return this.losses.map((o) => ({ ...o }));
   }
 
