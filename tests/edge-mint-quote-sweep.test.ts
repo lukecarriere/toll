@@ -1,31 +1,80 @@
 // The site worker's cron sweep under `wrangler dev --test-scheduled`. The configured mint host is
-// proxied to a local stub mint that counts every call. Ports 8806-8808 only. Test hooks only; no deploy.
+// proxied to a local stub mint that counts every call. Ports and .dev.vars live in a temp dir.
+// Test hooks only; no deploy.
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync, spawn, type ChildProcess } from "node:child_process";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { createServer } from "node:http";
+import type { AddressInfo } from "node:net";
 import { fileURLToPath } from "node:url";
 import { startSweepStubMint } from "./sweep-stub-mint.ts";
 
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
 const MINT = "https://mint.minibits.cash/Bitcoin";
-const PORT = 8806;
-const MINT_PORT = 8807;
-const INSPECTOR_PORT = 8808;
-const base = `http://127.0.0.1:${PORT}`;
+let base = "";
+let work = "";
 let wr: ChildProcess;
 let log = "";
 let mint: Awaited<ReturnType<typeof startSweepStubMint>>;
 
+function freePort(): Promise<number> {
+  return new Promise((resolve, reject) => {
+    const srv = createServer();
+    srv.on("error", reject);
+    srv.listen(0, "127.0.0.1", () => {
+      const port = (srv.address() as AddressInfo).port;
+      srv.close(() => resolve(port));
+    });
+  });
+}
+
 before(async () => {
   execFileSync(process.execPath, [ROOT + "packages/edge-cf/build.mjs"], { cwd: ROOT });
-  mint = await startSweepStubMint(MINT_PORT);
-  writeFileSync(ROOT + ".dev.vars", `SITE_SECRET="edge-sweep-test-secret-0001"\nTOLL_TEST_HOOKS=1\nL402_ENABLED=1\nCASHU_FETCH_PROXY="${mint.url}"\n`, { mode: 0o600 });
-  const persist = mkdtempSync(join(tmpdir(), "toll-edge-sweep-"));
-  wr = spawn(ROOT + "node_modules/.bin/wrangler", ["dev", "--local", "--test-scheduled", "--ip", "127.0.0.1", "--port", String(PORT), "--inspector-port", String(INSPECTOR_PORT), "--persist-to", persist, "--show-interactive-dev-session=false"], {
-    cwd: ROOT, env: { ...process.env, WRANGLER_SEND_METRICS: "false", CI: "1" }, stdio: ["ignore", "pipe", "pipe"],
+  mint = await startSweepStubMint();
+  work = mkdtempSync(join(tmpdir(), "toll-edge-sweep-"));
+  const port = await freePort();
+  const inspector = await freePort();
+  base = `http://127.0.0.1:${port}`;
+  // The worker config's paths are absolute so this directory can hold .dev.vars without touching the repo.
+  writeFileSync(join(work, "wrangler.toml"), `
+name = "toll-site"
+main = "${ROOT}packages/edge-cf/dist/site.js"
+compatibility_date = "2026-09-01"
+compatibility_flags = ["nodejs_compat"]
+workers_dev = true
+preview_urls = false
+
+[assets]
+directory = "${ROOT}website/dist"
+binding = "ASSETS"
+html_handling = "drop-trailing-slash"
+not_found_handling = "none"
+run_worker_first = true
+
+[vars]
+TOLL_SITE_URL = "https://lessspam.dev"
+SITE_ID = "site_demo"
+WRITE_PATHS = '["/demo/contact"]'
+CASHU_MINTS = '["https://mint.minibits.cash/Bitcoin"]'
+L402_ENABLED = "1"
+
+[triggers]
+crons = ["*/30 * * * *"]
+
+[[durable_objects.bindings]]
+name = "TOLL_STORE"
+class_name = "TollStoreDO"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["TollStoreDO"]
+`);
+  writeFileSync(join(work, ".dev.vars"), `SITE_SECRET="edge-sweep-test-secret-0001"\nTOLL_TEST_HOOKS=1\nL402_ENABLED=1\nCASHU_FETCH_PROXY="${mint.url}"\n`, { mode: 0o600 });
+  wr = spawn(ROOT + "node_modules/.bin/wrangler", ["dev", "--local", "--test-scheduled", "--config", join(work, "wrangler.toml"), "--ip", "127.0.0.1", "--port", String(port), "--inspector-port", String(inspector), "--persist-to", join(work, "persist"), "--show-interactive-dev-session=false"], {
+    cwd: work, env: { ...process.env, WRANGLER_SEND_METRICS: "false", CI: "1" }, stdio: ["ignore", "pipe", "pipe"],
   });
   await new Promise<void>((resolve, reject) => {
     const t = setTimeout(() => reject(new Error("wrangler dev did not start:\n" + log)), 90_000);
@@ -38,8 +87,14 @@ before(async () => {
 });
 
 after(async () => {
-  wr?.kill("SIGTERM");
-  rmSync(ROOT + ".dev.vars", { force: true });
+  if (wr && wr.exitCode === null && !wr.killed) {
+    wr.kill("SIGTERM");
+    await new Promise<void>((resolve) => {
+      const t = setTimeout(resolve, 2_000);
+      wr.once("exit", () => { clearTimeout(t); resolve(); });
+    });
+  }
+  if (work) rmSync(work, { recursive: true, force: true });
   await mint?.close();
 });
 
@@ -79,7 +134,7 @@ test("edge cron sweep: a worst-case mint is held under the 40-call cap, one log 
   // Counted at the mint: every subrequest the run made to it, keys included.
   assert.equal(line.calls, mint.calls.length, JSON.stringify(mint.calls));
   assert.ok(mint.calls.length <= 40);
-  assert.ok(1 + 2 + mint.calls.length < 50, "the cron RPC, DNS and mint calls fit Workers Free");
+  assert.ok(1 + 2 + mint.calls.length <= 45, "the cron RPC, one lookup and the mint calls stay within the ceiling");
   assert.deepEqual({ scanned: line.scanned, skipped: line.skipped, recovered: line.recovered, stop: line.stop }, { scanned: 5, skipped: 5, recovered: 0, stop: "calls" });
   assert.equal(mint.calls.filter((c) => c.endsWith("/v1/keysets")).length, 1);
   assert.equal((log.match(/"event":"mint_quote_sweep"/g) ?? []).length, 1, "one summary line per run");

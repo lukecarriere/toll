@@ -97,8 +97,9 @@ export default {
 
   /**
    * Cron (wrangler.toml [triggers]): one bounded mint-quote sweep in the Durable Object, then one
-   * summary log line. Workers Free subrequests: this RPC (1) plus the DO's mint calls (at most
-   * SWEEP_MAX_CALLS = 40) and one memoized DNS lookup per mint host (at most 2) = 43 < 50.
+   * summary log line. Workers Free allows 50 subrequests. This RPC (1), DNS (2 per host, once
+   * per run including a failure) and the mint calls share a ceiling of 45, and the mint calls
+   * themselves stay at most SWEEP_MAX_CALLS (40).
    */
   async scheduled(controller: { cron: string }, env: SiteEnv): Promise<void> {
     const t0 = Date.now();

@@ -472,8 +472,9 @@ export class TollStoreDO extends DurableObject {
 
   /**
    * One bounded sweep of stored mint quotes (the cron entry point). Runs in the object so the store
-   * calls are local; the mint calls are the run's only subrequests and sweepMintQuotes caps them at
-   * SWEEP_MAX_CALLS. The same lease, refusal-cap and re-check rows as a presentation guard it.
+   * calls are local. Mint calls are capped at SWEEP_MAX_CALLS, and those calls plus DNS plus the
+   * cron RPC stay within the sweep's subrequest ceiling. The same lease, refusal-cap and re-check
+   * rows as a presentation guard it.
    */
   async mintQuoteSweep(o: { batch?: number; budgetMs?: number } = {}): Promise<SweepSummary> {
     const env = this.envOf();

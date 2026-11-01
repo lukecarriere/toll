@@ -46,9 +46,9 @@ async function worstMint() {
   return { calls, fetchImpl, set: (a: Answer) => { answer = a; }, close: () => keyset.close() };
 }
 
-function deps(store: MemoryStore, o: { fetchImpl: typeof fetch; mode?: "bolt11" | "loopback"; tags?: boolean; marks?: number[]; calls?: string[]; clock?: () => number }) {
+function deps(store: MemoryStore, o: { fetchImpl: typeof fetch; mode?: "bolt11" | "loopback"; tags?: boolean; marks?: number[]; calls?: string[]; clock?: () => number; lookup?: (host: string) => Promise<string[]> }) {
   return {
-    mint: PUBLIC, fetchImpl: o.fetchImpl, mode: o.mode ?? "bolt11" as const, guard: { lookup: async () => ["1.1.1.1"] }, allowlist: [PUBLIC],
+    mint: PUBLIC, fetchImpl: o.fetchImpl, mode: o.mode ?? "bolt11" as const, guard: { lookup: o.lookup ?? (async () => ["1.1.1.1"]) }, allowlist: [PUBLIC],
     has: (q: string) => store.hasMintQuote(q), reserve: (r: Parameters<MemoryStore["reserveMintQuote"]>[0]) => store.reserveMintQuote(r),
     claimOpen: (q: string) => store.claimOpenMintQuote(q), release: (q: string) => store.releaseMintQuote(q), unlock: (q: string) => store.unlockMintQuote(q),
     finish: (r: Parameters<MemoryStore["finishMintQuote"]>[0]) => store.finishMintQuote(r), noteLoss: (x: Parameters<MemoryStore["noteMintQuoteLoss"]>[0]) => store.noteMintQuoteLoss(x),
@@ -82,20 +82,28 @@ async function lossRows(store: MemoryStore, n: number, mint = PUBLIC, prefix = "
   return out;
 }
 
-test("sweep budget arithmetic: defaults keep a worst-case run under 50 subrequests and 30 s", () => {
-  const c = needs("SWEEP_MAX_CALLS", "SWEEP_KEY_CALLS", "SWEEP_ITEM_CALLS", "SWEEP_CALL_MS", "SWEEP_DEFAULT_BATCH", "SWEEP_DEFAULT_BUDGET_MS");
+test("sweep budget arithmetic: defaults keep a worst-case run under the 45 subrequest ceiling", () => {
+  const c = needs("SWEEP_MAX_CALLS", "SWEEP_KEY_CALLS", "SWEEP_ITEM_CALLS", "SWEEP_CALL_MS", "SWEEP_DEFAULT_BATCH", "SWEEP_DEFAULT_BUDGET_MS", "SWEEP_SUBREQUEST_CEILING", "SWEEP_RPC_SUBREQUESTS", "SWEEP_LOOKUP_SUBREQUESTS");
   assert.equal(c.SWEEP_MAX_CALLS, 40);
   assert.deepEqual(c.SWEEP_ITEM_CALLS, { bolt11: 10, loopback: 8 });
   assert.equal(c.SWEEP_KEY_CALLS, 2);
   assert.equal(c.SWEEP_CALL_MS, 1500);
-  // Edge: 1 cron-to-object call + at most 2 DNS lookups (memoized per run) + the mint calls.
-  assert.ok(1 + 2 + c.SWEEP_MAX_CALLS < 50);
+  assert.equal(c.SWEEP_SUBREQUEST_CEILING, 45);
+  assert.equal(c.SWEEP_RPC_SUBREQUESTS, 1);
+  assert.equal(c.SWEEP_LOOKUP_SUBREQUESTS, 2);
+  // The sweep's own clock stops the run inside its 24 s budget. The platform cron wall is separate.
+  assert.ok(c.SWEEP_DEFAULT_BUDGET_MS <= 24_000);
+  assert.ok(c.SWEEP_DEFAULT_BUDGET_MS < 30_000);
+  // Edge invocation: the cron RPC, one lookup (two resolver fetches), and the mint calls.
+  const edge = c.SWEEP_RPC_SUBREQUESTS + c.SWEEP_LOOKUP_SUBREQUESTS + c.SWEEP_MAX_CALLS;
+  assert.ok(edge <= c.SWEEP_SUBREQUEST_CEILING);
+  assert.ok(edge < 50);
+  assert.ok(c.SWEEP_SUBREQUEST_CEILING < 50);
   // Three cold-key worst-case items fit; a fourth would not.
   assert.ok(c.SWEEP_KEY_CALLS + 3 * c.SWEEP_ITEM_CALLS.bolt11 <= c.SWEEP_MAX_CALLS);
   assert.ok(c.SWEEP_KEY_CALLS + 4 * c.SWEEP_ITEM_CALLS.bolt11 > c.SWEEP_MAX_CALLS);
   // An item starts only while elapsed <= budget - its worst time, so a run ends by the budget.
   assert.ok((c.SWEEP_ITEM_CALLS.bolt11 + c.SWEEP_KEY_CALLS) * c.SWEEP_CALL_MS <= c.SWEEP_DEFAULT_BUDGET_MS);
-  assert.ok(c.SWEEP_DEFAULT_BUDGET_MS < 30_000);
 });
 
 test("sweep call cap: worst-case answers take 12, 10 and 10 calls and the run stops before a fourth item", async () => {
@@ -304,4 +312,169 @@ test("sweep reversals: an old open row with a young loss counts the loss its rec
   assert.equal(s.recovered, 1, JSON.stringify(s));
   assert.equal(s.reversedSats, 10, "the reversed loss is counted");
   assert.deepEqual(store.mintQuoteLosses().map((l) => l.quote), ["young"], "the young loss stays booked");
+});
+
+/** Cron RPC + two resolver fetches per lookup + mint calls that reached the stub. */
+function subrequests(lookups: number, mintCalls: number): number {
+  return 1 + 2 * lookups + mintCalls;
+}
+
+const CEILING = 45;
+
+async function agedLosses(n: number, mintFor: (i: number) => string = () => PUBLIC) {
+  let now = 1_000_000;
+  const store = new MemoryStore(() => now);
+  for (let i = 0; i < n; i++) {
+    await store.noteMintQuoteLoss({ quote: "q" + String(i).padStart(2, "0"), action: "write", amount: 10, reason: "mint_refused", mint: mintFor(i) });
+  }
+  now += AGE + 1;
+  return store;
+}
+
+test("sweep subrequests: NXDOMAIN on every lookup is one lookup and at most 45", async () => {
+  const { sweepMintQuotes } = needs("sweepMintQuotes", "SWEEP_SUBREQUEST_CEILING");
+  const store = await agedLosses(25);
+  let lookups = 0;
+  let fetches = 0;
+  const lookup = async () => { lookups++; throw new Error("ENOTFOUND"); };
+  const fetchImpl: typeof fetch = async () => { fetches++; return Response.json({}, { status: 500 }); };
+  const s = await sweepMintQuotes(deps(store, { fetchImpl, lookup }), { batch: 25, budgetMs: 24_000 });
+  assert.equal(lookups, 1, "a failed lookup is reused for every later item");
+  assert.equal(fetches, 0, "DNS failure happens before the mint call");
+  assert.equal(s.scanned, 25, JSON.stringify(s));
+  assert.ok(subrequests(lookups, fetches) <= CEILING);
+  assert.equal(subrequests(lookups, fetches), 3);
+});
+
+test("sweep subrequests: flapping DNS, first k lookups fail for k up to 25, stays at or under 45", async () => {
+  const { sweepMintQuotes } = needs("sweepMintQuotes", "SWEEP_SUBREQUEST_CEILING");
+  for (let k = 0; k <= 25; k++) {
+    const store = await agedLosses(25);
+    let lookups = 0;
+    let fetches = 0;
+    const lookup = async () => {
+      lookups++;
+      if (lookups <= k) throw new Error("SERVFAIL");
+      return ["1.1.1.1"];
+    };
+    const fetchImpl: typeof fetch = async () => { fetches++; return Response.json({}, { status: 500 }); };
+    const s = await sweepMintQuotes(deps(store, { fetchImpl, lookup }), { batch: 25, budgetMs: 24_000 });
+    const total = subrequests(lookups, fetches);
+    assert.ok(total <= CEILING, `k=${k} lookups=${lookups} fetches=${fetches} total=${total}`);
+    assert.equal(lookups, 1, `k=${k}: one lookup per host for the run`);
+    assert.equal(s.scanned, 25, `k=${k} ${JSON.stringify(s)}`);
+    if (k === 0) assert.equal(fetches, 25);
+    else assert.equal(fetches, 0, `k=${k}: the failed lookup is not retried`);
+  }
+});
+
+test("sweep subrequests: mixed batches stay at or under 45", async () => {
+  const { sweepMintQuotes } = needs("sweepMintQuotes", "SWEEP_SUBREQUEST_CEILING");
+  // Half the rows name another mint (no DNS) and half name the configured mint, which is NXDOMAIN.
+  {
+    const store = await agedLosses(25, (i) => i % 2 === 0 ? PUBLIC : OTHER);
+    let lookups = 0;
+    let fetches = 0;
+    const lookup = async () => { lookups++; throw new Error("ENOTFOUND"); };
+    const fetchImpl: typeof fetch = async () => { fetches++; return Response.json({}, { status: 500 }); };
+    const s = await sweepMintQuotes(deps(store, { fetchImpl, lookup, tags: true }), { batch: 25, budgetMs: 24_000 });
+    assert.equal(lookups, 1);
+    assert.equal(fetches, 0);
+    assert.equal(s.scanned, 25, JSON.stringify(s));
+    assert.ok(subrequests(lookups, fetches) <= CEILING);
+    assert.equal(await store.getTag("f:mqsb:q00"), undefined, "the NXDOMAIN host did not spend a try");
+    assert.match(await store.getTag("f:mqsb:q01") ?? "", /^1:\d+$/, "another mint is a definitive skip");
+  }
+  // The lookup fails once, then would succeed. The failure is kept, so the mint is not called.
+  {
+    const store = await agedLosses(25, (i) => i % 3 === 0 ? OTHER : PUBLIC);
+    let lookups = 0;
+    let fetches = 0;
+    const lookup = async () => {
+      lookups++;
+      if (lookups === 1) throw new Error("SERVFAIL");
+      return ["1.1.1.1"];
+    };
+    const fetchImpl: typeof fetch = async () => { fetches++; return Response.json({}, { status: 500 }); };
+    const s = await sweepMintQuotes(deps(store, { fetchImpl, lookup }), { batch: 25, budgetMs: 24_000 });
+    assert.equal(lookups, 1);
+    assert.equal(fetches, 0);
+    assert.equal(s.scanned, 25, JSON.stringify(s));
+    assert.ok(subrequests(lookups, fetches) <= CEILING);
+  }
+  // DNS works. Some quotes are on another mint, and the configured mint answers 500 or 200 per quote.
+  {
+    const store = await agedLosses(25, (i) => i % 2 === 0 ? PUBLIC : OTHER);
+    let lookups = 0;
+    let fetches = 0;
+    const lookup = async () => { lookups++; return ["1.1.1.1"]; };
+    const fetchImpl: typeof fetch = async (input) => {
+      fetches++;
+      const href = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+      const quote = decodeURIComponent(href.split("/").pop() ?? "");
+      if (quote.endsWith("0") || quote.endsWith("2") || quote.endsWith("4")) return Response.json({}, { status: 500 });
+      return Response.json({ quote, state: "UNPAID", amount: 10 });
+    };
+    const s = await sweepMintQuotes(deps(store, { fetchImpl, lookup }), { batch: 25, budgetMs: 24_000 });
+    assert.equal(lookups, 1);
+    assert.ok(fetches > 0 && fetches <= 40, String(fetches));
+    assert.equal(s.scanned, 25, JSON.stringify(s));
+    const total = subrequests(lookups, fetches);
+    assert.ok(total <= CEILING, `lookups=${lookups} fetches=${fetches} total=${total}`);
+  }
+});
+
+test("sweep backoff: DNS failure, an unreachable host, a timeout and a mint 5xx do not burn a try", async () => {
+  const { sweepMintQuotes, SWEEP_MAX_TRIES } = needs("sweepMintQuotes", "SWEEP_MAX_TRIES", "SWEEP_BACKOFF_PREFIX");
+  assert.equal(SWEEP_MAX_TRIES, 6);
+  let now = 1_000_000;
+  const store = new MemoryStore(() => now);
+  const [quote] = await lossRows(store, 1);
+  now += AGE + 1;
+  type Phase = "dns" | "down" | "hang" | "http" | "answer";
+  let phase: Phase = "dns";
+  let lookups = 0;
+  const lookup = async () => {
+    lookups++;
+    if (phase === "dns") throw new Error("ENOTFOUND");
+    return ["1.1.1.1"];
+  };
+  const fetchImpl: typeof fetch = (input, init) => {
+    if (phase === "down") return Promise.reject(new TypeError("connect ECONNREFUSED"));
+    if (phase === "hang") return Promise.reject(new DOMException("The operation was aborted", "AbortError"));
+    if (phase === "http") return Promise.resolve(Response.json({}, { status: 500 }));
+    const href = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+    const id = decodeURIComponent(href.split("/").pop() ?? "");
+    return Promise.resolve(Response.json({ quote: id, state: "UNPAID", amount: 10 }));
+  };
+  const once = () => sweepMintQuotes(deps(store, { fetchImpl, lookup, tags: true }), { batch: 25, budgetMs: 24_000, callMs: 30 });
+  // Past the old sixth try (run 63). An outage that counted would have retired the quote.
+  for (let run = 1; run <= 70; run++) {
+    const before = lookups;
+    const s = await once();
+    assert.equal(s.scanned, 1, `dns run ${run}`);
+    assert.equal(s.skipped, 1);
+    assert.equal(s.deferred, 0);
+    assert.equal(lookups, before + 1, `dns run ${run} looked up again`);
+    now += 1;
+  }
+  assert.equal(await store.getTag("f:mqsb:" + quote), undefined);
+  for (const next of ["down", "hang", "http"] as const) {
+    phase = next;
+    for (let i = 0; i < 4; i++) {
+      const s = await once();
+      assert.equal(s.deferred, 0, next);
+      assert.equal(s.skipped, 1, next);
+      now += 1;
+    }
+  }
+  assert.equal(await store.getTag("f:mqsb:" + quote), undefined, "no outage spent a try");
+  phase = "answer";
+  const spent = await once();
+  assert.equal(spent.skipped, 1);
+  assert.match(await store.getTag("f:mqsb:" + quote) ?? "", /^1:\d+$/);
+  now += 1;
+  const again = await once();
+  assert.equal(again.deferred, 1, "the definitive answer is the first try");
+  assert.equal(again.skipped, 0);
 });

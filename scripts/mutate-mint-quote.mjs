@@ -589,6 +589,20 @@ const mutants = [
     from: "Object.assign(line, await stub(env).mintQuoteSweep({}));",
     to: "",
   },
+  {
+    file: SWEEP,
+    name: "a failed DNS lookup is tried again",
+    test: "sweep subrequests: NXDOMAIN",
+    from: "p.catch(() => undefined);",
+    to: "p.catch(() => looked.delete(host));",
+  },
+  {
+    file: SWEEP,
+    name: "an outage spends a sweep try",
+    test: "sweep backoff: DNS failure",
+    from: 'const answered = (e instanceof TollError && e.code !== "store_unavailable") || definitive;',
+    to: "const answered = true;",
+  },
 ];
 
 /** TAP summary counts, or null when the run printed no TAP summary (a crash, not a test result). */
