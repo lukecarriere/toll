@@ -7,7 +7,7 @@ import {
 } from "../../protocol/src/index.ts";
 import { CASHU_UNIT, decodeToken, encodePaymentRequest, stripMint, type DecodedToken } from "./cashu.ts";
 import type { CashuOffer, Paid, PaidClass, PaidProof, QuoteOffer, SettlementEngine } from "./engine.ts";
-import { mintQuoteOffer, verifyMintQuote, type MintQuoteRow } from "./mint-quote.ts";
+import { mintQuoteOffer, verifyMintQuote, type MintQuoteRechecks, type MintQuoteRow } from "./mint-quote.ts";
 
 const SEAL_PREFIX = "toll-cashu-v1.";
 const MINT_TIMEOUT_MS = 1500;
@@ -104,13 +104,14 @@ export class CashuTestEngine implements SettlementEngine {
     claimMintQuote?: (row: MintQuoteRow) => Promise<boolean>;
     noteMintQuoteLoss?: (x: { quote: string; action: string; amount: number; reason?: string }) => Promise<void>;
     mintQuoteRefusalsLeft?: (quote: string, cap: number) => Promise<number>;
+    mintQuoteRechecks?: MintQuoteRechecks;
   }): Promise<Paid> {
     if (o.proof.kind !== "cashu") {
       if (!o.action || !("preimage" in o.proof) || !o.hasMintQuote || !o.reserveMintQuote || !o.claimOpenMintQuote || !o.releaseMintQuote || !o.unlockMintQuote || !o.finishMintQuote || !o.noteMintQuoteLoss) throw new TollError("malformed");
       return verifyMintQuote({
         secret: this.secret, mint: this.mint, site: o.site, action: o.action, offer_id: o.proof.offer_id,
         macaroon: o.proof.credential, preimage: o.proof.preimage, now: o.now,
-        has: o.hasMintQuote, reserve: o.reserveMintQuote, claimOpen: o.claimOpenMintQuote, release: o.releaseMintQuote, unlock: o.unlockMintQuote, finish: o.finishMintQuote, noteLoss: o.noteMintQuoteLoss, refusalsLeft: o.mintQuoteRefusalsLeft,
+        has: o.hasMintQuote, reserve: o.reserveMintQuote, claimOpen: o.claimOpenMintQuote, release: o.releaseMintQuote, unlock: o.unlockMintQuote, finish: o.finishMintQuote, noteLoss: o.noteMintQuoteLoss, refusalsLeft: o.mintQuoteRefusalsLeft, rechecks: o.mintQuoteRechecks,
       });
     }
     const c = await open(this.secret, o.proof.credential);

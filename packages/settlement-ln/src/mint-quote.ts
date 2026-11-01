@@ -180,14 +180,65 @@ function asProofs(rows: unknown, amount: number): HeldProof[] | null {
  */
 /**
  * Refusals of an expired PAID quote before Toll books it as lost and answers 401 expired instead of
- * a retryable 503. Each refused presentation posts the mint twice, so the cap bounds the posts at
- * 10, about 25 s of Retry-After: 5 retries. Only expired presentations count: an unexpired caller
+ * a retryable 503. Each refused presentation posts the mint twice, so reaching the cap takes 10
+ * posts, about 25 s of Retry-After: 5 retries. Only expired presentations count: an unexpired caller
  * can still earn a pass, and the macaroon lifetime bounds those. The count lives in the store's
- * consume counter (key f:mqr:<quote>, one day), so isolates share it. A later presentation still
- * tries the mint; if it signs, finish stores the proofs and reverses this loss.
+ * consume counter (key f:mqr:<quote>, one day), so isolates share it. Past the cap, posts follow
+ * the re-check schedule below, not each presentation.
  */
 export const EXPIRED_REFUSAL_CAP = 5;
 export const REFUSAL_COUNT_TTL_S = 86_400;
+
+/**
+ * Re-checks of a quote past the refusal cap. The first opens 60 s after the cap, and each later one
+ * waits twice as long as the one before: 60, 120, 240, ... 7680 s, eight in all, so the last can come
+ * about 4.3 hours after the cap. A presentation outside an open window answers 401 expired with no
+ * mint post (the quote state GET still runs). A re-check that mints stores the proofs and reverses
+ * the loss. After the eighth the loss stands. The marks last 30 days from the last re-check; after
+ * that a returning quote starts the refusal count again, and the loss is still booked only once.
+ */
+export const RECHECK_BASE_S = 60;
+export const RECHECK_MAX = 8;
+export const RECHECK_TTL_S = 30 * 86_400;
+
+export interface RecheckCounters {
+  consume(key: string, initial: number, ttl_s: number): Promise<number>;
+  peek(key: string): Promise<number | undefined>;
+  firstUse(key: string, ttl_s: number): Promise<boolean>;
+}
+
+/** `uncapped`: the quote never hit the cap. `open`: this caller may post once. `closed`: no post now. */
+export type RecheckGate = "uncapped" | "open" | "closed";
+
+export interface MintQuoteRechecks {
+  /** The quote reached the cap: start the schedule. A second call is a no-op. */
+  arm(quote: string): Promise<void>;
+  /** Spends one re-check when its window is open. One caller wins a window. */
+  gate(quote: string): Promise<RecheckGate>;
+}
+
+/** The re-check schedule over a store's shared counters, so isolates and the sweep share it. */
+export function mintQuoteRechecks(store: RecheckCounters): MintQuoteRechecks {
+  const left = (quote: string) => store.peek("f:mqk:" + quote);
+  return {
+    async arm(quote) {
+      if ((await left(quote)) !== undefined) return;
+      await store.consume("f:mqk:" + quote, RECHECK_MAX + 1, RECHECK_TTL_S);
+      await store.firstUse("f:mqw:" + quote, RECHECK_BASE_S);
+    },
+    async gate(quote) {
+      const n = await left(quote);
+      if (n === undefined) return "uncapped";
+      // MINT_QUOTE_GUARD recheck-max: after the last re-check the loss stands and nothing is posted.
+      if (n <= 0) return "closed";
+      const used = RECHECK_MAX - n;
+      // MINT_QUOTE_GUARD recheck-window: one post per window, and each window is twice the last.
+      if (!(await store.firstUse("f:mqw:" + quote, RECHECK_BASE_S * 2 ** (used + 1)))) return "closed";
+      await store.consume("f:mqk:" + quote, RECHECK_MAX + 1, RECHECK_TTL_S);
+      return "open";
+    },
+  };
+}
 
 export interface LossNote { quote: string; action: string; amount: number; reason: string }
 
@@ -206,6 +257,8 @@ export async function verifyMintQuote(o: {
   noteLoss: (x: LossNote) => Promise<void>;
   /** Spends one expired-refusal slot for the quote; returns what is left (0 on the slot that reaches the cap). Absent: no cap. */
   refusalsLeft?: (quote: string, cap: number) => Promise<number>;
+  /** Backoff for quotes past the refusal cap. Absent: every presentation may post. */
+  rechecks?: MintQuoteRechecks;
 }): Promise<Paid> {
   const bare = o.preimage === "";
   if (!bare && !/^[0-9a-f]{64}$/.test(o.preimage)) throw new TollError("malformed");
@@ -268,6 +321,8 @@ export async function verifyMintQuote(o: {
     // MINT_QUOTE_GUARD issued: mint state ISSUED is not payment when this store has no row.
     throw new TollError("bad_solution");
   }
+  // MINT_QUOTE_GUARD recheck-gate: past the refusal cap an expired quote posts only on its re-check schedule.
+  if (expired && o.rechecks && (await o.rechecks.gate(c.quote)) === "closed") throw new TollError("expired");
   let outputs: MintQuoteOutput[] = [];
   if (mode === "bolt11") {
     const built = await buildOutputs(o.mint, amount, fetchImpl, o.guard, o.allowlist);
@@ -290,6 +345,7 @@ export async function verifyMintQuote(o: {
     // MINT_QUOTE_GUARD refusal-cap: an expired quote the mint keeps refusing is booked once at the cap and no longer invited to retry.
     if (expired && o.refusalsLeft && (await o.refusalsLeft(c.quote, EXPIRED_REFUSAL_CAP)) <= 0) {
       await o.noteLoss({ quote: c.quote, action: c.cls, amount, reason: "mint_refused" });
+      await o.rechecks?.arm(c.quote);
       throw new TollError("expired");
     }
     throw new TollError("store_unavailable");
@@ -336,7 +392,7 @@ export function withQuoteOffer(base: SettlementEngine, o: {
         ...bound, site: x.site, action: x.action, offer_id: x.proof.offer_id,
         macaroon: x.proof.credential, preimage: x.proof.preimage, now: x.now,
         has: x.hasMintQuote, reserve: x.reserveMintQuote, claimOpen: x.claimOpenMintQuote, release: x.releaseMintQuote, unlock: x.unlockMintQuote, finish: x.finishMintQuote, noteLoss: x.noteMintQuoteLoss,
-        refusalsLeft: x.mintQuoteRefusalsLeft,
+        refusalsLeft: x.mintQuoteRefusalsLeft, rechecks: x.mintQuoteRechecks,
       });
     },
   };

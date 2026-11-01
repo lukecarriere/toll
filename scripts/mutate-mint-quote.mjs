@@ -212,7 +212,7 @@ const mutants = [
   {
     file: MS,
     name: "memory loss record loses its dedup",
-    test: "an expired paid quote the mint keeps refusing books one loss at the cap",
+    test: "past the refusal cap, presentations post to the mint only on the re-check schedule",
     from: "    if (this.losses.some((row) => row.quote === o.quote)) return;\n",
     to: "",
   },
@@ -250,6 +250,36 @@ const mutants = [
     test: "edge store reversal: net losses never go below zero",
     from: "Math.max(0, this.lossN() - num(lost[0].amount))",
     to: "this.lossN() - num(lost[0].amount)",
+  },
+  {
+    name: "past the cap every presentation posts",
+    test: "past the refusal cap, presentations post to the mint only on the re-check schedule",
+    from: 'if (expired && o.rechecks && (await o.rechecks.gate(c.quote)) === "closed") throw new TollError("expired");',
+    to: "// mutant: no re-check gate",
+  },
+  {
+    name: "the cap does not start the re-check schedule",
+    test: "past the refusal cap, presentations post to the mint only on the re-check schedule",
+    from: "await o.rechecks?.arm(c.quote);",
+    to: "// mutant: not armed",
+  },
+  {
+    name: "re-checks never run out",
+    test: "past the refusal cap, presentations post to the mint only on the re-check schedule",
+    from: 'if (n <= 0) return "closed";',
+    to: "// mutant: no last re-check",
+  },
+  {
+    name: "a re-check window admits every presentation",
+    test: "past the refusal cap, presentations post to the mint only on the re-check schedule",
+    from: 'if (!(await store.firstUse("f:mqw:" + quote, RECHECK_BASE_S * 2 ** (used + 1)))) return "closed";',
+    to: 'await store.firstUse("f:mqw:" + quote, RECHECK_BASE_S * 2 ** (used + 1));',
+  },
+  {
+    name: "re-check windows do not grow",
+    test: "past the refusal cap, presentations post to the mint only on the re-check schedule",
+    from: "RECHECK_BASE_S * 2 ** (used + 1)",
+    to: "RECHECK_BASE_S",
   },
 ];
 
