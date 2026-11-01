@@ -11,7 +11,7 @@ const MQ = "packages/settlement-ln/src/mint-quote.ts";
 const MS = "packages/server-node/src/stores.ts";
 const DO = "packages/edge-cf/src/do-store.ts";
 const HTTP = "packages/server-node/src/http.ts";
-const TEST_FILES = ["tests/settlement-mint-quote.test.ts", "tests/l402-quote.test.ts", "tests/l402-edge.test.ts", "tests/l402-expiry.test.ts"];
+const TEST_FILES = ["tests/edge-do-store.test.ts", "tests/settlement-mint-quote.test.ts", "tests/l402-quote.test.ts", "tests/l402-edge.test.ts", "tests/l402-expiry.test.ts"];
 const TIMEOUT_MS = 300_000;
 
 const mutants = [
@@ -229,6 +229,27 @@ const mutants = [
     test: "guardFetch sends Retry-After on a retryable quote 503",
     from: "      if (quoted) return Response.json(quoted.body, { status: quoted.status, headers: quoted.headers });\n      return refuse(false);",
     to: "      if (quoted) return Response.json(quoted.body, { status: quoted.status });\n      return refuse(false);",
+  },
+  {
+    file: DO,
+    name: "the loss-table migration re-adds reason on every start",
+    test: "edge store migration: a restart on an already migrated store is a no-op",
+    from: 'if (!lossCols.includes("reason")) this.sql.exec(',
+    to: "this.sql.exec(",
+  },
+  {
+    file: DO,
+    name: "the loss-table migration re-adds recovered on every start",
+    test: "edge store migration: a restart on an already migrated store is a no-op",
+    from: 'if (!lossCols.includes("recovered")) this.sql.exec(',
+    to: "this.sql.exec(",
+  },
+  {
+    file: DO,
+    name: "a reversal can drive net losses below zero",
+    test: "edge store reversal: net losses never go below zero",
+    from: "Math.max(0, this.lossN() - num(lost[0].amount))",
+    to: "this.lossN() - num(lost[0].amount)",
   },
 ];
 
