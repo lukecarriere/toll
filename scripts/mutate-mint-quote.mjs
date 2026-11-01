@@ -393,6 +393,13 @@ const mutants = [
     from: "export const RECHECK_TTL_S = 30 * 86_400;",
     to: "export const RECHECK_TTL_S = 86_400;",
   },
+  {
+    file: MS,
+    name: "the Node store keeps a counter's first TTL on later spends",
+    test: "re-check marks on Node last 30 days from the last re-check",
+    from: "    e.until = this.now() + ttl_s;\n",
+    to: "",
+  },
 ];
 
 /** TAP summary counts, or null when the run printed no TAP summary (a crash, not a test result). */

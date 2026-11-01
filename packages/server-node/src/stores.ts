@@ -6,7 +6,7 @@ import { TollError } from "../../protocol/src/index.ts";
 export interface TollStore {
   /** Returns true the first time `key` is seen within its TTL, false afterwards. */
   firstUse(key: string, ttl_s: number): Promise<boolean>;
-  /** Initialise to `initial` if absent, then decrement. Returns the remaining count after this use, or -1 if none were left. */
+  /** Initialise to `initial` if absent, then decrement; each use restarts the TTL. Returns the remaining count after this use, or -1 if none were left. */
   consume(key: string, initial: number, ttl_s: number): Promise<number>;
   /** Remaining count without consuming, or undefined if unknown. */
   peek(key: string): Promise<number | undefined>;
@@ -101,6 +101,8 @@ export class MemoryStore implements TollStore {
     const e = this.live(key) ?? { v: initial, until: this.now() + ttl_s };
     if (e.v <= 0) return -1;
     e.v -= 1;
+    // Each spend restarts the TTL, as the edge stores do: a counter lasts ttl_s from its last use.
+    e.until = this.now() + ttl_s;
     this.m.set(key, e);
     return e.v;
   }

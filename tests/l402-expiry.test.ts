@@ -389,6 +389,23 @@ test("re-check marks last 30 days from the cap when no re-check runs", async () 
   assert.equal(await store.peek("f:mqk:q"), undefined, "at 30 days the marks are gone");
 });
 
+test("re-check marks on Node last 30 days from the last re-check, as on the edge", async () => {
+  const { RECHECK_BASE_S, mintQuoteRechecks } = needs("RECHECK_BASE_S", "mintQuoteRechecks");
+  let t = 1_000_000;
+  const store = new MemoryStore(() => t);
+  const r = mintQuoteRechecks(store);
+  await r.arm("q");
+  t += RECHECK_BASE_S;
+  assert.equal(await r.gate("q"), "open");
+  t += RECHECK_BASE_S * 2;
+  assert.equal(await r.gate("q"), "open");
+  const last = t;
+  t = last + THIRTY_DAYS_S - 1;
+  assert.equal(await store.peek("f:mqk:q"), ln.RECHECK_MAX - 2, "30 days after the cap, but not after the last re-check");
+  t = last + THIRTY_DAYS_S;
+  assert.equal(await store.peek("f:mqk:q"), undefined);
+});
+
 // Ported from QA's #42 check: guardFetch builds its own Response, so its quote 503s need their own header test.
 test("guardFetch sends Retry-After on a retryable quote 503 and none on the unrecoverable one", async () => {
   const env = await boot();
