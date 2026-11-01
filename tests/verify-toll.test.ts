@@ -2,7 +2,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 // @ts-ignore plain JS module
@@ -139,23 +139,99 @@ case "$base" in
     ;;
 esac
 `);
+  const home = mkdtempSync(join(tmpdir(), "toll-php-home-"));
   const known = spawnSync("bash", ["scripts/verify-toll.sh", "--only", "php", "--out", knownOut], {
     encoding: "utf8",
-    env: { ...process.env, PATH: `${fake}:${process.env.PATH}`, FAIL_LOG: join(fake, "known.log") },
+    env: { ...process.env, HOME: home, PATH: `${fake}:${process.env.PATH}`, FAIL_LOG: join(fake, "known.log") },
   });
   assert.equal(known.status, 0, known.stdout + known.stderr);
   assert.match(summaryOf(knownOut), /overall: PASS/);
   assert.match(summaryOf(knownOut), /\| php \| KNOWN \|/);
   const failed = spawnSync("bash", ["scripts/verify-toll.sh", "--only", "php", "--out", failOut], {
     encoding: "utf8",
-    env: { ...process.env, PATH: `${fake}:${process.env.PATH}`, FAIL_LOG: join(fake, "other.log") },
+    env: { ...process.env, HOME: home, PATH: `${fake}:${process.env.PATH}`, FAIL_LOG: join(fake, "other.log") },
   });
   assert.notEqual(failed.status, 0);
   assert.match(summaryOf(failOut), /overall: FAIL/);
   assert.match(summaryOf(failOut), /\| php \| FAIL \|/);
   rmSync(fake, { recursive: true, force: true });
+  rmSync(home, { recursive: true, force: true });
   rmSync(knownOut, { recursive: true, force: true });
   rmSync(failOut, { recursive: true, force: true });
+});
+
+test("verify-toll php: a php in HOME/.local/bin does not hide a non-Argon2 FAIL on PATH", () => {
+  const home = mkdtempSync(join(tmpdir(), "toll-shadow-home-"));
+  const pathBin = mkdtempSync(join(tmpdir(), "toll-shadow-path-"));
+  const out = mkdtempSync(join(tmpdir(), "toll-shadow-out-"));
+  mkdirSync(join(home, ".local/bin"), { recursive: true });
+  const knownLog = join(home, "known.log");
+  const otherLog = join(home, "other.log");
+  const oks = ["ok   engine secrets derive from the Toll secret", ...Array.from({ length: 32 }, (_, i) => `ok   check ${i}`)].join("\n");
+  writeFileSync(knownLog, `${oks}\nFAIL solution accepted: hardened account (Argon2id t=2 m=8192 p=1, counter 3) (malformed)\n\nPHP 8.3.6: 32 passed, 1 failed\n`);
+  const otherOks = Array.from({ length: 31 }, (_, i) => `ok   check ${i}`).join("\n");
+  writeFileSync(otherLog, `${otherOks}\nFAIL solution accepted: standard write (bad)\n\nPHP 8.3.6: 31 passed, 1 failed\n`);
+  const phpBody = (log: string) => `#!/bin/bash
+if [[ "$1" == "-r" ]]; then exit 1; fi
+base="$(basename "$1")"
+case "$base" in
+  run-vectors.php) cat ${JSON.stringify(log)}; exit 1 ;;
+  run-issuer.php)
+    printf 'ok   policy\\nPHP Fatal error: Uncaught RuntimeException: ext-sodium is required for Argon2id.\\n'
+    exit 255 ;;
+  *) printf '\\nPHP 8.3.6: 1 passed, 0 failed\\n'; exit 0 ;;
+esac
+`;
+  fakeBin(join(home, ".local/bin"), "php", phpBody(knownLog));
+  fakeBin(pathBin, "php", phpBody(otherLog));
+  const result = spawnSync("bash", ["scripts/verify-toll.sh", "--only", "php", "--out", out], {
+    encoding: "utf8",
+    env: { ...process.env, HOME: home, PATH: `${pathBin}:${process.env.PATH}` },
+  });
+  assert.notEqual(result.status, 0, result.stdout + result.stderr);
+  const summary = summaryOf(out);
+  assert.match(summary, /overall: FAIL/);
+  assert.match(summary, /run-vectors=FAIL/);
+  rmSync(home, { recursive: true, force: true });
+  rmSync(pathBin, { recursive: true, force: true });
+  rmSync(out, { recursive: true, force: true });
+});
+
+test("verify-toll finds the highest Node 22 under nvm when PATH has another major", () => {
+  const home = mkdtempSync(join(tmpdir(), "toll-nvm-home-"));
+  const pathBin = mkdtempSync(join(tmpdir(), "toll-nvm-path-"));
+  const out = mkdtempSync(join(tmpdir(), "toll-nvm-out-"));
+  const used = join(home, "used");
+  for (const [version, code] of [["v22.9.0", 1], ["v22.23.4", 0]] as const) {
+    const dir = join(home, ".nvm/versions/node", version, "bin");
+    mkdirSync(dir, { recursive: true });
+    fakeBin(dir, "node", `#!/bin/bash
+echo ${version} >> ${JSON.stringify(used)}
+exit ${code}
+`);
+  }
+  fakeBin(pathBin, "node", `#!/bin/bash
+if [[ "$1" == "-p" ]]; then echo 24; exit 0; fi
+echo path-node >> ${JSON.stringify(used)}
+exit 1
+`);
+  const env = { ...process.env, HOME: home, PATH: `${pathBin}:/usr/bin:/bin` };
+  delete env.NODE_22;
+  delete env.NODE_24;
+  delete env.NVM_DIR;
+  const result = spawnSync("bash", ["scripts/verify-toll.sh", "--only", "mutants", "--out", out], {
+    encoding: "utf8",
+    env,
+  });
+  assert.equal(result.status, 0, result.stdout + result.stderr);
+  assert.match(summaryOf(out), /\| mutants \| PASS \|/);
+  const hits = readFileSync(used, "utf8");
+  assert.match(hits, /v22\.23\.4/);
+  assert.doesNotMatch(hits, /v22\.9\.0/);
+  assert.doesNotMatch(hits, /path-node/);
+  rmSync(home, { recursive: true, force: true });
+  rmSync(pathBin, { recursive: true, force: true });
+  rmSync(out, { recursive: true, force: true });
 });
 
 test("verify-toll lint: one fetch-body failure fails the step", () => {
