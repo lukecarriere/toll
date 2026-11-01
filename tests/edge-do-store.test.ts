@@ -91,6 +91,7 @@ test("edge store migration: the at columns are added once to a #45 store, and ol
 test("edge store sweep listing: old open rows with their loss, old bare losses, and nothing else, in quote order", () => {
   const s = doStorage();
   const store = s.open();
+  assert.equal(typeof store.mintQuoteSweepCandidates, "function", "the store lists sweep candidates");
   const age = (table: string, quote: string, ageS: number) => s.db.prepare(`UPDATE ${table} SET at = ? WHERE quote = ?`).run(Math.floor(Date.now() / 1000) - ageS, quote);
   const M = "https://mint.test";
   // a: open, old, its loss young -> listed with the loss.
