@@ -92,6 +92,8 @@ export interface SweepOptions {
   maxCalls?: number;
   /** Per mint call timeout, at most SWEEP_CALL_MS. */
   callMs?: number;
+  /** Mint calls one item may make (keys aside), at most SWEEP_ITEM_CALLS[mode]. */
+  itemCalls?: number;
 }
 
 export function emptySweepSummary(): SweepSummary {
@@ -124,10 +126,11 @@ export async function sweepMintQuotes(o: SweepDeps, opts: SweepOptions): Promise
   // MINT_QUOTE_GUARD sweep-caps: callers cannot raise the call cap or the call timeout past the defaults.
   if (!Number.isSafeInteger(maxCalls) || maxCalls < 0 || maxCalls > SWEEP_MAX_CALLS) throw new TollError("malformed");
   if (!Number.isFinite(callMs) || callMs <= 0 || callMs > SWEEP_CALL_MS) throw new TollError("malformed");
+  const mode = o.mode ?? "loopback";
+  const itemCalls = opts.itemCalls ?? SWEEP_ITEM_CALLS[mode];
+  if (!Number.isSafeInteger(itemCalls) || itemCalls < 1 || itemCalls > SWEEP_ITEM_CALLS[mode]) throw new TollError("malformed");
   const start = o.clock();
   const out = emptySweepSummary();
-  const mode = o.mode ?? "loopback";
-  const itemCalls = SWEEP_ITEM_CALLS[mode];
 
   // One meter for the run: counts calls, caps them per run and per item, times each out, and
   // serves the keyset and keys from a cache after the first answer.
