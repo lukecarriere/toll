@@ -37,7 +37,7 @@ export function doStorage() {
   const ctx = { storage: { sql, transactionSync, setAlarm: async () => {}, deleteAlarm: async () => {} }, id: { toString: () => "do-test" } };
   return {
     db,
-    open: () => new TollStoreDO(ctx as unknown as Ctx, {}),
+    open: (env: Record<string, string> = {}) => new TollStoreDO(ctx as unknown as Ctx, env as never),
     columns: (table: string) => (db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[]).map((c) => c.name),
   };
 }
