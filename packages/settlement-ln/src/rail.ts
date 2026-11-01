@@ -10,6 +10,7 @@ import { asCashuPayment } from "./cashu.ts";
 import type { Offer, Paid, PaidClass, PaidProof, SettlementEngine } from "./engine.ts";
 import { type FxSource, fresh, offerUsd } from "./fx.ts";
 import { type Balance, MemoryLedger, usdDisplay } from "./ledger.ts";
+import type { MintQuoteRechecks } from "./mint-quote.ts";
 import { offerAmountMsat } from "./stub-engine.ts";
 
 export interface RailOptions {
@@ -31,6 +32,7 @@ export interface RailOptions {
   claimMintQuote?: (row: { quote: string; action: string; amount: number; mint: string; proofs: { amount: number; secret: string; id: string; C: string }[] }) => Promise<boolean>;
   noteMintQuoteLoss?: (x: { quote: string; action: string; amount: number; reason?: string }) => Promise<void>;
   mintQuoteRefusalsLeft?: (quote: string, cap: number) => Promise<number>;
+  mintQuoteRechecks?: MintQuoteRechecks;
   onDegraded?: (reason: string) => void;
   onSettled?: (o: { cls: ActionClass; amount_msat: number; fee_msat: number }) => void;
 }
@@ -149,7 +151,7 @@ export function createSettlementRail(o: RailOptions) {
     try {
       paid = await o.engine.verifyPaid({
         site: o.site, proof, now, action: isActionClass(body.action) ? body.action : undefined, firstUse: o.firstUse,
-        hasMintQuote: o.hasMintQuote, reserveMintQuote: o.reserveMintQuote, claimOpenMintQuote: o.claimOpenMintQuote, releaseMintQuote: o.releaseMintQuote, unlockMintQuote: o.unlockMintQuote, finishMintQuote: o.finishMintQuote, claimMintQuote: o.claimMintQuote, noteMintQuoteLoss: o.noteMintQuoteLoss, mintQuoteRefusalsLeft: o.mintQuoteRefusalsLeft,
+        hasMintQuote: o.hasMintQuote, reserveMintQuote: o.reserveMintQuote, claimOpenMintQuote: o.claimOpenMintQuote, releaseMintQuote: o.releaseMintQuote, unlockMintQuote: o.unlockMintQuote, finishMintQuote: o.finishMintQuote, claimMintQuote: o.claimMintQuote, noteMintQuoteLoss: o.noteMintQuoteLoss, mintQuoteRefusalsLeft: o.mintQuoteRefusalsLeft, mintQuoteRechecks: o.mintQuoteRechecks,
       });
     } catch (e) {
       if (e instanceof TollError && e.code === "replay") replayRejected++;

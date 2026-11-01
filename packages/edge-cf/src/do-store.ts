@@ -11,6 +11,9 @@ import { parseCashuMints } from "../../settlement-ln/src/cashu-net.ts";
 import { claimPending, type CashuBooks, type PendingSwap, type ProofSnapshot, type ProofStore, type StoredProof } from "../../settlement-ln/src/cashu-store.ts";
 import { cashuFaultSlot, cashuFetch, type CashuEnv } from "./cashu-edge.ts";
 
+/** The edge `/demo/stats` body. `reversals` and `reversed_sats` live in cashu_meta rows (no new column). */
+export interface StoreCounts { accepted: number; rejected: number; reversals: number; reversed_sats: number }
+
 /** Set true for the current request to make every store call fail closed. Unset: the store works. */
 export const storeFailSlot = new AsyncLocalStorage<boolean>();
 
@@ -161,11 +164,22 @@ export class TollStoreDO extends DurableObject {
     return this.counts();
   }
 
-  counts(): { accepted: number; rejected: number } {
+  /** Today's accepted and rejected, plus all-time mint-quote loss reversals and the sats they reversed. */
+  counts(): StoreCounts {
     const rows = this.sql.exec("SELECT accepted, rejected FROM day WHERE d = ?", this.day()).toArray();
     const row = rows[0];
-    if (!row) return { accepted: 0, rejected: 0 };
-    return { accepted: num(row.accepted), rejected: num(row.rejected) };
+    const reversals = { reversals: this.metaN("reversals"), reversed_sats: this.metaN("reversed_sats") };
+    if (!row) return { accepted: 0, rejected: 0, ...reversals };
+    return { accepted: num(row.accepted), rejected: num(row.rejected), ...reversals };
+  }
+
+  private metaN(k: string): number {
+    const rows = this.sql.exec("SELECT n FROM cashu_meta WHERE k = ?", k).toArray();
+    return rows.length ? num(rows[0].n) : 0;
+  }
+
+  private bumpMeta(k: string, n: number): void {
+    this.sql.exec("INSERT INTO cashu_meta (k, n) VALUES (?, ?) ON CONFLICT(k) DO UPDATE SET n = n + ?", k, n, n);
   }
 
   private envOf(): CashuEnv {
@@ -399,6 +413,8 @@ export class TollStoreDO extends DurableObject {
       if (lost.length) {
         this.sql.exec("UPDATE cashu_mint_loss SET recovered = 1 WHERE quote = ?", row.quote);
         this.sql.exec("UPDATE cashu_meta SET n = ? WHERE k = 'losses'", Math.max(0, this.lossN() - num(lost[0].amount)));
+        this.bumpMeta("reversals", 1);
+        this.bumpMeta("reversed_sats", num(lost[0].amount));
       }
       return true;
     });
@@ -493,7 +509,7 @@ export interface TollDoStub {
   windowHit(key: string, window_s: number): Promise<number>;
   windowCount(key: string, window_s: number): Promise<number>;
   note(kind: string): Promise<{ accepted: number; rejected: number }>;
-  counts(): Promise<{ accepted: number; rejected: number }>;
+  counts(): Promise<StoreCounts>;
   cashuRead(): Promise<ProofSnapshot>;
   cashuBooks(): Promise<CashuBooks>;
   cashuBegin(p: PendingSwap): Promise<{ ok: true; pending: PendingSwap } | { ok: false; error: "replay" }>;

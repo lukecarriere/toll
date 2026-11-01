@@ -11,7 +11,9 @@ const MQ = "packages/settlement-ln/src/mint-quote.ts";
 const MS = "packages/server-node/src/stores.ts";
 const DO = "packages/edge-cf/src/do-store.ts";
 const HTTP = "packages/server-node/src/http.ts";
-const TEST_FILES = ["tests/settlement-mint-quote.test.ts", "tests/l402-quote.test.ts", "tests/l402-edge.test.ts", "tests/l402-expiry.test.ts"];
+const TOLL = "packages/server-node/src/toll.ts";
+const METRICS = "packages/server-node/src/metrics.ts";
+const TEST_FILES = ["tests/edge-do-store.test.ts", "tests/settlement-mint-quote.test.ts", "tests/l402-quote.test.ts", "tests/l402-edge.test.ts", "tests/l402-expiry.test.ts"];
 const TIMEOUT_MS = 300_000;
 
 const mutants = [
@@ -212,7 +214,7 @@ const mutants = [
   {
     file: MS,
     name: "memory loss record loses its dedup",
-    test: "an expired paid quote the mint keeps refusing books one loss at the cap",
+    test: "past the refusal cap, presentations post to the mint only on the re-check schedule",
     from: "    if (this.losses.some((row) => row.quote === o.quote)) return;\n",
     to: "",
   },
@@ -229,6 +231,92 @@ const mutants = [
     test: "guardFetch sends Retry-After on a retryable quote 503",
     from: "      if (quoted) return Response.json(quoted.body, { status: quoted.status, headers: quoted.headers });\n      return refuse(false);",
     to: "      if (quoted) return Response.json(quoted.body, { status: quoted.status });\n      return refuse(false);",
+  },
+  {
+    file: DO,
+    name: "the loss-table migration re-adds reason on every start",
+    test: "edge store migration: a restart on an already migrated store is a no-op",
+    from: 'if (!lossCols.includes("reason")) this.sql.exec(',
+    to: "this.sql.exec(",
+  },
+  {
+    file: DO,
+    name: "the loss-table migration re-adds recovered on every start",
+    test: "edge store migration: a restart on an already migrated store is a no-op",
+    from: 'if (!lossCols.includes("recovered")) this.sql.exec(',
+    to: "this.sql.exec(",
+  },
+  {
+    file: DO,
+    name: "a reversal can drive net losses below zero",
+    test: "edge store reversal: net losses never go below zero",
+    from: "Math.max(0, this.lossN() - num(lost[0].amount))",
+    to: "this.lossN() - num(lost[0].amount)",
+  },
+  {
+    name: "past the cap every presentation posts",
+    test: "past the refusal cap, presentations post to the mint only on the re-check schedule",
+    from: 'if (expired && o.rechecks && (await o.rechecks.gate(c.quote)) === "closed") throw new TollError("expired");',
+    to: "// mutant: no re-check gate",
+  },
+  {
+    name: "the cap does not start the re-check schedule",
+    test: "past the refusal cap, presentations post to the mint only on the re-check schedule",
+    from: "await o.rechecks?.arm(c.quote);",
+    to: "// mutant: not armed",
+  },
+  {
+    name: "re-checks never run out",
+    test: "past the refusal cap, presentations post to the mint only on the re-check schedule",
+    from: 'if (n <= 0) return "closed";',
+    to: "// mutant: no last re-check",
+  },
+  {
+    name: "a re-check window admits every presentation",
+    test: "past the refusal cap, presentations post to the mint only on the re-check schedule",
+    from: 'if (!(await store.firstUse("f:mqw:" + quote, RECHECK_BASE_S * 2 ** (used + 1)))) return "closed";',
+    to: 'await store.firstUse("f:mqw:" + quote, RECHECK_BASE_S * 2 ** (used + 1));',
+  },
+  {
+    name: "re-check windows do not grow",
+    test: "past the refusal cap, presentations post to the mint only on the re-check schedule",
+    from: "RECHECK_BASE_S * 2 ** (used + 1)",
+    to: "RECHECK_BASE_S",
+  },
+  {
+    file: DO,
+    name: "an edge reversal is not counted",
+    test: "edge store stats: a reversal counts once, with its sats, and survives a restart",
+    from: '        this.bumpMeta("reversals", 1);\n',
+    to: "",
+  },
+  {
+    file: DO,
+    name: "an edge reversal counts no sats",
+    test: "edge store stats: a reversal counts once, with its sats, and survives a restart",
+    from: 'this.bumpMeta("reversed_sats", num(lost[0].amount));',
+    to: 'this.bumpMeta("reversed_sats", 1);',
+  },
+  {
+    file: TOLL,
+    name: "a Node reversal is not reported to the stats",
+    test: "a re-check after the cap that the mint signs stores the proofs and reverses the loss",
+    from: "if (reversed) metrics.mintQuoteReversed({ quote: row.quote, amount: reversed.amount });",
+    to: "// mutant: not reported",
+  },
+  {
+    file: TOLL,
+    name: "a Node finish counts a reversal for any recovered row",
+    test: "a re-check after the cap that the mint signs stores the proofs and reverses the loss",
+    from: "store.mintQuoteLossRows?.().find((o) => o.quote === row.quote && o.recovered)",
+    to: "store.mintQuoteLossRows?.().find((o) => o.recovered)",
+  },
+  {
+    file: METRICS,
+    name: "the Node stats count reversals but not their sats",
+    test: "a re-check after the cap that the mint signs stores the proofs and reverses the loss",
+    from: "this.c.mint_quote_reversed_sats += f.amount;",
+    to: "this.c.mint_quote_reversed_sats += 1;",
   },
 ];
 

@@ -35,6 +35,7 @@ import {
   type MintGuard,
   QUOTE_KIND,
   REFUSAL_COUNT_TTL_S,
+  mintQuoteRechecks,
   l402Enabled,
   stubEngineSecret,
   withQuoteOffer,
@@ -177,9 +178,13 @@ export function createToll(config: TollConfig, opts: TollOptions = {}) {
         if (!store.unlockMintQuote) throw new TollError("store_unavailable");
         await store.unlockMintQuote(quote);
       },
-      finishMintQuote: (row) => {
-        if (!store.finishMintQuote) return Promise.reject(new TollError("store_unavailable"));
-        return store.finishMintQuote(row);
+      finishMintQuote: async (row) => {
+        if (!store.finishMintQuote) throw new TollError("store_unavailable");
+        const ok = await store.finishMintQuote(row);
+        // Only one finish per quote stores proofs, so a recovered loss row seen after it is this finish's reversal.
+        const reversed = ok ? store.mintQuoteLossRows?.().find((o) => o.quote === row.quote && o.recovered) : undefined;
+        if (reversed) metrics.mintQuoteReversed({ quote: row.quote, amount: reversed.amount });
+        return ok;
       },
       claimMintQuote: (row) => {
         if (!store.claimMintQuote) return Promise.reject(new TollError("store_unavailable"));
@@ -191,6 +196,7 @@ export function createToll(config: TollConfig, opts: TollOptions = {}) {
         metrics.emit("mint_quote_loss", { quote: x.quote, action: x.action, amount: x.amount, reason: x.reason ?? "" });
       },
       mintQuoteRefusalsLeft: (quote, cap) => store.consume("f:mqr:" + quote, cap, REFUSAL_COUNT_TTL_S),
+      mintQuoteRechecks: mintQuoteRechecks(store),
       onDegraded: (reason) => metrics.settlementDegraded({ reason }),
       onSettled: (x) => metrics.settled(x.amount_msat),
     });

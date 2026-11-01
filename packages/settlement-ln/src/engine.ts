@@ -9,6 +9,7 @@
 // Phase 1 builds only the stub engine (tests, CI, demo) and a stub client for the proxy engine
 // that refuses to run outside stub mode. No real funds, no network.
 import type { ActionClass } from "../../protocol/src/index.ts";
+import type { MintQuoteRechecks } from "./mint-quote.ts";
 
 export type PaidClass = Exclude<ActionClass, "read">;
 
@@ -97,6 +98,7 @@ export interface SettlementEngine {
     claimMintQuote?: (row: { quote: string; action: string; amount: number; mint: string; proofs: { amount: number; secret: string; id: string; C: string }[] }) => Promise<boolean>;
     noteMintQuoteLoss?: (x: { quote: string; action: string; amount: number; reason?: string }) => Promise<void>;
     mintQuoteRefusalsLeft?: (quote: string, cap: number) => Promise<number>;
+    mintQuoteRechecks?: MintQuoteRechecks;
   }): Promise<Paid>;
   /** Second offer from a NUT-04 quote on the Cashu mint. Absent unless the test hook or the production flag is on. */
   mintQuote?(o: { site: string; cls: PaidClass; amount_msat: number; now: number; ttl_s?: number }): Promise<QuoteOffer>;

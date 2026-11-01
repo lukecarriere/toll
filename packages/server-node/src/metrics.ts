@@ -29,10 +29,13 @@ export interface Counters {
   /** Agent discovery (Amendment 3, M11): GET /.well-known/toll.json and GET /.well-known/agents.json. */
   manifest_fetch: number;
   agents_json_fetch: number;
+  /** Booked mint-quote losses later reversed by stored proofs, and the amount they reversed. */
+  mint_quote_reversals: number;
+  mint_quote_reversed_sats: number;
 }
 
 export class Metrics {
-  c = { challenges_minted: 0, redeems_ok: 0, redeems_fail: 0, pass_accept: 0, pass_reject: 0, pass_absent: 0, turned_away: 0, settled_msat: 0, offer_shown: 0, paid: 0, work_after_402: 0, settlement_degraded: 0, page_view_gate_confirmed: 0, manifest_fetch: 0, agents_json_fetch: 0 };
+  c = { challenges_minted: 0, redeems_ok: 0, redeems_fail: 0, pass_accept: 0, pass_reject: 0, pass_absent: 0, turned_away: 0, settled_msat: 0, offer_shown: 0, paid: 0, work_after_402: 0, settlement_degraded: 0, page_view_gate_confirmed: 0, manifest_fetch: 0, agents_json_fetch: 0, mint_quote_reversals: 0, mint_quote_reversed_sats: 0 };
   /** Per "rail|cls" tag counts for redeems_ok and pass_accept. */
   byTag: Record<string, { redeems_ok: number; pass_accept: number }> = {};
   private tookSum = 0;
@@ -70,6 +73,12 @@ export class Metrics {
       if (this.recent.length > 2000) this.recent.shift();
     }
     this.emit("redeem_ok", f);
+  }
+
+  mintQuoteReversed(f: { quote: string; amount: number }): void {
+    this.c.mint_quote_reversals++;
+    this.c.mint_quote_reversed_sats += f.amount;
+    this.emit("mint_quote_reversed", f);
   }
 
   redeemFail(f: { reason: string; cls?: string; rail?: string }): void {

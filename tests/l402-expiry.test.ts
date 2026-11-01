@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { decodeBolt11, startKeysetMint } from "../packages/settlement-ln/src/index.ts";
+import { RECHECK_BASE_S, RECHECK_MAX, decodeBolt11, startKeysetMint } from "../packages/settlement-ln/src/index.ts";
 import { PASS_COOKIE, guardFetch } from "../packages/server-node/src/http.ts";
 import { startDemo } from "./helpers.ts";
 
@@ -23,7 +23,8 @@ type Fault = (path: string, init: RequestInit | undefined) => Response | null;
 async function boot() {
   const mint = await startKeysetMint({ quotes: true });
   process.env.L402_ENABLED = "1";
-  const clock = { now: Math.floor(Date.now() / 1000) };
+  // `skew` moves only the store's clock (TTLs and re-check windows); `now` is the macaroon clock.
+  const clock = { now: Math.floor(Date.now() / 1000), skew: 0 };
   const box: { fault: Fault | null } = { fault: null };
   const proxied: typeof fetch = async (input, init) => {
     const href = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
@@ -38,7 +39,7 @@ async function boot() {
   const demo = await startDemo({
     work: { standard: { cost: 500 } },
     settlement: { enabled: true, backend: "stub", fee_bps: 1000, fx: { source: "none" }, cashu: { enabled: true, mints: [PUBLIC], store: join(dir, "proofs.json") } },
-  }, { now: () => clock.now, settlement: { mintGuard: { lookup: async () => ["1.1.1.1"], fetch: proxied } } });
+  }, { now: () => clock.now, storeNow: () => Date.now() / 1000 + clock.skew, settlement: { mintGuard: { lookup: async () => ["1.1.1.1"], fetch: proxied } } });
   const close = async () => { delete process.env.L402_ENABLED; await demo.close(); await mint.close(); };
   return { mint, demo, clock, box, close };
 }
@@ -88,6 +89,13 @@ async function timeOutBothPosts(mint: Awaited<ReturnType<typeof startKeysetMint>
   };
 }
 
+/** The reversal counters on the Node `/demo/stats`, and the matching event lines. */
+async function reversals(env: Awaited<ReturnType<typeof boot>>) {
+  const s = await (await fetch(env.demo.url + "/demo/stats")).json();
+  const events = env.demo.events.filter((e) => e.event === "mint_quote_reversed").length;
+  return { reversals: s.reversals, reversed_sats: s.reversed_sats, events };
+}
+
 function booked(env: Awaited<ReturnType<typeof boot>>, quote: string) {
   const stored = (env.demo.store.mintQuoteStored?.() ?? []).filter((o) => o.quote === quote).reduce((n, o) => n + o.amount, 0);
   const lost = (env.demo.store.mintQuoteLosses?.() ?? []).filter((o) => o.quote === quote).reduce((n, o) => n + o.amount, 0);
@@ -111,6 +119,7 @@ test("an expired macaroon on a kept reservation books the late signature as stor
       assert.deepEqual(booked(env, quote), { stored: 10, lost: 0 }, "the restored signatures are stored once, with no loss");
     }
     assert.equal(env.mint.mintPosts(), posts, "an issued quote is restored, not posted again");
+    assert.deepEqual(await reversals(env), { reversals: 0, reversed_sats: 0, events: 0 }, "proofs stored with no booked loss reverse nothing");
   } finally {
     await env.close();
   }
@@ -269,6 +278,7 @@ test("an expired paid quote the mint keeps refusing books one loss at the cap, a
     assert.equal(await quoteState(env.mint.url, quote), "PAID");
     assert.deepEqual((env.demo.store.mintQuoteLossRows?.() ?? []).filter((o) => o.quote === quote), [{ quote, action: "write", amount: 10, reason: "mint_refused", recovered: false }]);
     env.mint.failNextMints(0);
+    env.clock.skew += RECHECK_BASE_S;
     const healed = await send();
     assert.equal(healed.status, 401);
     assert.equal((await healed.json()).error, "expired");
@@ -277,6 +287,75 @@ test("an expired paid quote the mint keeps refusing books one loss at the cap, a
     const again = await send();
     assert.equal(again.status, 401);
     assert.deepEqual(booked(env, quote), { stored: 10, lost: 0 });
+  } finally {
+    await env.close();
+  }
+});
+
+/** Presents an expired quote `n` times; each answer must be 401 expired. Returns the mint posts they made. */
+async function presentExpired(env: Awaited<ReturnType<typeof boot>>, send: () => Promise<Response>, n: number): Promise<number> {
+  const before = env.mint.mintPosts();
+  for (let i = 0; i < n; i++) {
+    const res = await send();
+    const body = await res.json();
+    assert.equal(res.status, 401, JSON.stringify(body));
+    assert.equal(body.error, "expired");
+  }
+  return env.mint.mintPosts() - before;
+}
+
+test("past the refusal cap, presentations post to the mint only on the re-check schedule", async () => {
+  const env = await boot();
+  try {
+    const { quote, exp, send } = await paidOffer(env);
+    env.mint.failNextMints(100_000);
+    env.clock.now = exp + 1;
+    for (let i = 1; i < 5; i++) await (await send()).body?.cancel();
+    assert.equal(await presentExpired(env, send, 1), 2, "the presentation that reaches the cap posts twice");
+    assert.deepEqual(booked(env, quote), { stored: 0, lost: 10 });
+    assert.equal(await presentExpired(env, send, 20), 0, "after the cap, presentations do not post");
+    let window = RECHECK_BASE_S;
+    for (let k = 0; k < RECHECK_MAX; k++) {
+      env.clock.skew += window - 1;
+      assert.equal(await presentExpired(env, send, 3), 0, "re-check " + (k + 1) + " is not open early");
+      env.clock.skew += 1;
+      assert.equal(await presentExpired(env, send, 5), 2, "re-check " + (k + 1) + " posts once, for one presentation");
+      window *= 2;
+    }
+    env.clock.skew += window * 4;
+    assert.equal(await presentExpired(env, send, 10), 0, "after the last re-check nothing is posted");
+    assert.deepEqual(booked(env, quote), { stored: 0, lost: 10 }, "the loss stands, booked once");
+    assert.equal(await quoteState(env.mint.url, quote), "PAID");
+  } finally {
+    await env.close();
+  }
+});
+
+test("a re-check after the cap that the mint signs stores the proofs and reverses the loss", async () => {
+  const env = await boot();
+  try {
+    const { quote, exp, send } = await paidOffer(env);
+    env.mint.failNextMints(100_000);
+    env.clock.now = exp + 1;
+    for (let i = 1; i < 6; i++) await (await send()).body?.cancel();
+    assert.deepEqual(booked(env, quote), { stored: 0, lost: 10 });
+    assert.deepEqual(await reversals(env), { reversals: 0, reversed_sats: 0, events: 0 });
+    env.clock.skew += RECHECK_BASE_S;
+    assert.equal(await presentExpired(env, send, 1), 2, "the first re-check is refused");
+    env.mint.failNextMints(0);
+    assert.equal(await presentExpired(env, send, 4), 0, "the next window is not open yet");
+    env.clock.skew += RECHECK_BASE_S * 2;
+    assert.equal(await presentExpired(env, send, 3), 1, "the second re-check mints with one post");
+    assert.equal(await quoteState(env.mint.url, quote), "ISSUED");
+    assert.deepEqual(booked(env, quote), { stored: 10, lost: 0 }, "the recovered quote is stored and its loss reversed");
+    assert.deepEqual(await reversals(env), { reversals: 1, reversed_sats: 10, events: 1 }, "the stats count the reversal and its sats");
+    env.clock.skew += RECHECK_BASE_S * 4;
+    assert.equal(await presentExpired(env, send, 3), 0, "an issued quote is restored, not posted");
+    assert.deepEqual(await reversals(env), { reversals: 1, reversed_sats: 10, events: 1 }, "the reversal counts once");
+    const fresh = await paidOffer(env);
+    const passed = await fresh.send();
+    assert.equal(passed.status, 200, JSON.stringify(await passed.json()));
+    assert.deepEqual(await reversals(env), { reversals: 1, reversed_sats: 10, events: 1 }, "a later quote with no loss counts no reversal");
   } finally {
     await env.close();
   }

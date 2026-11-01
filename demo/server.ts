@@ -88,7 +88,7 @@ export function createDemo(o: { config?: TollConfig; metrics?: Metrics; store?: 
       if (rail === "work" || rail === "settle") passes[rail] += v.pass_accept;
     }
     const paid = pv && toll.paid ? { ...pv, offer_shown: s.offer_shown, paid: s.paid, work_after_402: s.work_after_402, challenges_minted: s.challenges_minted, pass_absent: s.pass_absent, settled_msat: s.settled_msat, passes, ledger: toll.paid.balance().msat, fee_bps: toll.paid.fee_bps } : null;
-    res.set("cache-control", "no-store").json({ accepted: s.pass_accept, rejected: s.turned_away, mean_solve_ms: s.avg_took_ms, mode: pv ? pv.mode : COPY.modeWorkOnly, paid });
+    res.set("cache-control", "no-store").json({ accepted: s.pass_accept, rejected: s.turned_away, reversals: s.mint_quote_reversals, reversed_sats: s.mint_quote_reversed_sats, mean_solve_ms: s.avg_took_ms, mode: pv ? pv.mode : COPY.modeWorkOnly, paid });
   });
 
   // TEST ONLY: the local test backend's payer, standing in for the client's payment app in the demo
