@@ -33,6 +33,7 @@ import {
   createSettlementRail,
   offerIdOf,
   type MintGuard,
+  type RailOptions,
   QUOTE_KIND,
   REFUSAL_COUNT_TTL_S,
   mintQuoteRechecks,
@@ -110,6 +111,46 @@ export function createToll(config: TollConfig, opts: TollOptions = {}) {
   const velocity = new WindowCounter(config.work.velocity_window_s, () => now());
   const issued = new Map<string, { c: Challenge; until: number }>();
   const engine: WorkAdapter = createWorkAdapter(config.secret);
+  /** The store calls behind mint quotes, with their metrics. Paid presentations and the sweep share them. */
+  const quoteStore: Required<Pick<RailOptions, "hasMintQuote" | "reserveMintQuote" | "claimOpenMintQuote" | "releaseMintQuote" | "unlockMintQuote" | "finishMintQuote" | "claimMintQuote" | "noteMintQuoteLoss" | "mintQuoteRefusalsLeft" | "mintQuoteRechecks">> = {
+    hasMintQuote: (quote) => store.hasMintQuote ? store.hasMintQuote(quote) : Promise.resolve(false),
+    reserveMintQuote: (row) => {
+      if (!store.reserveMintQuote) return Promise.reject(new TollError("store_unavailable"));
+      return store.reserveMintQuote(row);
+    },
+    claimOpenMintQuote: (quote) => {
+      if (!store.claimOpenMintQuote) return Promise.reject(new TollError("store_unavailable"));
+      return store.claimOpenMintQuote(quote);
+    },
+    releaseMintQuote: (quote) => {
+      if (!store.releaseMintQuote) return Promise.reject(new TollError("store_unavailable"));
+      return store.releaseMintQuote(quote);
+    },
+    unlockMintQuote: async (quote) => {
+      if (!store.unlockMintQuote) throw new TollError("store_unavailable");
+      await store.unlockMintQuote(quote);
+    },
+    finishMintQuote: async (row) => {
+      if (!store.finishMintQuote) throw new TollError("store_unavailable");
+      const ok = await store.finishMintQuote(row);
+      // Only one finish per quote stores proofs, so a recovered loss row seen after it is this finish's reversal.
+      const reversed = ok ? store.mintQuoteLossRows?.().find((o) => o.quote === row.quote && o.recovered) : undefined;
+      if (reversed) metrics.mintQuoteReversed({ quote: row.quote, amount: reversed.amount });
+      return ok;
+    },
+    claimMintQuote: (row) => {
+      if (!store.claimMintQuote) return Promise.reject(new TollError("store_unavailable"));
+      return store.claimMintQuote(row);
+    },
+    noteMintQuoteLoss: async (x) => {
+      if (!store.noteMintQuoteLoss) throw new TollError("store_unavailable");
+      await store.noteMintQuoteLoss(x);
+      metrics.emit("mint_quote_loss", { quote: x.quote, action: x.action, amount: x.amount, reason: x.reason ?? "" });
+    },
+    mintQuoteRefusalsLeft: (quote, cap) => store.consume("f:mqr:" + quote, cap, REFUSAL_COUNT_TTL_S),
+    mintQuoteRechecks: mintQuoteRechecks(store),
+  };
+
   const paid = config.settlement.enabled ? createPaidRail() : undefined;
   // Amendment 2 §A: the owner confirmed gating page views. Log the warning at startup and count it.
   const gatedPages = config.routes.filter((r) => r.get === true && r.class !== "read" && r.cost !== 0).map((r) => r.prefix);
@@ -161,42 +202,7 @@ export function createToll(config: TollConfig, opts: TollOptions = {}) {
       offer_ttl_s: config.settlement.offer_ttl_s,
       now,
       firstUse: (key, ttl) => store.firstUse(key, ttl),
-      hasMintQuote: (quote) => store.hasMintQuote ? store.hasMintQuote(quote) : Promise.resolve(false),
-      reserveMintQuote: (row) => {
-        if (!store.reserveMintQuote) return Promise.reject(new TollError("store_unavailable"));
-        return store.reserveMintQuote(row);
-      },
-      claimOpenMintQuote: (quote) => {
-        if (!store.claimOpenMintQuote) return Promise.reject(new TollError("store_unavailable"));
-        return store.claimOpenMintQuote(quote);
-      },
-      releaseMintQuote: (quote) => {
-        if (!store.releaseMintQuote) return Promise.reject(new TollError("store_unavailable"));
-        return store.releaseMintQuote(quote);
-      },
-      unlockMintQuote: async (quote) => {
-        if (!store.unlockMintQuote) throw new TollError("store_unavailable");
-        await store.unlockMintQuote(quote);
-      },
-      finishMintQuote: async (row) => {
-        if (!store.finishMintQuote) throw new TollError("store_unavailable");
-        const ok = await store.finishMintQuote(row);
-        // Only one finish per quote stores proofs, so a recovered loss row seen after it is this finish's reversal.
-        const reversed = ok ? store.mintQuoteLossRows?.().find((o) => o.quote === row.quote && o.recovered) : undefined;
-        if (reversed) metrics.mintQuoteReversed({ quote: row.quote, amount: reversed.amount });
-        return ok;
-      },
-      claimMintQuote: (row) => {
-        if (!store.claimMintQuote) return Promise.reject(new TollError("store_unavailable"));
-        return store.claimMintQuote(row);
-      },
-      noteMintQuoteLoss: async (x) => {
-        if (!store.noteMintQuoteLoss) throw new TollError("store_unavailable");
-        await store.noteMintQuoteLoss(x);
-        metrics.emit("mint_quote_loss", { quote: x.quote, action: x.action, amount: x.amount, reason: x.reason ?? "" });
-      },
-      mintQuoteRefusalsLeft: (quote, cap) => store.consume("f:mqr:" + quote, cap, REFUSAL_COUNT_TTL_S),
-      mintQuoteRechecks: mintQuoteRechecks(store),
+      ...quoteStore,
       onDegraded: (reason) => metrics.settlementDegraded({ reason }),
       onSettled: (x) => metrics.settled(x.amount_msat),
     });

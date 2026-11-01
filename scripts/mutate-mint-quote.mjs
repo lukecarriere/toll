@@ -162,8 +162,8 @@ const mutants = [
   {
     name: "a freshly minted expired quote is granted a pass",
     test: "an expired macaroon on a paid quote that was never minted books the sats as stored",
-    from: "    await commitProofs(o, c.quote, c.cls, amount, first.proofs);\n    return granted();",
-    to: "    await commitProofs(o, c.quote, c.cls, amount, first.proofs);\n    return paid();",
+    from: "  await settleMintQuote(o, { quote: c.quote, cls: c.cls, mint: c.mint, amount, state, expired });\n  return granted();",
+    to: "  await settleMintQuote(o, { quote: c.quote, cls: c.cls, mint: c.mint, amount, state, expired });\n  return paid();",
   },
   {
     file: MS,

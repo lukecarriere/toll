@@ -242,8 +242,9 @@ export function mintQuoteRechecks(store: RecheckCounters): MintQuoteRechecks {
 
 export interface LossNote { quote: string; action: string; amount: number; reason: string }
 
-export async function verifyMintQuote(o: {
-  secret: string; mint: string; site: string; action: ActionClass; offer_id: string; macaroon: string; preimage: string; now: number;
+/** The mint and the store calls the recovery tail needs. A presentation and the sweep both supply them. */
+export interface MintQuoteDeps {
+  mint: string;
   fetchImpl?: typeof fetch;
   mode?: "loopback" | "bolt11";
   guard?: MintGuard;
@@ -259,6 +260,13 @@ export async function verifyMintQuote(o: {
   refusalsLeft?: (quote: string, cap: number) => Promise<number>;
   /** Backoff for quotes past the refusal cap. Absent: every presentation may post. */
   rechecks?: MintQuoteRechecks;
+}
+
+/** One quote as the tail sees it: sealed facts (or a stored row) plus the mint's state answer. */
+export interface MintQuoteFacts { quote: string; cls: string; mint: string; amount: number; state: string; expired: boolean }
+
+export async function verifyMintQuote(o: MintQuoteDeps & {
+  secret: string; site: string; action: ActionClass; offer_id: string; macaroon: string; preimage: string; now: number;
 }): Promise<Paid> {
   const bare = o.preimage === "";
   if (!bare && !/^[0-9a-f]{64}$/.test(o.preimage)) throw new TollError("malformed");
@@ -286,6 +294,19 @@ export async function verifyMintQuote(o: {
     if (expired) throw new TollError("expired");
     return paid();
   };
+  await settleMintQuote(o, { quote: c.quote, cls: c.cls, mint: c.mint, amount, state, expired });
+  return granted();
+}
+
+/**
+ * Everything after the quote is known and its mint state read: finish an open row, or reserve and
+ * mint, booking losses as it goes. Throws the same errors a presentation answers with; returns once
+ * the proofs are stored. Needs no request, so the sweep runs it too.
+ */
+export async function settleMintQuote(o: MintQuoteDeps, c: MintQuoteFacts): Promise<void> {
+  const { amount, state, expired } = c;
+  const mode = o.mode ?? "loopback";
+  const fetchImpl = o.fetchImpl ?? fetch;
   const ctx: MintCtx = { mint: o.mint, quote: c.quote, amount, mode, fetchImpl, guard: o.guard, allowlist: o.allowlist };
   // A previous attempt stored outputs and dropped the lease. Finish from those, or give the row up.
   const pending = await o.claimOpen(c.quote);
@@ -303,7 +324,7 @@ export async function verifyMintQuote(o: {
       throw new TollError("store_unavailable");
     } else {
       await commitProofs(o, c.quote, c.cls, amount, recovered);
-      return granted();
+      return;
     }
   } else if (await o.has(c.quote)) {
     throw new TollError(expired ? "expired" : "replay");
@@ -335,7 +356,7 @@ export async function verifyMintQuote(o: {
   const first = await mintOnce(ctx, outputs);
   if (first.proofs) {
     await commitProofs(o, c.quote, c.cls, amount, first.proofs);
-    return granted();
+    return;
   }
   // One more post while the lease is held. A single 500 among concurrent retries still yields one pass.
   const missed = await afterMiss(ctx, outputs, first.outcome);
@@ -352,7 +373,7 @@ export async function verifyMintQuote(o: {
   }
   if (missed !== "kept") {
     await commitProofs(o, c.quote, c.cls, amount, missed);
-    return granted();
+    return;
   }
   await o.unlock(c.quote);
   throw new TollError("store_unavailable");
