@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import * as ln from "../packages/settlement-ln/src/index.ts";
 import { decodeBolt11, startKeysetMint } from "../packages/settlement-ln/src/index.ts";
+import { MemoryStore } from "../packages/server-node/src/stores.ts";
 import { PASS_COOKIE, guardFetch } from "../packages/server-node/src/http.ts";
 import { startDemo } from "./helpers.ts";
 
@@ -372,6 +373,20 @@ test("a re-check after the cap that the mint signs stores the proofs and reverse
   } finally {
     await env.close();
   }
+});
+
+const THIRTY_DAYS_S = 30 * 86_400;
+
+test("re-check marks last 30 days from the cap when no re-check runs", async () => {
+  const { RECHECK_TTL_S, mintQuoteRechecks } = needs("RECHECK_TTL_S", "mintQuoteRechecks");
+  assert.equal(RECHECK_TTL_S, THIRTY_DAYS_S);
+  let t = 1_000_000;
+  const store = new MemoryStore(() => t);
+  await mintQuoteRechecks(store).arm("q");
+  t += THIRTY_DAYS_S - 1;
+  assert.notEqual(await store.peek("f:mqk:q"), undefined, "a second before 30 days the quote is still capped");
+  t += 1;
+  assert.equal(await store.peek("f:mqk:q"), undefined, "at 30 days the marks are gone");
 });
 
 // Ported from QA's #42 check: guardFetch builds its own Response, so its quote 503s need their own header test.

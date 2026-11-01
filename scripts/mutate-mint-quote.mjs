@@ -387,6 +387,12 @@ const mutants = [
     from: 'if (row.mint !== o.mint) throw new TollError("bad_sig");',
     to: "",
   },
+  {
+    name: "re-check marks are kept 1 day instead of 30 (QA C13)",
+    test: "re-check marks last 30 days from the cap",
+    from: "export const RECHECK_TTL_S = 30 * 86_400;",
+    to: "export const RECHECK_TTL_S = 86_400;",
+  },
 ];
 
 /** TAP summary counts, or null when the run printed no TAP summary (a crash, not a test result). */
