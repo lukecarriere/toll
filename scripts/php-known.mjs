@@ -1,28 +1,48 @@
 // Boxes whose PHP has no sodium cannot run Argon2id. Two runners are known to miss only that:
-//   tests/php/run-vectors.php  — one counted failure, the hardened vector, and the rest pass
+//   tests/php/run-vectors.php  — FAIL lines are the Argon2id vector, and the summary adds up
 //   tests/php/run-issuer.php   — an uncaught "ext-sodium is required for Argon2id."
 // Any other failure is a real fail. When sodium is present both runners must exit 0.
 //
-// docs/vectors.json is 34 checks (1 engine secret, 4 per work item × 3, 15 invalid work,
-// 4 invalid passes, 2 valid passes). The hardened solution is the one check that calls Argon2id,
-// so the counted miss is 33 passed, 1 failed. A second failure, or a different count, is not known.
+// The counted total is whatever this PHP run printed. Do not require 32 or 33. run-vectors.php
+// calls check() for the engine secret and then assigns $pass = 0 and $fail = 0, so one ok line
+// is not in the summary. passed + failed + skipped may be one less than the ok, FAIL, and SKIP lines.
 
 import { readFileSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 
-export const VECTORS_KNOWN = { passed: 33, failed: 1 };
 export const SODIUM_ERROR = "ext-sodium is required for Argon2id.";
 
 const FAIL_LINE = /^FAIL .+$/gm;
+const OK_LINE = /^ok   .+$/gm;
+const SKIP_LINE = /^SKIP .+$/gm;
 
 function failLines(text) {
   return text.match(FAIL_LINE) ?? [];
 }
 
+function lineCount(text, pattern) {
+  return text.match(pattern)?.length ?? 0;
+}
+
 function summary(text) {
-  const m = /PHP .*: (\d+) passed, (\d+) failed/.exec(text);
+  const m = /PHP .*: (\d+) passed, (\d+) failed(?:, (\d+) skipped)?/.exec(text);
   if (!m) return null;
-  return { passed: Number(m[1]), failed: Number(m[2]) };
+  return { passed: Number(m[1]), failed: Number(m[2]), skipped: m[3] ? Number(m[3]) : 0 };
+}
+
+function isSodiumVector(line) {
+  return /argon2id|sodium/i.test(line);
+}
+
+const ENGINE_SECRET_OK = /^ok   engine secrets derive from the Toll secret$/m;
+
+/** The summary's passed, failed, and skipped match the lines, allowing the one uncounted engine-secret ok. */
+export function countsAddUp(text, counts, fails) {
+  const oks = lineCount(text, OK_LINE);
+  const skips = lineCount(text, SKIP_LINE);
+  if (fails.length !== counts.failed || skips !== counts.skipped) return false;
+  if (oks === counts.passed) return true;
+  return oks === counts.passed + 1 && counts.skipped === 0 && ENGINE_SECRET_OK.test(text);
 }
 
 /**
@@ -35,14 +55,18 @@ export function classifyVectorRun(run) {
   const counts = summary(text);
   if (run.exitCode === 0 && fails.length === 0) return { status: "PASS", reason: "vectors passed" };
   if (run.sodium) return { status: "FAIL", reason: "vectors failed and PHP has sodium" };
-  const hardened = fails.length === 1 && /hardened account/i.test(fails[0]) && /argon2id|malformed/i.test(fails[0]);
-  if (hardened && counts && counts.passed === VECTORS_KNOWN.passed && counts.failed === VECTORS_KNOWN.failed) {
-    return { status: "KNOWN", reason: `PHP has no sodium; run-vectors is ${counts.passed} passed, ${counts.failed} failed on the hardened Argon2id vector` };
+  const sodiumVectors = fails.length > 0 && fails.every(isSodiumVector);
+  if (sodiumVectors && counts && counts.failed > 0 && countsAddUp(text, counts, fails)) {
+    const skipped = counts.skipped ? `, ${counts.skipped} skipped` : "";
+    return {
+      status: "KNOWN",
+      reason: `PHP has no sodium; every FAIL line is an Argon2id vector (${counts.passed} passed, ${counts.failed} failed${skipped})`,
+    };
   }
   if (fails.length === 0 && text.includes(SODIUM_ERROR) && /^ok   /m.test(text)) {
     return { status: "KNOWN", reason: "PHP has no sodium; run-vectors stopped on Argon2id and reported no other failure" };
   }
-  const got = counts ? `${counts.passed} passed, ${counts.failed} failed` : "no summary";
+  const got = counts ? `${counts.passed} passed, ${counts.failed} failed, ${counts.skipped} skipped` : "no summary";
   return { status: "FAIL", reason: `run-vectors is not the known sodium miss (${got}, ${fails.length} FAIL line(s))` };
 }
 

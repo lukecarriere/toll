@@ -57,13 +57,59 @@ record() {
 
 TREE="$ROOT"
 WORKTREE_PARENT=""
+SUMMARY_WRITTEN=0
+FINISHED=0
+OVERALL=FAIL
 cleanup() {
   if [[ -n "$WORKTREE_PARENT" ]]; then
     git -C "$ROOT" worktree remove --force "$TREE" >/dev/null 2>&1 || true
     rm -rf "$WORKTREE_PARENT"
   fi
 }
-trap cleanup EXIT
+write_summary() {
+  [[ "$SUMMARY_WRITTEN" -eq 1 ]] && return 0
+  [[ -z "${OUT:-}" || ! -d "$OUT" ]] && return 0
+  SUMMARY_WRITTEN=1
+  OVERALL=PASS
+  local step
+  if [[ ${#ORDER[@]} -gt 0 ]]; then
+    for step in "${ORDER[@]}"; do
+      if [[ "${RESULT[$step]}" == FAIL ]]; then OVERALL=FAIL; fi
+    done
+  fi
+  # A crash before the normal end must not look like a pass, and must still leave SUMMARY.md.
+  if [[ "$FINISHED" -eq 0 ]]; then OVERALL=FAIL; fi
+  {
+    echo "# Toll verify"
+    echo
+    echo "- sha: \`${SHA:-unknown}\`"
+    echo "- subject: ${SUBJECT:-}"
+    echo "- tree: \`$TREE\`"
+    echo "- overall: ${OVERALL}"
+    echo
+    echo "| Step | Result | Detail |"
+    echo "| --- | --- | --- |"
+  } >"$OUT/SUMMARY.md"
+  if [[ ${#ORDER[@]} -gt 0 ]]; then
+    for step in "${ORDER[@]}"; do
+      printf '| %s | %s | %s |\n' "$step" "${RESULT[$step]}" "${REASON[$step]//|/\\|}" >>"$OUT/SUMMARY.md"
+    done
+  fi
+  if [[ "$FINISHED" -eq 0 ]]; then
+    echo >>"$OUT/SUMMARY.md"
+    echo "The run stopped before the summary step." >>"$OUT/SUMMARY.md"
+  fi
+  echo >>"$OUT/SUMMARY.md"
+  echo "Logs are in \`$OUT\`." >>"$OUT/SUMMARY.md"
+}
+on_exit() {
+  local status=$?
+  set +e
+  write_summary
+  cleanup
+  exit "$status"
+}
+trap on_exit EXIT
 
 if needs_tree; then
   head_now="$(git -C "$ROOT" rev-parse HEAD)"
@@ -136,12 +182,37 @@ if want install; then
   if [[ "$SKIP_INSTALL" -eq 1 ]]; then
     record install SKIP "skip-install"
   else
+    # set -e is off for the whole group. Each status is kept; a later success cannot hide an earlier failure.
+    # --with-deps needs apt. A mirror error falls back to the browser download. The step fails when that
+    # download fails too, because the browser tests then cannot run.
+    npm_status=1
+    composer_status=1
+    playwright_status=1
+    set +e
     {
       echo "node $(node -v) php $(php -v | head -n 1)"
       (cd "$TREE" && npm ci)
+      npm_status=$?
       (cd "$TREE/packages/server-php" && composer install --no-interaction --no-progress)
-      (cd "$TREE" && npx playwright install --with-deps chromium)
-    } >"$OUT/install.log" 2>&1 && record install PASS || record install FAIL "see install.log"
+      composer_status=$?
+      if (cd "$TREE" && npx playwright install --with-deps chromium); then
+        playwright_status=0
+      else
+        echo "playwright install --with-deps failed; installing the browser without system packages"
+        if (cd "$TREE" && npx playwright install chromium); then
+          playwright_status=0
+        else
+          echo "playwright browser install failed; browser tests that need chromium cannot run"
+          playwright_status=1
+        fi
+      fi
+    } >"$OUT/install.log" 2>&1
+    set -e
+    if [[ "$npm_status" -eq 0 && "$composer_status" -eq 0 && "$playwright_status" -eq 0 ]]; then
+      record install PASS
+    else
+      record install FAIL "npm=${npm_status} composer=${composer_status} playwright=${playwright_status}"
+    fi
   fi
 fi
 
@@ -154,13 +225,31 @@ if want typecheck; then
 fi
 
 if want lint; then
+  # Same as install: a failure of any lint is the step result, not only the last command.
+  copy_status=1
+  cashu_status=1
+  hidden_status=1
+  fetch_status=1
+  dist_status=1
+  set +e
   {
     (cd "$TREE" && node scripts/copy-lint.mjs)
+    copy_status=$?
     (cd "$TREE" && node scripts/cashu-guards.ts)
+    cashu_status=$?
     (cd "$TREE" && node scripts/hidden-attr.ts)
+    hidden_status=$?
     (cd "$TREE" && node scripts/fetch-body-lint.mjs)
+    fetch_status=$?
     (cd "$TREE" && node scripts/check-dist.mjs)
-  } >"$OUT/lint.log" 2>&1 && record lint PASS || record lint FAIL "see lint.log"
+    dist_status=$?
+  } >"$OUT/lint.log" 2>&1
+  set -e
+  if [[ "$copy_status" -eq 0 && "$cashu_status" -eq 0 && "$hidden_status" -eq 0 && "$fetch_status" -eq 0 && "$dist_status" -eq 0 ]]; then
+    record lint PASS
+  else
+    record lint FAIL "copy=${copy_status} cashu=${cashu_status} hidden=${hidden_status} fetch=${fetch_status} dist=${dist_status}"
+  fi
 fi
 
 if want test; then
@@ -189,8 +278,15 @@ if want test; then
 fi
 
 if want php; then
+  # TOLL_VERIFY_SODIUM=0 forces the no-sodium classification. The runners still execute as this PHP.
   sodium=0
-  if php -r 'exit(function_exists("sodium_crypto_pwhash") ? 0 : 1);'; then sodium=1; fi
+  if [[ "${TOLL_VERIFY_SODIUM:-}" == "0" ]]; then
+    sodium=0
+  elif [[ "${TOLL_VERIFY_SODIUM:-}" == "1" ]]; then
+    sodium=1
+  elif php -r 'exit(function_exists("sodium_crypto_pwhash") ? 0 : 1);'; then
+    sodium=1
+  fi
   php_status=PASS
   php_reason="sodium=${sodium}"
   runners=(
@@ -219,9 +315,17 @@ if want php; then
       if [[ "$status" -eq 0 ]]; then step=PASS; else step=FAIL; fi
       why=""
     else
+      # The classifier exits 1 on FAIL. Capture it; set -e must not skip SUMMARY.md.
+      set +e
       classified="$(node "$ROOT/scripts/php-known.mjs" "$kind" --exit "$status" --sodium "$sodium" --log "$log")"
+      class_status=$?
+      set -e
       step="$(printf '%s\n' "$classified" | head -n 1)"
       why="$(printf '%s\n' "$classified" | sed -n '2p')"
+      if [[ -z "$step" ]]; then
+        step=FAIL
+        why="php-known.mjs exited ${class_status} with no status line"
+      fi
     fi
     printf '%s %s %s\n' "$name" "$step" "$why" >>"$OUT/php.log"
     php_reason="${php_reason} ${name}=${step}"
@@ -240,12 +344,14 @@ if want mutants; then
   shopt -u nullglob
   if [[ ${#mutants[@]} -eq 0 ]]; then
     record mutants FAIL "no scripts/mutate-*.mjs"
+  elif ! mutant_node="$(find_node 22)"; then
+    record mutants FAIL "Node 22 is required so the mutant scripts read the TAP fail line"
   else
     for script in "${mutants[@]}"; do
       name="$(basename "$script")"
       log="$OUT/mutant-${name}.log"
       set +e
-      (cd "$TREE" && node "scripts/${name}") >"$log" 2>&1
+      (cd "$TREE" && "$mutant_node" "scripts/${name}") >"$log" 2>&1
       status=$?
       set -e
       if [[ "$status" -eq 0 ]]; then
@@ -311,27 +417,12 @@ if [[ ${#ORDER[@]} -eq 0 ]]; then
   exit 64
 fi
 
-OVERALL=PASS
-{
-  echo "# Toll verify"
-  echo
-  echo "- sha: \`$SHA\`"
-  echo "- subject: ${SUBJECT}"
-  echo "- tree: \`$TREE\`"
-  echo "- overall: PLACEHOLDER"
-  echo
-  echo "| Step | Result | Detail |"
-  echo "| --- | --- | --- |"
-} >"$OUT/SUMMARY.md"
-for step in "${ORDER[@]}"; do
-  if [[ "${RESULT[$step]}" == FAIL ]]; then OVERALL=FAIL; fi
-  printf '| %s | %s | %s |\n' "$step" "${RESULT[$step]}" "${REASON[$step]//|/\\|}" >>"$OUT/SUMMARY.md"
-done
-# A step that was not selected is absent. KNOWN and SKIP do not fail the run.
-sed -i "s/overall: PLACEHOLDER/overall: ${OVERALL}/" "$OUT/SUMMARY.md"
-echo >>"$OUT/SUMMARY.md"
-echo "Logs are in \`$OUT\`." >>"$OUT/SUMMARY.md"
+# KNOWN and SKIP do not fail the run. write_summary also runs from the exit trap, so a
+# failing classifier or a mid-step exit still leaves SUMMARY.md.
+FINISHED=1
+write_summary
 echo "OVERALL: ${OVERALL}"
 echo "evidence: ${OUT}"
 echo "sha: ${SHA}"
-[[ "$OVERALL" == PASS ]]
+if [[ "$OVERALL" == PASS ]]; then exit 0; fi
+exit 1

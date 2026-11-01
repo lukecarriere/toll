@@ -53,7 +53,8 @@ const mutants = [
 ];
 
 function runConservation() {
-  return spawnSync(process.execPath, ["--test", "--test-concurrency=1", "--test-name-pattern", "conservation:", "tests/edge-cashu.test.ts"], {
+  // Node 23+ uses the spec reporter on a pipe, which has no "# fail N" line. Pin TAP.
+  return spawnSync(process.execPath, ["--test", "--test-reporter=tap", "--test-concurrency=1", "--test-name-pattern", "conservation:", "tests/edge-cashu.test.ts"], {
     encoding: "utf8",
     // The edge log is larger than spawnSync's 1MB default, which drops the fail summary.
     maxBuffer: 16 * 1024 * 1024,

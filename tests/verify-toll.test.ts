@@ -2,11 +2,11 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdtempSync } from "node:fs";
+import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 // @ts-ignore plain JS module
-import { classifyIssuerRun, classifyVectorRun, SODIUM_ERROR, VECTORS_KNOWN } from "../scripts/php-known.mjs";
+import { classifyIssuerRun, classifyVectorRun, countsAddUp, SODIUM_ERROR } from "../scripts/php-known.mjs";
 // @ts-ignore plain JS module
 import { commitInMessage, judgeRelease, previousVersionId } from "../scripts/release-match.mjs";
 // @ts-ignore plain JS module
@@ -14,16 +14,29 @@ import { redact } from "../scripts/live-checks.mjs";
 
 const hardened = "FAIL solution accepted: hardened account (Argon2id t=2 m=8192 p=1, counter 3) (malformed)";
 
-test("run-vectors: the single hardened miss is KNOWN only without sodium", () => {
-  const stdout = `ok   engine secrets\n${hardened}\n\nPHP 8.3.6: ${VECTORS_KNOWN.passed} passed, ${VECTORS_KNOWN.failed} failed\n`;
-  const known = classifyVectorRun({ stdout, exitCode: 1, sodium: false });
-  assert.equal(known.status, "KNOWN");
-  assert.match(known.reason, /hardened Argon2id/);
-  assert.equal(classifyVectorRun({ stdout, exitCode: 1, sodium: true }).status, "FAIL");
-  const extra = stdout.replace(hardened, hardened + "\nFAIL solution accepted: standard write (bad)");
-  assert.equal(classifyVectorRun({ stdout: extra, exitCode: 1, sodium: false }).status, "FAIL");
-  const drifted = stdout.replace(`${VECTORS_KNOWN.passed} passed`, `${VECTORS_KNOWN.passed - 1} passed`);
+function vectorLog(passed: number, failLine: string, extraOk = 0): string {
+  const oks = Array.from({ length: passed + extraOk }, (_, i) => `ok   check ${i}`).join("\n");
+  return `${oks}\n${failLine}\n\nPHP 8.3.6: ${passed} passed, 1 failed\n`;
+}
+
+test("run-vectors: 32/1 and 33/1 Argon2id misses are KNOWN, and another FAIL is not", () => {
+  for (const passed of [32, 33]) {
+    const stdout = vectorLog(passed, hardened);
+    const known = classifyVectorRun({ stdout, exitCode: 1, sodium: false });
+    assert.equal(known.status, "KNOWN", stdout);
+    assert.match(known.reason, new RegExp(`${passed} passed, 1 failed`));
+    assert.equal(classifyVectorRun({ stdout, exitCode: 1, sodium: true }).status, "FAIL");
+  }
+  // The engine-secret check is printed before run-vectors.php resets its counters.
+  const early = `ok   engine secrets derive from the Toll secret\n${vectorLog(32, hardened)}`;
+  assert.equal(classifyVectorRun({ stdout: early, exitCode: 1, sodium: false }).status, "KNOWN");
+  const other = vectorLog(32, "FAIL solution accepted: standard write (bad)");
+  assert.equal(classifyVectorRun({ stdout: other, exitCode: 1, sodium: false }).status, "FAIL");
+  const both = vectorLog(31, hardened + "\nFAIL solution accepted: standard write (bad)");
+  assert.equal(classifyVectorRun({ stdout: both.replace("31 passed, 1 failed", "31 passed, 2 failed"), exitCode: 1, sodium: false }).status, "FAIL");
+  const drifted = vectorLog(32, hardened).replace("32 passed", "31 passed");
   assert.equal(classifyVectorRun({ stdout: drifted, exitCode: 1, sodium: false }).status, "FAIL");
+  assert.equal(countsAddUp(early, { passed: 32, failed: 1, skipped: 0 }, [hardened]), true);
 });
 
 test("run-vectors: an uncaught sodium error with no other FAIL line is KNOWN", () => {
@@ -86,6 +99,143 @@ test("verification commands print help and do not run a check", () => {
     assert.equal(result.status, 0, script + "\n" + result.stderr);
     assert.match(result.stdout, /Usage|usage/);
   }
+});
+
+function fakeBin(dir: string, name: string, body: string) {
+  const path = join(dir, name);
+  writeFileSync(path, body);
+  chmodSync(path, 0o755);
+}
+
+function summaryOf(out: string) {
+  return readFileSync(join(out, "SUMMARY.md"), "utf8");
+}
+
+test("verify-toll php: 32/1 with no sodium is KNOWN, a non-Argon2 FAIL stays FAIL, and SUMMARY.md is written", () => {
+  const fake = mkdtempSync(join(tmpdir(), "toll-php-bin-"));
+  const knownOut = mkdtempSync(join(tmpdir(), "toll-php-known-"));
+  const failOut = mkdtempSync(join(tmpdir(), "toll-php-fail-"));
+  const oks = ["ok   engine secrets derive from the Toll secret", ...Array.from({ length: 32 }, (_, i) => `ok   check ${i}`)].join("\n");
+  const knownLog = `${oks}\nFAIL solution accepted: hardened account (Argon2id t=2 m=8192 p=1, counter 3) (malformed)\n\nPHP 8.3.6: 32 passed, 1 failed\n`;
+  const otherOks = Array.from({ length: 31 }, (_, i) => `ok   check ${i}`).join("\n");
+  const otherLog = `${otherOks}\nFAIL solution accepted: standard write (bad)\n\nPHP 8.3.6: 31 passed, 1 failed\n`;
+  writeFileSync(join(fake, "known.log"), knownLog);
+  writeFileSync(join(fake, "other.log"), otherLog);
+  fakeBin(fake, "php", `#!/bin/bash
+if [[ "$1" == "-r" ]]; then exit 1; fi
+base="$(basename "$1")"
+case "$base" in
+  run-vectors.php)
+    cat "$FAIL_LOG"
+    exit 1
+    ;;
+  run-issuer.php)
+    printf 'ok   policy\\nPHP Fatal error: Uncaught RuntimeException: ext-sodium is required for Argon2id.\\n'
+    exit 255
+    ;;
+  *)
+    printf '\\nPHP 8.3.6: 1 passed, 0 failed\\n'
+    exit 0
+    ;;
+esac
+`);
+  const known = spawnSync("bash", ["scripts/verify-toll.sh", "--only", "php", "--out", knownOut], {
+    encoding: "utf8",
+    env: { ...process.env, PATH: `${fake}:${process.env.PATH}`, FAIL_LOG: join(fake, "known.log") },
+  });
+  assert.equal(known.status, 0, known.stdout + known.stderr);
+  assert.match(summaryOf(knownOut), /overall: PASS/);
+  assert.match(summaryOf(knownOut), /\| php \| KNOWN \|/);
+  const failed = spawnSync("bash", ["scripts/verify-toll.sh", "--only", "php", "--out", failOut], {
+    encoding: "utf8",
+    env: { ...process.env, PATH: `${fake}:${process.env.PATH}`, FAIL_LOG: join(fake, "other.log") },
+  });
+  assert.notEqual(failed.status, 0);
+  assert.match(summaryOf(failOut), /overall: FAIL/);
+  assert.match(summaryOf(failOut), /\| php \| FAIL \|/);
+  rmSync(fake, { recursive: true, force: true });
+  rmSync(knownOut, { recursive: true, force: true });
+  rmSync(failOut, { recursive: true, force: true });
+});
+
+test("verify-toll lint: one fetch-body failure fails the step", () => {
+  const fake = mkdtempSync(join(tmpdir(), "toll-node-bin-"));
+  const out = mkdtempSync(join(tmpdir(), "toll-lint-fail-"));
+  fakeBin(fake, "node", `#!/bin/bash
+if [[ "$*" == *fetch-body-lint.mjs* ]]; then
+  echo "simulated fetch-body violation" >&2
+  exit 1
+fi
+exec ${JSON.stringify(process.execPath)} "$@"
+`);
+  const result = spawnSync("bash", ["scripts/verify-toll.sh", "--only", "lint", "--out", out], {
+    encoding: "utf8",
+    env: { ...process.env, PATH: `${fake}:${process.env.PATH}` },
+  });
+  assert.notEqual(result.status, 0);
+  const summary = summaryOf(out);
+  assert.match(summary, /overall: FAIL/);
+  assert.match(summary, /\| lint \| FAIL \|/);
+  assert.match(summary, /fetch=1/);
+  rmSync(fake, { recursive: true, force: true });
+  rmSync(out, { recursive: true, force: true });
+});
+
+test("verify-toll install: npm ci failure is FAIL, and a --with-deps failure can fall back", () => {
+  const fake = mkdtempSync(join(tmpdir(), "toll-install-bin-"));
+  const failOut = mkdtempSync(join(tmpdir(), "toll-install-fail-"));
+  const fallOut = mkdtempSync(join(tmpdir(), "toll-install-fall-"));
+  const bothOut = mkdtempSync(join(tmpdir(), "toll-install-both-"));
+  fakeBin(fake, "node", `#!/bin/bash
+exec ${JSON.stringify(process.execPath)} "$@"
+`);
+  fakeBin(fake, "npm", `#!/bin/bash
+if [[ "$1" == "ci" && "$NPM_CI_FAIL" == 1 ]]; then
+  echo "simulated npm ci failure" >&2
+  exit 1
+fi
+exit 0
+`);
+  fakeBin(fake, "composer", "#!/bin/bash\nexit 0\n");
+  fakeBin(fake, "npx", `#!/bin/bash
+if [[ "$*" == *--with-deps* ]]; then
+  echo "apt mirror 500" >&2
+  exit 1
+fi
+if [[ "$PW_FAIL" == 1 ]]; then
+  echo "browser install failed" >&2
+  exit 1
+fi
+echo "installed chromium"
+exit 0
+`);
+  fakeBin(fake, "php", "#!/bin/bash\necho 'PHP 8.3.6'\nexit 0\n");
+  const env = { ...process.env, PATH: `${fake}:${process.env.PATH}` };
+  const ciFail = spawnSync("bash", ["scripts/verify-toll.sh", "--only", "install", "--out", failOut], {
+    encoding: "utf8",
+    env: { ...env, NPM_CI_FAIL: "1" },
+  });
+  assert.notEqual(ciFail.status, 0);
+  assert.match(summaryOf(failOut), /\| install \| FAIL \|/);
+  assert.match(summaryOf(failOut), /npm=1/);
+  const fallback = spawnSync("bash", ["scripts/verify-toll.sh", "--only", "install", "--out", fallOut], {
+    encoding: "utf8",
+    env,
+  });
+  assert.equal(fallback.status, 0, fallback.stdout + fallback.stderr);
+  assert.match(summaryOf(fallOut), /\| install \| PASS \|/);
+  assert.match(readFileSync(join(fallOut, "install.log"), "utf8"), /without system packages/);
+  const both = spawnSync("bash", ["scripts/verify-toll.sh", "--only", "install", "--out", bothOut], {
+    encoding: "utf8",
+    env: { ...env, PW_FAIL: "1" },
+  });
+  assert.notEqual(both.status, 0);
+  assert.match(summaryOf(bothOut), /\| install \| FAIL \|/);
+  assert.match(summaryOf(bothOut), /playwright=1/);
+  rmSync(fake, { recursive: true, force: true });
+  rmSync(failOut, { recursive: true, force: true });
+  rmSync(fallOut, { recursive: true, force: true });
+  rmSync(bothOut, { recursive: true, force: true });
 });
 
 test("base proof skips a commit compared with itself", () => {
