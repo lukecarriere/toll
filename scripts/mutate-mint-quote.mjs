@@ -14,7 +14,8 @@ const HTTP = "packages/server-node/src/http.ts";
 const TOLL = "packages/server-node/src/toll.ts";
 const METRICS = "packages/server-node/src/metrics.ts";
 const SWEEP = "packages/settlement-ln/src/mint-quote-sweep.ts";
-const TEST_FILES = ["tests/edge-do-store.test.ts", "tests/settlement-mint-quote.test.ts", "tests/l402-quote.test.ts", "tests/l402-edge.test.ts", "tests/l402-expiry.test.ts", "tests/mint-quote-sweep.test.ts"];
+const SITE = "packages/edge-cf/src/site.ts";
+const TEST_FILES = ["tests/edge-do-store.test.ts", "tests/settlement-mint-quote.test.ts", "tests/l402-quote.test.ts", "tests/l402-edge.test.ts", "tests/l402-expiry.test.ts", "tests/mint-quote-sweep.test.ts", "tests/mint-quote-sweep-budget.test.ts", "tests/edge-mint-quote-sweep.test.ts"];
 const TIMEOUT_MS = 300_000;
 
 const mutants = [
@@ -329,8 +330,8 @@ const mutants = [
     file: DO,
     name: "the edge loss row drops the mint",
     test: "edge store migration: the loss mint column is added once",
-    from: 'o.reason ?? "", o.mint ?? "");',
-    to: 'o.reason ?? "", "");',
+    from: 'o.reason ?? "", o.mint ?? "", this.now());',
+    to: 'o.reason ?? "", "", this.now());',
   },
   {
     file: DO,
@@ -357,15 +358,15 @@ const mutants = [
     file: SWEEP,
     name: "the sweep ignores its time budget",
     test: "sweep budget stop:",
-    from: "if (o.clock() - start >= budgetMs) {",
+    from: "if (o.clock() - start > budgetMs - worst * callMs) {",
     to: "if (false) {",
   },
   {
     file: SWEEP,
-    name: "the sweep's budget allows one item past it",
-    test: "sweep budget stop: the budget is checked before each item",
-    from: "if (o.clock() - start >= budgetMs) {",
-    to: "if (o.clock() - start > budgetMs + 40) {",
+    name: "the sweep's budget leaves out the item's worst time",
+    test: "sweep budget stop:",
+    from: "if (o.clock() - start > budgetMs - worst * callMs) {",
+    to: "if (o.clock() - start > budgetMs) {",
   },
   {
     file: MS,
@@ -378,8 +379,8 @@ const mutants = [
     file: MS,
     name: "the Node sweep retries issued_no_row losses",
     test: "sweep nothing recoverable:",
-    from: 'l.mint !== "" && l.reason !== "issued_no_row"',
-    to: 'l.mint !== ""',
+    from: '!this.quotes.has(l.quote) && l.reason !== "issued_no_row"',
+    to: "!this.quotes.has(l.quote)",
   },
   {
     name: "the sweep sends a quote to a mint it was not issued by",
@@ -405,6 +406,188 @@ const mutants = [
     test: "a refused re-check after the one-day refusal count lapses",
     from: 'if (expired && (gate === "open" || (o.refusalsLeft',
     to: 'if (expired && ((o.refusalsLeft',
+  },
+  {
+    file: SWEEP,
+    name: "the sweep starts an item that could pass the call cap",
+    test: "sweep call cap:",
+    from: "if (out.calls + worst > maxCalls) {",
+    to: "if (false) {",
+  },
+  {
+    file: SWEEP,
+    name: "the sweep's worst case leaves out the key calls",
+    test: "sweep call cap:",
+    from: '+ (mode === "bolt11" && keys.size < SWEEP_KEY_CALLS ? SWEEP_KEY_CALLS : 0)',
+    to: "+ 0",
+  },
+  {
+    file: SWEEP,
+    name: "the meter lets an item past its worst case",
+    test: "sweep item cap:",
+    from: "if (out.calls >= maxCalls || itemLeft <= 0) throw",
+    to: "if (out.calls >= maxCalls) throw",
+  },
+  {
+    file: SWEEP,
+    name: "the meter fetches the keys for every item",
+    test: "sweep call cap:",
+    from: "const hit = cacheable ? keys.get(href) : undefined;",
+    to: "const hit = undefined;",
+  },
+  {
+    file: SWEEP,
+    name: "mint calls are not timed out at callMs",
+    test: "sweep time budget:",
+    from: "const signal = init?.signal ? AbortSignal.any([init.signal, timeout]) : timeout;",
+    to: "const signal = init?.signal;",
+  },
+  {
+    file: SWEEP,
+    name: "callers can raise the call cap",
+    test: "sweep call cap:",
+    from: "maxCalls > SWEEP_MAX_CALLS) throw",
+    to: "maxCalls > 1000) throw",
+  },
+  {
+    file: SWEEP,
+    name: "callers can raise the call timeout",
+    test: "sweep call cap:",
+    from: "callMs > SWEEP_CALL_MS) throw",
+    to: "callMs > 60_000) throw",
+  },
+  {
+    file: SWEEP,
+    name: "callers can raise the item cap",
+    test: "sweep call cap:",
+    from: "itemCalls > SWEEP_ITEM_CALLS[mode]) throw",
+    to: "itemCalls > 1000) throw",
+  },
+  {
+    file: SWEEP,
+    name: "a failing quote is retried every run",
+    test: "sweep backoff: a quote that keeps failing",
+    from: "if (mark && (mark.fails >= SWEEP_MAX_TRIES || run < mark.run + 2 ** mark.fails)) {",
+    to: "if (false) {",
+  },
+  {
+    file: SWEEP,
+    name: "a failing quote is retried forever",
+    test: "sweep backoff: a quote that keeps failing",
+    from: "if (mark && (mark.fails >= SWEEP_MAX_TRIES || run < mark.run + 2 ** mark.fails)) {",
+    to: "if (mark && (run < mark.run + 2 ** mark.fails)) {",
+  },
+  {
+    file: SWEEP,
+    name: "a held lease counts as a failure",
+    test: "sweep backoff: a row held by a live request",
+    from: "if (o.tags && !held)",
+    to: "if (o.tags)",
+  },
+  {
+    file: SWEEP,
+    name: "a row booked with mint '' is not tried on the configured mint",
+    test: "sweep mint fallback:",
+    from: 'mint: c.mint === "" ? o.mint : c.mint',
+    to: "mint: c.mint",
+  },
+  {
+    file: MS,
+    name: "the Node cursor keeps its first TTL",
+    test: "sweep cursor:",
+    from: "      if (Number.isNaN(e.v)) e.until = this.now() + ttl_s;\n",
+    to: "",
+  },
+  {
+    file: MS,
+    name: "the Node listing drops a young loss from an old open row",
+    test: "sweep reversals:",
+    from: "if (open) open.lost = l.amount;",
+    to: "if (open && l.at <= cutoff) open.lost = l.amount;",
+  },
+  {
+    file: MS,
+    name: "the Node listing takes up young bare losses",
+    test: "sweep reversals:",
+    from: "else if (l.at <= cutoff && !this.quotes.has(l.quote)",
+    to: "else if (!this.quotes.has(l.quote)",
+  },
+  {
+    file: MS,
+    name: "the Node listing leaves out mint '' losses",
+    test: "sweep mint fallback:",
+    from: "else if (l.at <= cutoff && !this.quotes.has(l.quote)",
+    to: 'else if (l.mint !== "" && l.at <= cutoff && !this.quotes.has(l.quote)',
+  },
+  {
+    file: DO,
+    name: "the edge listing takes up young open rows",
+    test: "edge store sweep listing:",
+    from: "WHERE m.proofs = '[]' AND m.at <= ?",
+    to: "WHERE m.proofs = '[]' AND m.at <= ? + 1000",
+  },
+  {
+    file: DO,
+    name: "the edge listing takes up young bare losses",
+    test: "edge store sweep listing:",
+    from: "WHERE l.recovered = 0 AND l.at <= ? AND",
+    to: "WHERE l.recovered = 0 AND l.at <= ? + 1000 AND",
+  },
+  {
+    file: DO,
+    name: "the edge listing retries issued_no_row losses",
+    test: "edge store sweep listing:",
+    from: " AND l.reason <> 'issued_no_row'",
+    to: "",
+  },
+  {
+    file: DO,
+    name: "the edge listing drops the loss of an open row",
+    test: "edge store sweep listing:",
+    from: "ON l.quote = m.quote AND l.recovered = 0",
+    to: "ON l.quote = m.quote AND l.recovered = 0 AND l.at < 0",
+  },
+  {
+    file: DO,
+    name: "the edge listing leaves out mint '' losses",
+    test: "edge store sweep listing:",
+    from: "WHERE l.recovered = 0 AND l.at <= ? AND",
+    to: "WHERE l.recovered = 0 AND l.mint <> '' AND l.at <= ? AND",
+  },
+  {
+    file: DO,
+    name: "the edge at column is added on every start",
+    test: "edge store migration: the at columns",
+    from: 'if (!lossCols.includes("at")) this.sql.exec(',
+    to: "if (lossCols.length > 0) this.sql.exec(",
+  },
+  {
+    file: DO,
+    name: "an edge loss records no time",
+    test: "edge store migration: the at columns",
+    from: 'o.reason ?? "", o.mint ?? "", this.now());',
+    to: 'o.reason ?? "", o.mint ?? "", 0);',
+  },
+  {
+    file: DO,
+    name: "the edge seed hook works without test hooks",
+    test: "edge store sweep: a worst-case mint",
+    from: 'if (this.envOf().TOLL_TEST_HOOKS !== "1") return { ok: false };',
+    to: "",
+  },
+  {
+    file: SITE,
+    name: "the cron logs no summary",
+    test: "edge cron sweep:",
+    from: "Object.assign(line, await stub(env).mintQuoteSweep({}));",
+    to: "await stub(env).mintQuoteSweep({});",
+  },
+  {
+    file: SITE,
+    name: "the cron runs no sweep",
+    test: "edge cron sweep:",
+    from: "Object.assign(line, await stub(env).mintQuoteSweep({}));",
+    to: "",
   },
 ];
 
@@ -456,7 +639,7 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
   } finally {
     for (const [file, original] of originals) writeFileSync(file, original);
     // The edge test bundles the worker from source, so rebuild it from the restored DO store.
-    if (originals.has(DO)) spawnSync(process.execPath, ["packages/edge-cf/build.mjs"], { stdio: "inherit" });
+    if (originals.has(DO) || originals.has(SITE)) spawnSync(process.execPath, ["packages/edge-cf/build.mjs"], { stdio: "inherit" });
   }
   if (survived > 0) {
     console.error(survived + " mutant(s) survived");

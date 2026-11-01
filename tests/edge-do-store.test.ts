@@ -127,6 +127,7 @@ test("edge store sweep: a worst-case mint is held to the call cap, and the losse
     const MINT = "https://mint.toll.test/Bitcoin";
     const env = { CASHU_MINTS: JSON.stringify([MINT]), CASHU_FETCH_PROXY: mint.url, TOLL_TEST_HOOKS: "1", L402_ENABLED: "1" };
     const store = s.open(env);
+    assert.equal(typeof store.mintQuoteSeed, "function", "the store has a test seed for old rows");
     mint.set("refused");
     for (let i = 0; i < 12; i++) {
       assert.deepEqual(await store.mintQuoteSeed({ quote: "q" + i, action: "write", amount: 10, mint: i % 2 ? "" : MINT, ageS: 300, loss: "mint_refused" }), { ok: true });

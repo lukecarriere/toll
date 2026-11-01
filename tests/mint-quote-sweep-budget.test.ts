@@ -162,7 +162,7 @@ test("sweep item cap: an item is cut off at its worst case and its row is kept",
   }
 });
 
-test("sweep time budget: each call is aborted after callMs and no item starts past budget minus its worst time", async () => {
+test("sweep time budget: each call is aborted after callMs and no item starts past budget minus its worst time", { timeout: 10_000 }, async () => {
   const { sweepMintQuotes } = needs("sweepMintQuotes", "SWEEP_MAX_CALLS");
   const mint = await worstMint();
   try {
@@ -290,6 +290,8 @@ test("sweep reversals: an old open row with a young loss counts the loss its rec
   assert.ok(await store.reserveMintQuote({ quote: "open1", action: "write", amount: 10, mint: PUBLIC }));
   now += AGE + 31;
   await store.noteMintQuoteLoss({ quote: "open1", action: "write", amount: 10, reason: "mint_refused", mint: PUBLIC });
+  // A bare loss as young as open1's is not listed yet.
+  await store.noteMintQuoteLoss({ quote: "young", action: "write", amount: 5, reason: "mint_refused", mint: PUBLIC });
   const listed = await store.mintQuoteSweepCandidates({ after: "", limit: 10, minAgeS: AGE });
   assert.deepEqual(listed.map((c) => [c.quote, c.lost]), [["open1", 10]], "the open row carries its loss");
   const fetchImpl: typeof fetch = async (input, init) => {
@@ -301,5 +303,5 @@ test("sweep reversals: an old open row with a young loss counts the loss its rec
   const s = await sweepMintQuotes(deps(store, { fetchImpl, mode: "loopback" }), { batch: 25, budgetMs: 24_000 });
   assert.equal(s.recovered, 1, JSON.stringify(s));
   assert.equal(s.reversedSats, 10, "the reversed loss is counted");
-  assert.deepEqual(store.mintQuoteLosses(), []);
+  assert.deepEqual(store.mintQuoteLosses().map((l) => l.quote), ["young"], "the young loss stays booked");
 });
