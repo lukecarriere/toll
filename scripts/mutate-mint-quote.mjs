@@ -203,8 +203,8 @@ const mutants = [
   {
     name: "unexpired refusals count toward the cap",
     test: "an expired paid quote the mint keeps refusing books one loss at the cap",
-    from: "if (expired && o.refusalsLeft && (await",
-    to: "if (o.refusalsLeft && (await",
+    from: 'if (expired && (gate === "open" || (o.refusalsLeft && (await',
+    to: 'if ((gate === "open" || (o.refusalsLeft && (await',
   },
   {
     name: "a capped refusal is not booked as a loss",
@@ -257,8 +257,8 @@ const mutants = [
   {
     name: "past the cap every presentation posts",
     test: "past the refusal cap, presentations post to the mint only on the re-check schedule",
-    from: 'if (expired && o.rechecks && (await o.rechecks.gate(c.quote)) === "closed") throw new TollError("expired");',
-    to: "// mutant: no re-check gate",
+    from: 'const gate = expired && o.rechecks ? await o.rechecks.gate(c.quote) : "uncapped";\n  if (gate === "closed") throw new TollError("expired");',
+    to: 'const gate = "uncapped"; // mutant: no re-check gate',
   },
   {
     name: "the cap does not start the re-check schedule",
@@ -399,6 +399,12 @@ const mutants = [
     test: "re-check marks on Node last 30 days from the last re-check",
     from: "    e.until = this.now() + ttl_s;\n",
     to: "",
+  },
+  {
+    name: "a refused re-check counts toward a lapsed refusal count again",
+    test: "a refused re-check after the one-day refusal count lapses",
+    from: 'if (expired && (gate === "open" || (o.refusalsLeft',
+    to: 'if (expired && ((o.refusalsLeft',
   },
 ];
 

@@ -406,6 +406,28 @@ test("re-check marks on Node last 30 days from the last re-check, as on the edge
   assert.equal(await store.peek("f:mqk:q"), undefined);
 });
 
+test("a refused re-check after the one-day refusal count lapses answers 401 at once, not a 503 first", async () => {
+  const { RECHECK_BASE_S, REFUSAL_COUNT_TTL_S } = needs("RECHECK_BASE_S", "REFUSAL_COUNT_TTL_S");
+  const env = await boot();
+  try {
+    const { quote, exp, send } = await paidOffer(env);
+    env.mint.failNextMints(100_000);
+    env.clock.now = exp + 1;
+    for (let i = 1; i < 5; i++) await (await send()).body?.cancel();
+    assert.equal(await presentExpired(env, send, 1), 2, "the cap");
+    env.clock.skew += REFUSAL_COUNT_TTL_S + RECHECK_BASE_S;
+    const late = await send();
+    const body = await late.json();
+    assert.equal(late.status, 401, JSON.stringify(body));
+    assert.equal(body.error, "expired");
+    assert.equal(late.headers.get("retry-after"), null, "a final answer is not an invitation to retry");
+    assert.equal(await presentExpired(env, send, 3), 0, "the next window is closed");
+    assert.deepEqual(booked(env, quote), { stored: 0, lost: 10 }, "the loss is booked once");
+  } finally {
+    await env.close();
+  }
+});
+
 // Ported from QA's #42 check: guardFetch builds its own Response, so its quote 503s need their own header test.
 test("guardFetch sends Retry-After on a retryable quote 503 and none on the unrecoverable one", async () => {
   const env = await boot();

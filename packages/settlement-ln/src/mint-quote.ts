@@ -184,7 +184,8 @@ function asProofs(rows: unknown, amount: number): HeldProof[] | null {
  * posts, about 25 s of Retry-After: 5 retries. Only expired presentations count: an unexpired caller
  * can still earn a pass, and the macaroon lifetime bounds those. The count lives in the store's
  * consume counter (key f:mqr:<quote>, one day), so isolates share it. Past the cap, posts follow
- * the re-check schedule below, not each presentation.
+ * the re-check schedule below, not each presentation, and a refused re-check answers 401 expired
+ * whether or not the refusal count is still held.
  */
 export const EXPIRED_REFUSAL_CAP = 5;
 export const REFUSAL_COUNT_TTL_S = 86_400;
@@ -346,7 +347,8 @@ export async function settleMintQuote(deps: MintQuoteDeps, c: MintQuoteFacts): P
     throw new TollError("bad_solution");
   }
   // MINT_QUOTE_GUARD recheck-gate: past the refusal cap an expired quote posts only on its re-check schedule.
-  if (expired && o.rechecks && (await o.rechecks.gate(c.quote)) === "closed") throw new TollError("expired");
+  const gate = expired && o.rechecks ? await o.rechecks.gate(c.quote) : "uncapped";
+  if (gate === "closed") throw new TollError("expired");
   let outputs: MintQuoteOutput[] = [];
   if (mode === "bolt11") {
     const built = await buildOutputs(o.mint, amount, fetchImpl, o.guard, o.allowlist);
@@ -367,7 +369,8 @@ export async function settleMintQuote(deps: MintQuoteDeps, c: MintQuoteFacts): P
     // MINT_QUOTE_GUARD release: a mint refusal that did not sign drops the reservation.
     if (!(await o.release(c.quote))) throw new TollError("replay");
     // MINT_QUOTE_GUARD refusal-cap: an expired quote the mint keeps refusing is booked once at the cap and no longer invited to retry.
-    if (expired && o.refusalsLeft && (await o.refusalsLeft(c.quote, EXPIRED_REFUSAL_CAP)) <= 0) {
+    // MINT_QUOTE_GUARD recheck-final: a refused re-check is final even after the one-day refusal count has lapsed.
+    if (expired && (gate === "open" || (o.refusalsLeft && (await o.refusalsLeft(c.quote, EXPIRED_REFUSAL_CAP)) <= 0))) {
       await o.noteLoss({ quote: c.quote, action: c.cls, amount, reason: "mint_refused" });
       await o.rechecks?.arm(c.quote);
       throw new TollError("expired");
