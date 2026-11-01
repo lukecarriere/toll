@@ -89,6 +89,13 @@ async function timeOutBothPosts(mint: Awaited<ReturnType<typeof startKeysetMint>
   };
 }
 
+/** The reversal counters on the Node `/demo/stats`, and the matching event lines. */
+async function reversals(env: Awaited<ReturnType<typeof boot>>) {
+  const s = await (await fetch(env.demo.url + "/demo/stats")).json();
+  const events = env.demo.events.filter((e) => e.event === "mint_quote_reversed").length;
+  return { reversals: s.reversals, reversed_sats: s.reversed_sats, events };
+}
+
 function booked(env: Awaited<ReturnType<typeof boot>>, quote: string) {
   const stored = (env.demo.store.mintQuoteStored?.() ?? []).filter((o) => o.quote === quote).reduce((n, o) => n + o.amount, 0);
   const lost = (env.demo.store.mintQuoteLosses?.() ?? []).filter((o) => o.quote === quote).reduce((n, o) => n + o.amount, 0);
@@ -112,6 +119,7 @@ test("an expired macaroon on a kept reservation books the late signature as stor
       assert.deepEqual(booked(env, quote), { stored: 10, lost: 0 }, "the restored signatures are stored once, with no loss");
     }
     assert.equal(env.mint.mintPosts(), posts, "an issued quote is restored, not posted again");
+    assert.deepEqual(await reversals(env), { reversals: 0, reversed_sats: 0, events: 0 }, "proofs stored with no booked loss reverse nothing");
   } finally {
     await env.close();
   }
@@ -331,6 +339,7 @@ test("a re-check after the cap that the mint signs stores the proofs and reverse
     env.clock.now = exp + 1;
     for (let i = 1; i < 6; i++) await (await send()).body?.cancel();
     assert.deepEqual(booked(env, quote), { stored: 0, lost: 10 });
+    assert.deepEqual(await reversals(env), { reversals: 0, reversed_sats: 0, events: 0 });
     env.clock.skew += RECHECK_BASE_S;
     assert.equal(await presentExpired(env, send, 1), 2, "the first re-check is refused");
     env.mint.failNextMints(0);
@@ -339,6 +348,14 @@ test("a re-check after the cap that the mint signs stores the proofs and reverse
     assert.equal(await presentExpired(env, send, 3), 1, "the second re-check mints with one post");
     assert.equal(await quoteState(env.mint.url, quote), "ISSUED");
     assert.deepEqual(booked(env, quote), { stored: 10, lost: 0 }, "the recovered quote is stored and its loss reversed");
+    assert.deepEqual(await reversals(env), { reversals: 1, reversed_sats: 10, events: 1 }, "the stats count the reversal and its sats");
+    env.clock.skew += RECHECK_BASE_S * 4;
+    assert.equal(await presentExpired(env, send, 3), 0, "an issued quote is restored, not posted");
+    assert.deepEqual(await reversals(env), { reversals: 1, reversed_sats: 10, events: 1 }, "the reversal counts once");
+    const fresh = await paidOffer(env);
+    const passed = await fresh.send();
+    assert.equal(passed.status, 200, JSON.stringify(await passed.json()));
+    assert.deepEqual(await reversals(env), { reversals: 1, reversed_sats: 10, events: 1 }, "a later quote with no loss counts no reversal");
   } finally {
     await env.close();
   }

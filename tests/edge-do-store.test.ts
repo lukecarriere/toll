@@ -1,4 +1,4 @@
-// The edge store's SQL, run in Node: the loss-table migration on a restart and the net-loss clamp.
+// The edge store's SQL, run in Node: the loss-table migration on a restart, the net-loss clamp and the reversal counts.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { doStorage } from "./do-harness.ts";
@@ -27,4 +27,21 @@ test("edge store reversal: net losses never go below zero", () => {
   assert.equal(store.finishMintQuote({ quote: "q1", proofs: [PROOF] }), true);
   assert.equal(store.cashuBooks().losses, 0);
   assert.equal(store.cashuBooks().stored, 10);
+});
+
+test("edge store stats: a reversal counts once, with its sats, and survives a restart", () => {
+  const s = doStorage();
+  const store = s.open();
+  const reversed = () => { const c = s.open().counts(); return { reversals: c.reversals, reversed_sats: c.reversed_sats }; };
+  assert.deepEqual(reversed(), { reversals: 0, reversed_sats: 0 });
+  // Proofs stored with no booked loss reverse nothing.
+  assert.equal(store.claimMintQuote({ quote: "q0", action: "write", amount: 5, mint: "https://mint.test", proofs: [{ ...PROOF, amount: 5, secret: "s0" }] }), true);
+  assert.deepEqual(reversed(), { reversals: 0, reversed_sats: 0 });
+  store.noteMintQuoteLoss({ quote: "q1", action: "write", amount: 10, reason: "mint_refused" });
+  assert.equal(store.reserveMintQuote({ quote: "q1", action: "write", amount: 10, mint: "https://mint.test" }), true);
+  assert.equal(store.finishMintQuote({ quote: "q1", proofs: [PROOF] }), true);
+  assert.deepEqual(reversed(), { reversals: 1, reversed_sats: 10 });
+  assert.equal(store.finishMintQuote({ quote: "q1", proofs: [PROOF] }), false, "a second finish stores nothing");
+  assert.deepEqual(reversed(), { reversals: 1, reversed_sats: 10 }, "and counts nothing");
+  assert.equal(store.counts().accepted, 0, "the day counts are unchanged");
 });

@@ -11,6 +11,8 @@ const MQ = "packages/settlement-ln/src/mint-quote.ts";
 const MS = "packages/server-node/src/stores.ts";
 const DO = "packages/edge-cf/src/do-store.ts";
 const HTTP = "packages/server-node/src/http.ts";
+const TOLL = "packages/server-node/src/toll.ts";
+const METRICS = "packages/server-node/src/metrics.ts";
 const TEST_FILES = ["tests/edge-do-store.test.ts", "tests/settlement-mint-quote.test.ts", "tests/l402-quote.test.ts", "tests/l402-edge.test.ts", "tests/l402-expiry.test.ts"];
 const TIMEOUT_MS = 300_000;
 
@@ -280,6 +282,41 @@ const mutants = [
     test: "past the refusal cap, presentations post to the mint only on the re-check schedule",
     from: "RECHECK_BASE_S * 2 ** (used + 1)",
     to: "RECHECK_BASE_S",
+  },
+  {
+    file: DO,
+    name: "an edge reversal is not counted",
+    test: "edge store stats: a reversal counts once, with its sats, and survives a restart",
+    from: '        this.bumpMeta("reversals", 1);\n',
+    to: "",
+  },
+  {
+    file: DO,
+    name: "an edge reversal counts no sats",
+    test: "edge store stats: a reversal counts once, with its sats, and survives a restart",
+    from: 'this.bumpMeta("reversed_sats", num(lost[0].amount));',
+    to: 'this.bumpMeta("reversed_sats", 1);',
+  },
+  {
+    file: TOLL,
+    name: "a Node reversal is not reported to the stats",
+    test: "a re-check after the cap that the mint signs stores the proofs and reverses the loss",
+    from: "if (reversed) metrics.mintQuoteReversed({ quote: row.quote, amount: reversed.amount });",
+    to: "// mutant: not reported",
+  },
+  {
+    file: TOLL,
+    name: "a Node finish counts a reversal for any recovered row",
+    test: "a re-check after the cap that the mint signs stores the proofs and reverses the loss",
+    from: "store.mintQuoteLossRows?.().find((o) => o.quote === row.quote && o.recovered)",
+    to: "store.mintQuoteLossRows?.().find((o) => o.recovered)",
+  },
+  {
+    file: METRICS,
+    name: "the Node stats count reversals but not their sats",
+    test: "a re-check after the cap that the mint signs stores the proofs and reverses the loss",
+    from: "this.c.mint_quote_reversed_sats += f.amount;",
+    to: "this.c.mint_quote_reversed_sats += 1;",
   },
 ];
 
