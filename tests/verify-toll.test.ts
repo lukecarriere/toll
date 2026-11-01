@@ -215,7 +215,7 @@ if [[ "$1" == "-p" ]]; then echo 24; exit 0; fi
 echo path-node >> ${JSON.stringify(used)}
 exit 1
 `);
-  const env = { ...process.env, HOME: home, PATH: `${pathBin}:/usr/bin:/bin` };
+  const env: NodeJS.ProcessEnv = { ...process.env, HOME: home, PATH: `${pathBin}:/usr/bin:/bin` };
   delete env.NODE_22;
   delete env.NODE_24;
   delete env.NVM_DIR;
