@@ -1,8 +1,11 @@
 // Retries stored mint quotes that no client will present again: open reservations and booked losses
-// whose sats a restore or a later mint can still recover. Bounded per run by a batch size and a time
-// budget. Runs the same store calls as a presentation, so leases, the refusal cap and the re-check
-// schedule apply to it as they do to live requests.
+// whose sats a restore or a later mint can still recover. Bounded per run by a batch size, a mint
+// call cap, a subrequest ceiling and a time budget, so one run stays under a Workers Free
+// invocation (50 subrequests). Runs the same store calls as a presentation, so leases, the refusal
+// cap and the re-check schedule apply to it as they do to live requests.
+import { isIP } from "node:net";
 import { TollError } from "../../protocol/src/index.ts";
+import { defaultMintLookup, MINT_CALL_TIMEOUT_MS } from "./cashu-net.ts";
 import { recoverMintQuote, type MintQuoteDeps } from "./mint-quote.ts";
 
 /**
@@ -12,46 +15,230 @@ import { recoverMintQuote, type MintQuoteDeps } from "./mint-quote.ts";
 export const SWEEP_MIN_AGE_S = 120;
 /** Where the last swept quote is kept, so each run starts after it and stuck rows cannot starve the rest. */
 export const SWEEP_CURSOR_KEY = "f:mqsweep:cursor";
+/** Refreshed on every set, so a cursor that keeps moving never lapses. */
 export const SWEEP_CURSOR_TTL_S = 86_400;
 
-/** A quote the store would retry. `lost` is the unrecovered loss booked for it, in sats (0 when none). */
+/**
+ * Hard cap on mint calls (HTTP requests to the mint) in one run. DNS is not a mint call.
+ * The invocation total, including DNS, is SWEEP_SUBREQUEST_CEILING.
+ */
+export const SWEEP_MAX_CALLS = 40;
+/**
+ * Workers Free allows 50 subrequests per invocation. A scheduled run stops before the next
+ * lookup or mint call would pass this. The total is the cron-to-object call, plus DNS, plus
+ * mint calls: 1 + 2 + 40 = 43, which is under this ceiling and under 50.
+ */
+export const SWEEP_SUBREQUEST_CEILING = 45;
+/** The worker's call into the Durable Object. Reserved before the sweep makes any other request. */
+export const SWEEP_RPC_SUBREQUESTS = 1;
+/**
+ * One hostname lookup on the workers runtime is two resolver fetches (one per address family).
+ * Charged once per host per run, and a failure is charged the same: it already did the fetches.
+ */
+export const SWEEP_LOOKUP_SUBREQUESTS = 2;
+/** GET /v1/keysets and GET /v1/keys/<id>: fetched once per run, then served from the run's cache. */
+export const SWEEP_KEY_CALLS = 2;
+/**
+ * The most mint calls one item can make once the keys are cached. bolt11, open PAID row the mint
+ * refuses: state, then recoverOpen (state, post, restore, state), the row is released, then a fresh
+ * mint (post, state, post, restore, state) = 10. Loopback has no restore: 1 + 3 + 4 = 8. An item is
+ * cut off at this many calls; a call refused by the cap reads as a dropped call, so the row is kept.
+ */
+export const SWEEP_ITEM_CALLS = { bolt11: 10, loopback: 8 } as const;
+/** Each mint call (DNS included) is aborted after this long. */
+export const SWEEP_CALL_MS = MINT_CALL_TIMEOUT_MS;
+/** Defaults for a scheduled run. Worst case: 40 mint calls and 24 s, see sweepMintQuotes. */
+export const SWEEP_DEFAULT_BATCH = 25;
+export const SWEEP_DEFAULT_BUDGET_MS = 24_000;
+
+/**
+ * Per-quote backoff. A quote the sweep took up and could not recover is skipped for 2^fails runs,
+ * and after SWEEP_MAX_TRIES failures it is no longer tried. Its loss stays booked. A try is a
+ * definitive mint answer. A held lease, a DNS failure, an unreachable host, a timeout, or a mint
+ * 5xx without an error body does not count, so an outage does not spend the six tries. The mark
+ * is a tag `<fails>:<run>` under f:mqsb:<quote>; the run number is a tag under SWEEP_RUN_KEY.
+ */
+export const SWEEP_BACKOFF_PREFIX = "f:mqsb:";
+export const SWEEP_RUN_KEY = "f:mqsweep:run";
+export const SWEEP_MAX_TRIES = 6;
+export const SWEEP_BACKOFF_TTL_S = 400 * 86_400;
+
+/** A quote the store would retry. `lost` is the unrecovered loss booked for it, in sats (0 when none). `mint` '' means unknown: the configured mint is used. */
 export interface SweepCandidate { quote: string; action: string; amount: number; mint: string; lost: number }
 
 export interface SweepSummary {
-  /** Candidates taken up this run. */
+  /** Candidates taken up this run, deferred ones included. */
   scanned: number;
   /** Quotes whose proofs this run stored. */
   recovered: number;
   /** Booked losses those stores reversed, in sats. */
   reversedSats: number;
-  /** Candidates left as they were: a held lease, a closed re-check window, a mint that still refuses, another mint. */
+  /** Candidates tried and left as they were: a held lease, a closed re-check window, a mint that still refuses, another mint. */
   skipped: number;
-  /** The time budget ran out before the batch did. */
+  /** Candidates not tried this run: in their backoff window, or past SWEEP_MAX_TRIES. */
+  deferred: number;
+  /** Mint calls made (cache hits not counted). */
+  calls: number;
+  /** The run stopped before the batch did. */
   stoppedEarly: boolean;
+  /** Why it stopped early: "time" (budget minus the worst item), "calls" (the mint-call cap or the subrequest ceiling), or "". */
+  stop: "" | "time" | "calls";
+}
+
+export interface SweepTags {
+  get: (key: string) => Promise<string | undefined>;
+  set: (key: string, value: string, ttl_s: number) => Promise<void>;
 }
 
 export interface SweepDeps extends MintQuoteDeps {
   /** Candidates after `after` in quote order, at most `limit`, each at least `minAgeS` old. */
   candidates: (q: { after: string; limit: number; minAgeS: number }) => Promise<SweepCandidate[]>;
   cursor: { get: () => Promise<string | undefined>; set: (quote: string) => Promise<void> };
+  /** Per-quote backoff marks and the run number. Absent: no backoff. */
+  tags?: SweepTags;
   /** Milliseconds, monotonic. */
   clock: () => number;
 }
 
+export interface SweepOptions {
+  batch: number;
+  budgetMs: number;
+  /** At most SWEEP_MAX_CALLS. */
+  maxCalls?: number;
+  /** Per mint call timeout, at most SWEEP_CALL_MS. */
+  callMs?: number;
+  /** Mint calls one item may make (keys aside), at most SWEEP_ITEM_CALLS[mode]. */
+  itemCalls?: number;
+}
+
 export function emptySweepSummary(): SweepSummary {
-  return { scanned: 0, recovered: 0, reversedSats: 0, skipped: 0, stoppedEarly: false };
+  return { scanned: 0, recovered: 0, reversedSats: 0, skipped: 0, deferred: 0, calls: 0, stoppedEarly: false, stop: "" };
+}
+
+function parseMark(v: string | undefined): { fails: number; run: number } | undefined {
+  const m = v ? /^(\d+):(\d+)$/.exec(v) : null;
+  return m ? { fails: Number(m[1]), run: Number(m[2]) } : undefined;
+}
+
+const KEY_PATH = /\/v1\/(keysets|keys\/[0-9a-fA-F]+)$/;
+
+/** Hostname guardMintUrl will resolve. Undefined for a URL that path refuses before DNS. */
+function dnsHost(raw: string): string | undefined {
+  let u: URL;
+  try { u = new URL(raw); } catch { return undefined; }
+  if (u.protocol !== "https:") return undefined;
+  const host = u.hostname.toLowerCase().replace(/^\[|\]$/g, "");
+  if (host === "" || isIP(host) !== 0) return undefined;
+  return host;
 }
 
 /**
  * One bounded pass. Idempotent: a recovered quote holds proofs and is no longer a candidate, and a
- * store finishes a quote once, so a rerun or a concurrent presentation books nothing twice. The
- * budget is checked before each item, so one slow item can run past it (by the mint timeouts).
+ * store finishes a quote once, so a rerun or a concurrent presentation books nothing twice.
+ *
+ * Before each item the run counts that item's worst case: SWEEP_ITEM_CALLS[mode] calls, plus
+ * SWEEP_KEY_CALLS while the keys are not cached, plus one lookup (SWEEP_LOOKUP_SUBREQUESTS) when
+ * that host has not been resolved yet. It stops before an item that could take the run past
+ * `maxCalls` or past SWEEP_SUBREQUEST_CEILING, and before an item that could take it past
+ * `budgetMs` (elapsed > budgetMs minus worst calls x callMs). Each call is aborted after callMs,
+ * so a run ends within budgetMs plus store time. Defaults (bolt11): 2 + 10 + 10 + 10 = 32 <= 40
+ * calls for three worst-case items; the first item's worst is 12 x 1.5 s = 18 s and a later one's
+ * 15 s, both inside 24 s. Subrequests for that run: 1 + 2 + 32 = 35 <= 45.
  */
-export async function sweepMintQuotes(o: SweepDeps, opts: { batch: number; budgetMs: number }): Promise<SweepSummary> {
+export async function sweepMintQuotes(o: SweepDeps, opts: SweepOptions): Promise<SweepSummary> {
   const { batch, budgetMs } = opts;
+  const maxCalls = opts.maxCalls ?? SWEEP_MAX_CALLS;
+  const callMs = opts.callMs ?? SWEEP_CALL_MS;
   if (!Number.isSafeInteger(batch) || batch < 1 || !Number.isFinite(budgetMs) || budgetMs < 0) throw new TollError("malformed");
+  // MINT_QUOTE_GUARD sweep-caps: callers cannot raise the call cap or the call timeout past the defaults.
+  if (!Number.isSafeInteger(maxCalls) || maxCalls < 0 || maxCalls > SWEEP_MAX_CALLS) throw new TollError("malformed");
+  if (!Number.isFinite(callMs) || callMs <= 0 || callMs > SWEEP_CALL_MS) throw new TollError("malformed");
+  const mode = o.mode ?? "loopback";
+  const itemCalls = opts.itemCalls ?? SWEEP_ITEM_CALLS[mode];
+  if (!Number.isSafeInteger(itemCalls) || itemCalls < 1 || itemCalls > SWEEP_ITEM_CALLS[mode]) throw new TollError("malformed");
   const start = o.clock();
   const out = emptySweepSummary();
+
+  // One meter for the run: counts calls, caps them per run and per item, times each out, and
+  // serves the keyset and keys from a cache after the first answer. `sub` is the invocation total
+  // so far: the cron RPC, two per lookup, and one per mint call that was not a cache hit.
+  const keys = new Map<string, string>();
+  let itemLeft = 0;
+  let sub = SWEEP_RPC_SUBREQUESTS;
+  let halt = false;
+  let definitive = false;
+  const noteMintAnswer = async (r: Response): Promise<void> => {
+    if (definitive) return;
+    // A 2xx is the mint speaking. A body with detail or code is a mint error on any status.
+    // A bare 5xx, a timeout and a dropped call are not an answer.
+    if (r.status >= 200 && r.status < 300) { definitive = true; return; }
+    let text = "";
+    try { text = await r.clone().text(); } catch { return; }
+    try {
+      const body = JSON.parse(text) as { detail?: unknown; code?: unknown };
+      if (typeof body.detail === "string" || typeof body.code === "number") definitive = true;
+    } catch { /* not a mint error body */ }
+  };
+  const inner = o.fetchImpl ?? fetch;
+  const metered: typeof fetch = async (input, init) => {
+    const href = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+    const method = (init?.method ?? "GET").toUpperCase();
+    let cacheable = false;
+    try { cacheable = method === "GET" && KEY_PATH.test(new URL(href).pathname); } catch { /* not a URL: not cached */ }
+    const hit = cacheable ? keys.get(href) : undefined;
+    if (hit !== undefined) return new Response(hit, { status: 200, headers: { "content-type": "application/json" } });
+    // MINT_QUOTE_GUARD sweep-call-cap: no mint call past the run's cap, the item's worst case, or the subrequest ceiling.
+    if (out.calls >= maxCalls || itemLeft <= 0 || sub + 1 > SWEEP_SUBREQUEST_CEILING) {
+      if (sub + 1 > SWEEP_SUBREQUEST_CEILING) halt = true;
+      throw new Error("sweep call cap");
+    }
+    out.calls++;
+    itemLeft--;
+    sub++;
+    const timeout = AbortSignal.timeout(callMs);
+    const signal = init?.signal ? AbortSignal.any([init.signal, timeout]) : timeout;
+    const r = await inner(input, { ...init, signal });
+    await noteMintAnswer(r);
+    if (!cacheable || r.status !== 200) return r;
+    const text = await r.text();
+    keys.set(href, text);
+    return new Response(text, { status: 200, headers: { "content-type": "application/json" } });
+  };
+  // One DNS answer per host for the rest of the run, failure included. Dropping a rejection
+  // would resolve the same host again, and each resolve is two subrequests.
+  const looked = new Map<string, Promise<string[]>>();
+  const look = o.guard?.lookup ?? defaultMintLookup;
+  const lookup = (host: string): Promise<string[]> => {
+    const cached = looked.get(host);
+    if (cached) return cached;
+    // MINT_QUOTE_GUARD sweep-dns-memo: a failed lookup is reused, and it costs two subrequests.
+    if (sub + SWEEP_LOOKUP_SUBREQUESTS > SWEEP_SUBREQUEST_CEILING) {
+      halt = true;
+      return Promise.reject(new Error("sweep subrequest ceiling"));
+    }
+    sub += SWEEP_LOOKUP_SUBREQUESTS;
+    let p: Promise<string[]>;
+    try { p = Promise.resolve(look(host)); } catch (e) { p = Promise.reject(e); }
+    // The caller awaits `p`. This handler does not drop the memo entry: a deleted
+    // failure is resolved again, and each resolve is two more subrequests.
+    p.catch(() => undefined);
+    looked.set(host, p);
+    return p;
+  };
+  let held = false;
+  const deps: MintQuoteDeps = {
+    ...o, fetchImpl: metered, guard: { ...o.guard, fetch: metered, lookup },
+    // A held lease (or a row another caller just finished) is not this quote failing.
+    has: async (q) => (held = await o.has(q)),
+  };
+
+  let run = 0;
+  if (o.tags) {
+    run = Number(await o.tags.get(SWEEP_RUN_KEY) ?? "0") + 1;
+    if (!Number.isSafeInteger(run) || run < 1) run = 1;
+    await o.tags.set(SWEEP_RUN_KEY, String(run), SWEEP_BACKOFF_TTL_S);
+  }
+
   const after = (await o.cursor.get()) ?? "";
   // MINT_QUOTE_GUARD sweep-batch: one run takes up at most `batch` candidates.
   const list = await o.candidates({ after, limit: batch, minAgeS: SWEEP_MIN_AGE_S });
@@ -62,19 +249,50 @@ export async function sweepMintQuotes(o: SweepDeps, opts: { batch: number; budge
     list.push(...wrapped.filter((c) => !seen.has(c.quote)));
   }
   for (const c of list) {
-    // MINT_QUOTE_GUARD sweep-budget: no new item once the time budget is spent.
-    if (o.clock() - start >= budgetMs) {
+    const worst = itemCalls + (mode === "bolt11" && keys.size < SWEEP_KEY_CALLS ? SWEEP_KEY_CALLS : 0);
+    const rowMint = c.mint === "" ? o.mint : c.mint;
+    const host = mode === "bolt11" && rowMint === o.mint ? dnsHost(o.mint) : undefined;
+    const dnsMore = host !== undefined && !looked.has(host) ? SWEEP_LOOKUP_SUBREQUESTS : 0;
+    // MINT_QUOTE_GUARD sweep-calls: no item that could take the run past the call cap.
+    // MINT_QUOTE_GUARD sweep-subrequests: no item that could take the invocation past the ceiling.
+    if (out.calls + worst > maxCalls || sub + dnsMore + worst > SWEEP_SUBREQUEST_CEILING) {
       out.stoppedEarly = true;
+      out.stop = "calls";
+      break;
+    }
+    // MINT_QUOTE_GUARD sweep-budget: no item that could run past the time budget.
+    if (o.clock() - start > budgetMs - worst * callMs) {
+      out.stoppedEarly = true;
+      out.stop = "time";
       break;
     }
     out.scanned++;
     await o.cursor.set(c.quote);
-    try {
-      await recoverMintQuote(o, c);
-    } catch {
-      out.skipped++;
+    const markKey = SWEEP_BACKOFF_PREFIX + c.quote;
+    const mark = o.tags ? parseMark(await o.tags.get(markKey)) : undefined;
+    // MINT_QUOTE_GUARD sweep-backoff: a quote that keeps failing waits 2^fails runs, and stops after SWEEP_MAX_TRIES.
+    if (mark && (mark.fails >= SWEEP_MAX_TRIES || run < mark.run + 2 ** mark.fails)) {
+      out.deferred++;
       continue;
     }
+    // MINT_QUOTE_GUARD sweep-mint-fallback: a row booked before the mint was recorded is tried on the configured mint.
+    const row = { ...c, mint: rowMint };
+    held = false;
+    definitive = false;
+    itemLeft = worst;
+    try {
+      await recoverMintQuote(deps, row);
+    } catch (e) {
+      itemLeft = 0;
+      out.skipped++;
+      // MINT_QUOTE_GUARD sweep-try: only a definitive mint answer spends a try. DNS, an unreachable host, a timeout and a bare 5xx do not.
+      const answered = (e instanceof TollError && e.code !== "store_unavailable") || definitive;
+      if (o.tags && !held && answered) await o.tags.set(markKey, `${(mark?.fails ?? 0) + 1}:${run}`, SWEEP_BACKOFF_TTL_S);
+      if (halt) { out.stoppedEarly = true; out.stop = "calls"; break; }
+      continue;
+    }
+    itemLeft = 0;
+    if (halt) { out.stoppedEarly = true; out.stop = "calls"; break; }
     out.recovered++;
     // The store reverses a booked loss in the same write that stores the proofs.
     out.reversedSats += c.lost;

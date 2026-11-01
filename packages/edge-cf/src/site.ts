@@ -85,7 +85,35 @@ export default {
           return json({ error: code }, 503);
         }
       }
+      // Test hooks only: seed an aged mint-quote row or loss for the scheduled sweep tests.
+      if (env.TOLL_TEST_HOOKS === "1" && url.pathname === "/v1/test/mint-quote-seed" && method === "POST") {
+        const b = await req.json().catch(() => null) as Parameters<TollDoStub["mintQuoteSeed"]>[0] | null;
+        if (!b || typeof b.quote !== "string") return json({ error: "malformed" }, 400);
+        return json(await stub(env).mintQuoteSeed(b));
+      }
       return handler.fetch(req, env);
     });
+  },
+
+  /**
+   * Cron (wrangler.toml [triggers]): one bounded mint-quote sweep in the Durable Object, then one
+   * summary log line. Workers Free allows 50 subrequests. This RPC (1), DNS (2 per host, once
+   * per run including a failure) and the mint calls share a ceiling of 45, and the mint calls
+   * themselves stay at most SWEEP_MAX_CALLS (40).
+   */
+  async scheduled(controller: { cron: string }, env: SiteEnv): Promise<void> {
+    const t0 = Date.now();
+    const line: Record<string, unknown> = { event: "mint_quote_sweep", cron: controller.cron };
+    if (env.STORE_FAIL === "1") {
+      console.log(JSON.stringify({ ...line, skipped_run: "store_fail", ms: 0 }));
+      return;
+    }
+    try {
+      Object.assign(line, await stub(env).mintQuoteSweep({}));
+    } catch (e) {
+      line.error = e instanceof TollError ? e.code : "store_unavailable";
+    }
+    line.ms = Date.now() - t0;
+    console.log(JSON.stringify(line));
   },
 };

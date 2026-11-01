@@ -38,6 +38,10 @@ CASHU_MINTS = '["https://mint.minibits.cash/Bitcoin"]'
 L402_ENABLED = "1"
 # SITE_SECRET is a Worker secret (local: .dev.vars, copied from .dev.vars.example). Never commit it.
 
+# Mint-quote sweep (docs/settlement.md): every 30 minutes, at most 40 mint calls and about 24 s per run.
+[triggers]
+crons = ["*/30 * * * *"]
+
 [[durable_objects.bindings]]
 name = "TOLL_STORE"
 class_name = "TollStoreDO"

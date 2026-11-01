@@ -43,11 +43,18 @@ async function boot() {
   }, { now: () => clock.now, storeNow: () => Date.now() / 1000 + clock.skew, settlement: { mintGuard: { lookup: async () => ["1.1.1.1"], fetch: proxied } } });
   const close = async () => { delete process.env.L402_ENABLED; await demo.close(); await mint.close(); };
   const toll = demo.demo.toll;
-  const sweep = (batch = 25, budgetMs = 10_000) => {
+  const sweep = async (batch = 25, budgetMs = 24_000) => {
     assert.equal(typeof toll.sweepMintQuotes, "function", "the toll exposes sweepMintQuotes");
-    return toll.sweepMintQuotes({ batch, budgetMs });
+    const s = await toll.sweepMintQuotes({ batch, budgetMs });
+    assert.ok(s.calls >= 0 && s.calls <= 40, `mint calls per run: ${s.calls}`);
+    return s;
   };
-  return { mint, demo, clock, close, sweep, store: demo.store };
+  /** The summary without its call count, which depends on the path each quote takes. */
+  const sweepShape = async (batch?: number, budgetMs?: number) => {
+    const { calls: _calls, ...rest } = await sweep(batch, budgetMs);
+    return rest;
+  };
+  return { mint, demo, clock, close, sweep, sweepShape, store: demo.store };
 }
 type Env = Awaited<ReturnType<typeof boot>>;
 
@@ -110,7 +117,8 @@ async function reversals(env: Env) {
   return { reversals: s.reversals, reversed_sats: s.reversed_sats };
 }
 
-const NONE = { scanned: 0, recovered: 0, reversedSats: 0, skipped: 0, stoppedEarly: false };
+const NONE = { scanned: 0, recovered: 0, reversedSats: 0, skipped: 0, deferred: 0, stoppedEarly: false, stop: "" };
+const shape = (o: Partial<typeof NONE>) => ({ ...NONE, ...o });
 
 test("sweep recovery: an open reservation is restored and a refused loss is minted and reversed, once each", async () => {
   const env = await boot();
@@ -119,9 +127,9 @@ test("sweep recovery: an open reservation is restored and a refused loss is mint
     const lost = await refusedLoss(env);
     assert.deepEqual(booked(env, open), { stored: 0, lost: 0 });
     assert.deepEqual(booked(env, lost), { stored: 0, lost: 10 });
-    assert.deepEqual(await env.sweep(), NONE, "rows younger than the longest macaroon are left to their clients");
+    assert.deepEqual(await env.sweepShape(), NONE, "rows younger than the longest macaroon are left to their clients");
     env.clock.skew += SWEEP_MIN_AGE_S + 1;
-    assert.deepEqual(await env.sweep(), { scanned: 2, recovered: 2, reversedSats: 10, skipped: 0, stoppedEarly: false });
+    assert.deepEqual(await env.sweepShape(), shape({ scanned: 2, recovered: 2, reversedSats: 10 }));
     assert.deepEqual(booked(env, open), { stored: 10, lost: 0 });
     assert.deepEqual(booked(env, lost), { stored: 10, lost: 0 }, "the loss is reversed by the proofs that recover it");
     assert.equal(await quoteState(env, lost), "ISSUED");
@@ -142,7 +150,7 @@ test("sweep rerun: a second and a concurrent pass book nothing twice", async () 
     assert.equal(a.recovered + b.recovered, 2, `${JSON.stringify(a)} ${JSON.stringify(b)}`);
     assert.equal(a.reversedSats + b.reversedSats, 10);
     const posts = env.mint.mintPosts();
-    assert.deepEqual(await env.sweep(), NONE, "recovered quotes are no longer candidates");
+    assert.deepEqual(await env.sweep(), { ...NONE, calls: 0 }, "recovered quotes are no longer candidates");
     assert.equal(env.mint.mintPosts(), posts);
     assert.deepEqual(booked(env, lost), { stored: 10, lost: 0 });
     assert.deepEqual(booked(env, open), { stored: 10, lost: 0 });
@@ -152,23 +160,24 @@ test("sweep rerun: a second and a concurrent pass book nothing twice", async () 
   }
 });
 
-test("sweep nothing recoverable: issued_no_row, unknown-mint and other-mint losses and a mint that still refuses are left as booked", async () => {
+test("sweep nothing recoverable: issued_no_row and other-mint losses and a mint that still refuses are left as booked", async () => {
   const env = await boot();
   try {
-    assert.deepEqual(await env.sweep(), NONE, "an empty store");
+    assert.deepEqual(await env.sweep(), { ...NONE, calls: 0 }, "an empty store");
     const issued = await paidAtMint(env);
     await env.store.noteMintQuoteLoss({ quote: issued, action: "write", amount: 10, reason: "issued_no_row", mint: PUBLIC });
-    const bare = await refusedLoss(env, "");
     const other = await refusedLoss(env, OTHER);
     env.clock.skew += SWEEP_MIN_AGE_S + 1;
     const requests = env.mint.requests();
-    assert.deepEqual(await env.sweep(), { scanned: 1, recovered: 0, reversedSats: 0, skipped: 1, stoppedEarly: false }, "only the other-mint loss is a candidate");
+    assert.deepEqual(await env.sweep(), { ...NONE, scanned: 1, skipped: 1, calls: 0 }, "only the other-mint loss is a candidate");
     assert.equal(env.mint.requests(), requests, "a quote on another mint is not sent to this one");
+    // A loss booked before its mint was recorded is tried on the configured mint; this one still refuses.
+    const bare = await refusedLoss(env, "");
     const refusing = await refusedLoss(env);
     env.clock.skew += SWEEP_MIN_AGE_S + 1;
     env.mint.failNextMints(1000);
     const posts = env.mint.mintPosts();
-    assert.deepEqual(await env.sweep(), { scanned: 2, recovered: 0, reversedSats: 0, skipped: 2, stoppedEarly: false });
+    assert.deepEqual(await env.sweepShape(), shape({ scanned: 3, skipped: 2, deferred: 1 }), "the other-mint loss waits out its backoff");
     assert.ok(env.mint.mintPosts() > posts, "the refused quote was tried");
     for (const q of [issued, bare, other, refusing]) assert.deepEqual(booked(env, q), { stored: 0, lost: 10 }, q);
     assert.equal(env.store.mintQuoteLossRows().length, 4, "no loss booked twice");
@@ -186,7 +195,7 @@ test("sweep backoff: a capped quote is minted only when its re-check window open
     await mintQuoteRechecks(env.store).arm(quote);
     env.clock.skew += SWEEP_MIN_AGE_S - RECHECK_BASE_S + 1;
     const posts = env.mint.mintPosts();
-    assert.deepEqual(await env.sweep(), NONE, "still too young");
+    assert.deepEqual(await env.sweepShape(), NONE, "still too young");
     env.clock.skew += RECHECK_BASE_S - 2;
     // Old enough to sweep, but the first window opens RECHECK_BASE_S after the cap: a second later.
     assert.equal((await env.sweep()).scanned, 0);
@@ -234,10 +243,12 @@ test("sweep budget stop: a spent budget takes up no further item", async () => {
     const quote = await refusedLoss(env);
     env.clock.skew += SWEEP_MIN_AGE_S + 1;
     const posts = env.mint.mintPosts();
-    assert.deepEqual(await env.sweep(25, 0), { scanned: 0, recovered: 0, reversedSats: 0, skipped: 0, stoppedEarly: true });
+    assert.deepEqual(await env.sweep(25, 0), { ...NONE, calls: 0, stoppedEarly: true, stop: "time" });
     assert.equal(env.mint.mintPosts(), posts);
     assert.deepEqual(booked(env, quote), { stored: 0, lost: 10 });
-    assert.deepEqual(await env.sweep(25, 10_000), { scanned: 1, recovered: 1, reversedSats: 10, skipped: 0, stoppedEarly: false });
+    // A budget shorter than one worst-case item (12 calls x 1.5 s) takes up nothing either.
+    assert.deepEqual(await env.sweep(25, 17_999), { ...NONE, calls: 0, stoppedEarly: true, stop: "time" });
+    assert.deepEqual(await env.sweepShape(25, 19_000), shape({ scanned: 1, recovered: 1, reversedSats: 10 }));
   } finally {
     await env.close();
   }
@@ -258,10 +269,11 @@ test("sweep budget stop: the budget is checked before each item on the sweep's o
       return store.mintQuoteSweepCandidates({ ...q, minAgeS: 0 });
     },
     cursor: { get: async () => undefined, set: async () => {} },
-    // Each reading is 40 ms after the last: items start at 40 and 80, and 120 is past the 100 ms budget.
+    // Each reading is 40 ms after the last: items start at 40 and 80. A loopback item's worst case is
+    // 8 calls x 1 ms, so an item may start until 92 ms; 120 is past it.
     clock: () => (t += 40) - 40,
-  }, { batch: 25, budgetMs: 100 });
-  assert.deepEqual(s, { scanned: 2, recovered: 0, reversedSats: 0, skipped: 2, stoppedEarly: true });
+  }, { batch: 25, budgetMs: 100, callMs: 1 });
+  assert.deepEqual(s, { ...NONE, scanned: 2, skipped: 2, calls: 0, stoppedEarly: true, stop: "time" });
   await assert.rejects(sweepMintQuotes({
     mint: PUBLIC, has: unexpected, reserve: unexpected, claimOpen: unexpected, release: unexpected, unlock: unexpected, finish: unexpected, noteLoss: unexpected,
     candidates: async () => [], cursor: { get: async () => undefined, set: async () => {} }, clock: () => 0,
@@ -276,7 +288,7 @@ test("sweep lease: a row a live request holds is skipped, then recovered once th
     // A live presentation of the same quote claims the open row and holds its 30 s lease.
     assert.ok(await env.store.claimOpenMintQuote(quote));
     const requests = env.mint.requests();
-    assert.deepEqual(await env.sweep(), { scanned: 1, recovered: 0, reversedSats: 0, skipped: 1, stoppedEarly: false });
+    assert.deepEqual(await env.sweepShape(), shape({ scanned: 1, skipped: 1 }));
     assert.equal(env.mint.requests(), requests + 1, "only the quote state is read; no restore or mint while the lease is held");
     assert.deepEqual(booked(env, quote), { stored: 0, lost: 0 });
     env.clock.skew += 31;

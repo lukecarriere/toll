@@ -8,6 +8,8 @@ import { TollError } from "../../protocol/src/index.ts";
 import type { TollStore } from "../../server-node/src/stores.ts";
 import { CashuReceiveEngine } from "../../settlement-ln/src/cashu-receive.ts";
 import { parseCashuMints } from "../../settlement-ln/src/cashu-net.ts";
+import { mintQuoteRechecks, quoteMode, REFUSAL_COUNT_TTL_S } from "../../settlement-ln/src/mint-quote.ts";
+import { emptySweepSummary, SWEEP_CURSOR_KEY, SWEEP_CURSOR_TTL_S, SWEEP_DEFAULT_BATCH, SWEEP_DEFAULT_BUDGET_MS, sweepMintQuotes, type SweepCandidate, type SweepSummary } from "../../settlement-ln/src/mint-quote-sweep.ts";
 import { claimPending, type CashuBooks, type PendingSwap, type ProofSnapshot, type ProofStore, type StoredProof } from "../../settlement-ln/src/cashu-store.ts";
 import { cashuFaultSlot, cashuFetch, type CashuEnv } from "./cashu-edge.ts";
 
@@ -45,6 +47,10 @@ export class TollStoreDO extends DurableObject {
     if (!lossCols.includes("recovered")) this.sql.exec("ALTER TABLE cashu_mint_loss ADD COLUMN recovered INTEGER NOT NULL DEFAULT 0");
     // The mint URL of the quote. Old rows read as '' (unknown mint), which the sweep leaves alone.
     if (!lossCols.includes("mint")) this.sql.exec("ALTER TABLE cashu_mint_loss ADD COLUMN mint TEXT NOT NULL DEFAULT ''");
+    // When the row was written (unix seconds), so the sweep can skip rows a client may still present.
+    // Additive and idempotent. Old rows read as 0, which counts as old enough.
+    if (!cols.some((c) => String(c.name) === "at")) this.sql.exec("ALTER TABLE cashu_mint_quote ADD COLUMN at INTEGER NOT NULL DEFAULT 0");
+    if (!lossCols.includes("at")) this.sql.exec("ALTER TABLE cashu_mint_loss ADD COLUMN at INTEGER NOT NULL DEFAULT 0");
   }
 
   /** Several statements, one commit. A throw rolls them back. */
@@ -335,8 +341,8 @@ export class TollStoreDO extends DurableObject {
     return this.tx(() => {
       if (this.sql.exec("SELECT quote FROM cashu_mint_quote WHERE quote = ?", row.quote).toArray().length) return false;
       this.sql.exec(
-        "INSERT INTO cashu_mint_quote (quote, action, amount, mint, proofs, outputs) VALUES (?, ?, ?, ?, '[]', ?)",
-        row.quote, row.action, row.amount, row.mint, outputs,
+        "INSERT INTO cashu_mint_quote (quote, action, amount, mint, proofs, outputs, at) VALUES (?, ?, ?, ?, '[]', ?, ?)",
+        row.quote, row.action, row.amount, row.mint, outputs, exp - 30,
       );
       this.sql.exec(
         "INSERT INTO kv (k, v, exp) VALUES (?, '1', ?) ON CONFLICT(k) DO UPDATE SET v = '1', exp = excluded.exp",
@@ -434,8 +440,85 @@ export class TollStoreDO extends DurableObject {
 
   noteMintQuoteLoss(o: { quote: string; action: string; amount: number; reason?: string; mint?: string }): void {
     if (this.sql.exec("SELECT quote FROM cashu_mint_loss WHERE quote = ?", o.quote).toArray().length) return;
-    this.sql.exec("INSERT INTO cashu_mint_loss (quote, action, amount, reason, mint) VALUES (?, ?, ?, ?, ?)", o.quote, o.action, o.amount, o.reason ?? "", o.mint ?? "");
+    this.sql.exec("INSERT INTO cashu_mint_loss (quote, action, amount, reason, mint, at) VALUES (?, ?, ?, ?, ?, ?)", o.quote, o.action, o.amount, o.reason ?? "", o.mint ?? "", this.now());
     this.addLoss(o.amount);
+  }
+
+  /**
+   * Quotes the sweep may retry, after `after` in quote order: open rows (no proofs) at least
+   * minAgeS old, each with its unrecovered loss whatever that loss's age; and unrecovered losses at
+   * least minAgeS old with no row, except issued_no_row (nothing left to mint). Mirrors the Node
+   * MemoryStore listing.
+   */
+  mintQuoteSweepCandidates(q: { after: string; limit: number; minAgeS: number }): SweepCandidate[] {
+    const cutoff = this.now() - q.minAgeS;
+    const limit = Math.max(0, Math.min(1000, Math.floor(q.limit)));
+    if (!limit) return [];
+    const rows = this.sql.exec(
+      `SELECT quote, action, amount, mint, lost FROM (
+         SELECT m.quote AS quote, m.action AS action, m.amount AS amount, m.mint AS mint, COALESCE(l.amount, 0) AS lost
+           FROM cashu_mint_quote m LEFT JOIN cashu_mint_loss l ON l.quote = m.quote AND l.recovered = 0
+          WHERE m.proofs = '[]' AND m.at <= ?
+         UNION ALL
+         SELECT l.quote, l.action, l.amount, l.mint, l.amount
+           FROM cashu_mint_loss l
+          WHERE l.recovered = 0 AND l.at <= ? AND l.reason <> 'issued_no_row'
+            AND NOT EXISTS (SELECT 1 FROM cashu_mint_quote m WHERE m.quote = l.quote)
+       ) WHERE quote > ? ORDER BY quote LIMIT ?`,
+      cutoff, cutoff, q.after, limit,
+    ).toArray();
+    return rows.map((r) => ({ quote: String(r.quote), action: String(r.action), amount: num(r.amount), mint: String(r.mint), lost: num(r.lost) }));
+  }
+
+  /**
+   * One bounded sweep of stored mint quotes (the cron entry point). Runs in the object so the store
+   * calls are local. Mint calls are capped at SWEEP_MAX_CALLS, and those calls plus DNS plus the
+   * cron RPC stay within the sweep's subrequest ceiling. The same lease, refusal-cap and re-check
+   * rows as a presentation guard it.
+   */
+  async mintQuoteSweep(o: { batch?: number; budgetMs?: number } = {}): Promise<SweepSummary> {
+    const env = this.envOf();
+    const hooks = env.TOLL_TEST_HOOKS === "1";
+    const mints = parseCashuMints(env.CASHU_MINTS, hooks);
+    const mode = quoteMode(env);
+    if (!mints.length || mode === "off") return emptySweepSummary();
+    const fetchImpl = cashuFetch(env, mints);
+    const counters = {
+      consume: async (key: string, initial: number, ttl: number) => this.consume(key, initial, ttl),
+      peek: async (key: string) => this.peek(key) ?? undefined,
+      firstUse: async (key: string, ttl: number) => this.firstUse(key, ttl),
+    };
+    return sweepMintQuotes({
+      mint: mints[0], fetchImpl, mode, allowlist: mints,
+      guard: { lookup: hooks ? async () => ["1.1.1.1"] : undefined, fetch: fetchImpl },
+      has: async (q) => this.hasMintQuote(q),
+      reserve: async (r) => this.reserveMintQuote(r),
+      claimOpen: async (q) => this.claimOpenMintQuote(q),
+      release: async (q) => this.releaseMintQuote(q),
+      unlock: async (q) => this.unlockMintQuote(q),
+      finish: async (r) => this.finishMintQuote(r),
+      noteLoss: async (x) => this.noteMintQuoteLoss(x),
+      refusalsLeft: (q, cap) => counters.consume("f:mqr:" + q, cap, REFUSAL_COUNT_TTL_S),
+      rechecks: mintQuoteRechecks(counters),
+      candidates: async (q) => this.mintQuoteSweepCandidates(q),
+      cursor: { get: async () => this.getTag(SWEEP_CURSOR_KEY) ?? undefined, set: async (q) => this.setTag(SWEEP_CURSOR_KEY, q, SWEEP_CURSOR_TTL_S) },
+      tags: { get: async (k) => this.getTag(k) ?? undefined, set: async (k, v, ttl) => this.setTag(k, v, ttl) },
+      clock: () => Date.now(),
+    }, { batch: o.batch ?? SWEEP_DEFAULT_BATCH, budgetMs: o.budgetMs ?? SWEEP_DEFAULT_BUDGET_MS });
+  }
+
+  /** Test hooks only: write an open row or a loss as if it were `ageS` old. */
+  async mintQuoteSeed(o: { quote: string; action: string; amount: number; mint: string; ageS: number; open?: boolean; loss?: string }): Promise<{ ok: boolean }> {
+    if (this.envOf().TOLL_TEST_HOOKS !== "1") return { ok: false };
+    const at = this.now() - Math.max(0, Math.floor(o.ageS));
+    if (o.open) {
+      this.sql.exec("INSERT INTO cashu_mint_quote (quote, action, amount, mint, proofs, outputs, at) VALUES (?, ?, ?, ?, '[]', '[]', ?) ON CONFLICT(quote) DO NOTHING", o.quote, o.action, o.amount, o.mint, at);
+    }
+    if (o.loss !== undefined) {
+      this.noteMintQuoteLoss({ quote: o.quote, action: o.action, amount: o.amount, reason: o.loss, mint: o.mint });
+      this.sql.exec("UPDATE cashu_mint_loss SET at = ? WHERE quote = ?", at, o.quote);
+    }
+    return { ok: true };
   }
 
   async cashuLose(o: { id: string; marks: string[] }): Promise<{ ok: true }> {
@@ -521,6 +604,8 @@ export interface TollDoStub {
   cashuLose(o: { id: string; marks: string[] }): Promise<{ ok: true }>;
   cashuNoteSigned(amount: number, marks: string[]): Promise<{ ok: true }>;
   cashuRecover(): Promise<{ ok: true }>;
+  mintQuoteSweep(o?: { batch?: number; budgetMs?: number }): Promise<SweepSummary>;
+  mintQuoteSeed(o: { quote: string; action: string; amount: number; mint: string; ageS: number; open?: boolean; loss?: string }): Promise<{ ok: boolean }>;
   reserveMintQuote(row: { quote: string; action: string; amount: number; mint: string; outputs?: { amount: number; id: string; secret: string; r: string; B_: string }[] }): Promise<boolean>;
   claimOpenMintQuote(quote: string): Promise<{ amount: number; id: string; secret: string; r: string; B_: string }[] | null>;
   releaseMintQuote(quote: string): Promise<boolean>;
