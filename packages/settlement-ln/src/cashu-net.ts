@@ -104,7 +104,8 @@ export function assertProductionMint(raw: string): string {
   return mintKey(raw);
 }
 
-async function defaultLookup(host: string): Promise<string[]> {
+/** The resolver mintFetch uses when the guard names none. Exported so a caller can memoize it. */
+export async function defaultMintLookup(host: string): Promise<string[]> {
   const { lookup } = await import("node:dns/promises");
   const rows = await lookup(host, { all: true, verbatim: true });
   return rows.map((a) => a.address);
@@ -130,7 +131,7 @@ export async function guardMintUrl(raw: string, allowlist: string[], opts: MintG
   // CASHU_GUARD allowlist: a mint that is not listed is not fetched.
   if (!allowed.has(key)) throw new Error("mint url is not on the allowlist");
   if (isIP(host) === 0 && !loopbackOk) {
-    const look = opts.lookup ?? defaultLookup;
+    const look = opts.lookup ?? defaultMintLookup;
     let addrs: string[];
     try { addrs = await lookupWithin(look, host, opts.signal); } catch { throw new Error("mint url host did not resolve"); }
     if (addrs.length === 0 || addrs.some((a) => blockedAddress(a))) throw new Error("mint url host is not public");

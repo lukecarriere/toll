@@ -37,7 +37,10 @@ import {
   QUOTE_KIND,
   REFUSAL_COUNT_TTL_S,
   mintQuoteRechecks,
+  type SweepOptions,
   type SweepSummary,
+  SWEEP_DEFAULT_BATCH,
+  SWEEP_DEFAULT_BUDGET_MS,
   SWEEP_CURSOR_KEY,
   SWEEP_CURSOR_TTL_S,
   emptySweepSummary,
@@ -533,7 +536,7 @@ export function createToll(config: TollConfig, opts: TollOptions = {}) {
      * Empty when no Cashu mint list is configured or the store cannot list candidates. Not scheduled
      * here: the caller decides when to run it.
      */
-    sweepMintQuotes: async (o: { batch: number; budgetMs: number }): Promise<SweepSummary> => {
+    sweepMintQuotes: async (o: SweepOptions = { batch: SWEEP_DEFAULT_BATCH, budgetMs: SWEEP_DEFAULT_BUDGET_MS }): Promise<SweepSummary> => {
       const cashu = config.settlement.cashu;
       if (!config.settlement.enabled || !cashu || !("mints" in cashu) || !store.mintQuoteSweepCandidates) return emptySweepSummary();
       const list = store.mintQuoteSweepCandidates.bind(store);
@@ -545,6 +548,7 @@ export function createToll(config: TollConfig, opts: TollOptions = {}) {
         refusalsLeft: quoteStore.mintQuoteRefusalsLeft, rechecks: quoteStore.mintQuoteRechecks,
         candidates: list,
         cursor: { get: () => store.getTag(SWEEP_CURSOR_KEY), set: (quote) => store.setTag(SWEEP_CURSOR_KEY, quote, SWEEP_CURSOR_TTL_S) },
+        tags: { get: (key) => store.getTag(key), set: (key, value, ttl) => store.setTag(key, value, ttl) },
         clock: () => performance.now(),
       }, o);
       metrics.emit("mint_quote_sweep", { ...summary });

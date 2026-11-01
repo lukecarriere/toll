@@ -115,8 +115,11 @@ export class MemoryStore implements TollStore {
   async setTag(key: string, tag: string, ttl_s: number): Promise<void> {
     this.check();
     const e = this.live(key);
-    if (e) e.tag = tag;
-    else this.m.set(key, { v: Number.NaN, tag, until: this.now() + ttl_s });
+    if (e) {
+      e.tag = tag;
+      // MINT_QUOTE_GUARD tag-ttl: a tag-only entry (the sweep cursor, a backoff mark) lives ttl_s from its last set.
+      if (Number.isNaN(e.v)) e.until = this.now() + ttl_s;
+    } else this.m.set(key, { v: Number.NaN, tag, until: this.now() + ttl_s });
   }
 
   async getTag(key: string): Promise<string | undefined> {
@@ -206,11 +209,13 @@ export class MemoryStore implements TollStore {
       if (q.proofs.length === 0 && q.at <= cutoff) out.set(q.quote, { quote: q.quote, action: q.action, amount: q.amount, mint: q.mint, lost: 0 });
     }
     for (const l of this.losses) {
-      if (l.recovered || l.at > cutoff) continue;
+      if (l.recovered) continue;
       const open = out.get(l.quote);
+      // MINT_QUOTE_GUARD sweep-lost: an open row carries its loss whatever the loss's age, since finishing the row reverses it.
       if (open) open.lost = l.amount;
       // A loss with no row: only a mint refusal or a lost restore can still be minted; issued_no_row cannot.
-      else if (!this.quotes.has(l.quote) && l.mint !== "" && l.reason !== "issued_no_row") out.set(l.quote, { quote: l.quote, action: l.action, amount: l.amount, mint: l.mint, lost: l.amount });
+      // A loss booked before its mint was recorded (mint '') stays a candidate; the sweep tries the configured mint.
+      else if (l.at <= cutoff && !this.quotes.has(l.quote) && l.reason !== "issued_no_row") out.set(l.quote, { quote: l.quote, action: l.action, amount: l.amount, mint: l.mint, lost: l.amount });
     }
     return [...out.values()].filter((c) => c.quote > o.after).sort((a, b) => (a.quote < b.quote ? -1 : 1)).slice(0, o.limit);
   }

@@ -10,6 +10,8 @@ export interface CashuEnv {
   TOLL_TEST_HOOKS?: string;
   /** Test-only. Ignored unless TOLL_TEST_HOOKS is "1". Not set in wrangler.toml. */
   CASHU_FETCH_PROXY?: string;
+  /** "1" offers bolt11 mint quotes; the sweep uses the same mode as the request path. */
+  L402_ENABLED?: string;
 }
 
 /** URLs the worker was about to fetch from a mint. Cleared by the test endpoint. Test hooks only. */
