@@ -4,12 +4,22 @@ import assert from "node:assert/strict";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { RECHECK_BASE_S, RECHECK_MAX, decodeBolt11, startKeysetMint } from "../packages/settlement-ln/src/index.ts";
+import * as ln from "../packages/settlement-ln/src/index.ts";
+import { decodeBolt11, startKeysetMint } from "../packages/settlement-ln/src/index.ts";
 import { PASS_COOKIE, guardFetch } from "../packages/server-node/src/http.ts";
 import { startDemo } from "./helpers.ts";
 
 const PUBLIC = "https://pay.example.com/Bitcoin";
 const LOST = "mint signed; signatures were not recovered";
+
+/**
+ * The re-check exports, read per test: on a base without them each test fails on this assertion
+ * instead of the whole file failing to load.
+ */
+function needs<K extends keyof typeof ln>(...names: K[]): Pick<typeof ln, K> {
+  for (const n of names) assert.notEqual(ln[n], undefined, `settlement-ln exports ${String(n)}`);
+  return ln;
+}
 
 const saved = process.env.L402_ENABLED;
 after(() => {
@@ -249,6 +259,7 @@ for (const expiredRetry of [false, true]) {
 }
 
 test("an expired paid quote the mint keeps refusing books one loss at the cap, and a later mint reverses it", async () => {
+  const { RECHECK_BASE_S, RECHECK_MAX } = needs("RECHECK_BASE_S", "RECHECK_MAX");
   const env = await boot();
   try {
     const { quote, exp, send } = await paidOffer(env);
@@ -305,6 +316,7 @@ async function presentExpired(env: Awaited<ReturnType<typeof boot>>, send: () =>
 }
 
 test("past the refusal cap, presentations post to the mint only on the re-check schedule", async () => {
+  const { RECHECK_BASE_S, RECHECK_MAX } = needs("RECHECK_BASE_S", "RECHECK_MAX");
   const env = await boot();
   try {
     const { quote, exp, send } = await paidOffer(env);
@@ -332,6 +344,7 @@ test("past the refusal cap, presentations post to the mint only on the re-check 
 });
 
 test("a re-check after the cap that the mint signs stores the proofs and reverses the loss", async () => {
+  const { RECHECK_BASE_S, RECHECK_MAX } = needs("RECHECK_BASE_S", "RECHECK_MAX");
   const env = await boot();
   try {
     const { quote, exp, send } = await paidOffer(env);
