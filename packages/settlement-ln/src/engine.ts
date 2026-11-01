@@ -96,7 +96,7 @@ export interface SettlementEngine {
     /** Proofs for a quote this store already reserved. One call. False when the proofs are already stored. */
     finishMintQuote?: (row: { quote: string; proofs: { amount: number; secret: string; id: string; C: string }[] }) => Promise<boolean>;
     claimMintQuote?: (row: { quote: string; action: string; amount: number; mint: string; proofs: { amount: number; secret: string; id: string; C: string }[] }) => Promise<boolean>;
-    noteMintQuoteLoss?: (x: { quote: string; action: string; amount: number; reason?: string }) => Promise<void>;
+    noteMintQuoteLoss?: (x: { quote: string; action: string; amount: number; reason?: string; mint?: string }) => Promise<void>;
     mintQuoteRefusalsLeft?: (quote: string, cap: number) => Promise<number>;
     mintQuoteRechecks?: MintQuoteRechecks;
   }): Promise<Paid>;

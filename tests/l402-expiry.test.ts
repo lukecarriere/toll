@@ -4,12 +4,23 @@ import assert from "node:assert/strict";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { RECHECK_BASE_S, RECHECK_MAX, decodeBolt11, startKeysetMint } from "../packages/settlement-ln/src/index.ts";
+import * as ln from "../packages/settlement-ln/src/index.ts";
+import { decodeBolt11, startKeysetMint } from "../packages/settlement-ln/src/index.ts";
+import { MemoryStore } from "../packages/server-node/src/stores.ts";
 import { PASS_COOKIE, guardFetch } from "../packages/server-node/src/http.ts";
 import { startDemo } from "./helpers.ts";
 
 const PUBLIC = "https://pay.example.com/Bitcoin";
 const LOST = "mint signed; signatures were not recovered";
+
+/**
+ * The re-check exports, read per test: on a base without them each test fails on this assertion
+ * instead of the whole file failing to load.
+ */
+function needs<K extends keyof typeof ln>(...names: K[]): Pick<typeof ln, K> {
+  for (const n of names) assert.notEqual(ln[n], undefined, `settlement-ln exports ${String(n)}`);
+  return ln;
+}
 
 const saved = process.env.L402_ENABLED;
 after(() => {
@@ -249,6 +260,7 @@ for (const expiredRetry of [false, true]) {
 }
 
 test("an expired paid quote the mint keeps refusing books one loss at the cap, and a later mint reverses it", async () => {
+  const { RECHECK_BASE_S, RECHECK_MAX } = needs("RECHECK_BASE_S", "RECHECK_MAX");
   const env = await boot();
   try {
     const { quote, exp, send } = await paidOffer(env);
@@ -305,6 +317,7 @@ async function presentExpired(env: Awaited<ReturnType<typeof boot>>, send: () =>
 }
 
 test("past the refusal cap, presentations post to the mint only on the re-check schedule", async () => {
+  const { RECHECK_BASE_S, RECHECK_MAX } = needs("RECHECK_BASE_S", "RECHECK_MAX");
   const env = await boot();
   try {
     const { quote, exp, send } = await paidOffer(env);
@@ -332,6 +345,7 @@ test("past the refusal cap, presentations post to the mint only on the re-check 
 });
 
 test("a re-check after the cap that the mint signs stores the proofs and reverses the loss", async () => {
+  const { RECHECK_BASE_S, RECHECK_MAX } = needs("RECHECK_BASE_S", "RECHECK_MAX");
   const env = await boot();
   try {
     const { quote, exp, send } = await paidOffer(env);
@@ -356,6 +370,59 @@ test("a re-check after the cap that the mint signs stores the proofs and reverse
     const passed = await fresh.send();
     assert.equal(passed.status, 200, JSON.stringify(await passed.json()));
     assert.deepEqual(await reversals(env), { reversals: 1, reversed_sats: 10, events: 1 }, "a later quote with no loss counts no reversal");
+  } finally {
+    await env.close();
+  }
+});
+
+const THIRTY_DAYS_S = 30 * 86_400;
+
+test("re-check marks last 30 days from the cap when no re-check runs", async () => {
+  const { RECHECK_TTL_S, mintQuoteRechecks } = needs("RECHECK_TTL_S", "mintQuoteRechecks");
+  assert.equal(RECHECK_TTL_S, THIRTY_DAYS_S);
+  let t = 1_000_000;
+  const store = new MemoryStore(() => t);
+  await mintQuoteRechecks(store).arm("q");
+  t += THIRTY_DAYS_S - 1;
+  assert.notEqual(await store.peek("f:mqk:q"), undefined, "a second before 30 days the quote is still capped");
+  t += 1;
+  assert.equal(await store.peek("f:mqk:q"), undefined, "at 30 days the marks are gone");
+});
+
+test("re-check marks on Node last 30 days from the last re-check, as on the edge", async () => {
+  const { RECHECK_BASE_S, mintQuoteRechecks } = needs("RECHECK_BASE_S", "mintQuoteRechecks");
+  let t = 1_000_000;
+  const store = new MemoryStore(() => t);
+  const r = mintQuoteRechecks(store);
+  await r.arm("q");
+  t += RECHECK_BASE_S;
+  assert.equal(await r.gate("q"), "open");
+  t += RECHECK_BASE_S * 2;
+  assert.equal(await r.gate("q"), "open");
+  const last = t;
+  t = last + THIRTY_DAYS_S - 1;
+  assert.equal(await store.peek("f:mqk:q"), ln.RECHECK_MAX - 2, "30 days after the cap, but not after the last re-check");
+  t = last + THIRTY_DAYS_S;
+  assert.equal(await store.peek("f:mqk:q"), undefined);
+});
+
+test("a refused re-check after the one-day refusal count lapses answers 401 at once, not a 503 first", async () => {
+  const { RECHECK_BASE_S, REFUSAL_COUNT_TTL_S } = needs("RECHECK_BASE_S", "REFUSAL_COUNT_TTL_S");
+  const env = await boot();
+  try {
+    const { quote, exp, send } = await paidOffer(env);
+    env.mint.failNextMints(100_000);
+    env.clock.now = exp + 1;
+    for (let i = 1; i < 5; i++) await (await send()).body?.cancel();
+    assert.equal(await presentExpired(env, send, 1), 2, "the cap");
+    env.clock.skew += REFUSAL_COUNT_TTL_S + RECHECK_BASE_S;
+    const late = await send();
+    const body = await late.json();
+    assert.equal(late.status, 401, JSON.stringify(body));
+    assert.equal(body.error, "expired");
+    assert.equal(late.headers.get("retry-after"), null, "a final answer is not an invitation to retry");
+    assert.equal(await presentExpired(env, send, 3), 0, "the next window is closed");
+    assert.deepEqual(booked(env, quote), { stored: 0, lost: 10 }, "the loss is booked once");
   } finally {
     await env.close();
   }

@@ -184,7 +184,8 @@ function asProofs(rows: unknown, amount: number): HeldProof[] | null {
  * posts, about 25 s of Retry-After: 5 retries. Only expired presentations count: an unexpired caller
  * can still earn a pass, and the macaroon lifetime bounds those. The count lives in the store's
  * consume counter (key f:mqr:<quote>, one day), so isolates share it. Past the cap, posts follow
- * the re-check schedule below, not each presentation.
+ * the re-check schedule below, not each presentation, and a refused re-check answers 401 expired
+ * whether or not the refusal count is still held.
  */
 export const EXPIRED_REFUSAL_CAP = 5;
 export const REFUSAL_COUNT_TTL_S = 86_400;
@@ -240,10 +241,12 @@ export function mintQuoteRechecks(store: RecheckCounters): MintQuoteRechecks {
   };
 }
 
-export interface LossNote { quote: string; action: string; amount: number; reason: string }
+/** `mint` is the mint that holds the quote, so a later sweep can retry it. Empty on rows booked before it was recorded. */
+export interface LossNote { quote: string; action: string; amount: number; reason: string; mint?: string }
 
-export async function verifyMintQuote(o: {
-  secret: string; mint: string; site: string; action: ActionClass; offer_id: string; macaroon: string; preimage: string; now: number;
+/** The mint and the store calls the recovery tail needs. A presentation and the sweep both supply them. */
+export interface MintQuoteDeps {
+  mint: string;
   fetchImpl?: typeof fetch;
   mode?: "loopback" | "bolt11";
   guard?: MintGuard;
@@ -259,6 +262,13 @@ export async function verifyMintQuote(o: {
   refusalsLeft?: (quote: string, cap: number) => Promise<number>;
   /** Backoff for quotes past the refusal cap. Absent: every presentation may post. */
   rechecks?: MintQuoteRechecks;
+}
+
+/** One quote as the tail sees it: sealed facts (or a stored row) plus the mint's state answer. */
+export interface MintQuoteFacts { quote: string; cls: string; mint: string; amount: number; state: string; expired: boolean }
+
+export async function verifyMintQuote(o: MintQuoteDeps & {
+  secret: string; site: string; action: ActionClass; offer_id: string; macaroon: string; preimage: string; now: number;
 }): Promise<Paid> {
   const bare = o.preimage === "";
   if (!bare && !/^[0-9a-f]{64}$/.test(o.preimage)) throw new TollError("malformed");
@@ -286,6 +296,21 @@ export async function verifyMintQuote(o: {
     if (expired) throw new TollError("expired");
     return paid();
   };
+  await settleMintQuote(o, { quote: c.quote, cls: c.cls, mint: c.mint, amount, state, expired });
+  return granted();
+}
+
+/**
+ * Everything after the quote is known and its mint state read: finish an open row, or reserve and
+ * mint, booking losses as it goes. Throws the same errors a presentation answers with; returns once
+ * the proofs are stored. Needs no request, so the sweep runs it too.
+ */
+export async function settleMintQuote(deps: MintQuoteDeps, c: MintQuoteFacts): Promise<void> {
+  // MINT_QUOTE_GUARD loss-mint: every loss this quote books names its mint, so the sweep can retry it.
+  const o: MintQuoteDeps = { ...deps, noteLoss: (x) => deps.noteLoss({ ...x, mint: c.mint }) };
+  const { amount, state, expired } = c;
+  const mode = o.mode ?? "loopback";
+  const fetchImpl = o.fetchImpl ?? fetch;
   const ctx: MintCtx = { mint: o.mint, quote: c.quote, amount, mode, fetchImpl, guard: o.guard, allowlist: o.allowlist };
   // A previous attempt stored outputs and dropped the lease. Finish from those, or give the row up.
   const pending = await o.claimOpen(c.quote);
@@ -303,7 +328,7 @@ export async function verifyMintQuote(o: {
       throw new TollError("store_unavailable");
     } else {
       await commitProofs(o, c.quote, c.cls, amount, recovered);
-      return granted();
+      return;
     }
   } else if (await o.has(c.quote)) {
     throw new TollError(expired ? "expired" : "replay");
@@ -322,7 +347,8 @@ export async function verifyMintQuote(o: {
     throw new TollError("bad_solution");
   }
   // MINT_QUOTE_GUARD recheck-gate: past the refusal cap an expired quote posts only on its re-check schedule.
-  if (expired && o.rechecks && (await o.rechecks.gate(c.quote)) === "closed") throw new TollError("expired");
+  const gate = expired && o.rechecks ? await o.rechecks.gate(c.quote) : "uncapped";
+  if (gate === "closed") throw new TollError("expired");
   let outputs: MintQuoteOutput[] = [];
   if (mode === "bolt11") {
     const built = await buildOutputs(o.mint, amount, fetchImpl, o.guard, o.allowlist);
@@ -335,7 +361,7 @@ export async function verifyMintQuote(o: {
   const first = await mintOnce(ctx, outputs);
   if (first.proofs) {
     await commitProofs(o, c.quote, c.cls, amount, first.proofs);
-    return granted();
+    return;
   }
   // One more post while the lease is held. A single 500 among concurrent retries still yields one pass.
   const missed = await afterMiss(ctx, outputs, first.outcome);
@@ -343,7 +369,8 @@ export async function verifyMintQuote(o: {
     // MINT_QUOTE_GUARD release: a mint refusal that did not sign drops the reservation.
     if (!(await o.release(c.quote))) throw new TollError("replay");
     // MINT_QUOTE_GUARD refusal-cap: an expired quote the mint keeps refusing is booked once at the cap and no longer invited to retry.
-    if (expired && o.refusalsLeft && (await o.refusalsLeft(c.quote, EXPIRED_REFUSAL_CAP)) <= 0) {
+    // MINT_QUOTE_GUARD recheck-final: a refused re-check is final even after the one-day refusal count has lapsed.
+    if (expired && (gate === "open" || (o.refusalsLeft && (await o.refusalsLeft(c.quote, EXPIRED_REFUSAL_CAP)) <= 0))) {
       await o.noteLoss({ quote: c.quote, action: c.cls, amount, reason: "mint_refused" });
       await o.rechecks?.arm(c.quote);
       throw new TollError("expired");
@@ -352,10 +379,24 @@ export async function verifyMintQuote(o: {
   }
   if (missed !== "kept") {
     await commitProofs(o, c.quote, c.cls, amount, missed);
-    return granted();
+    return;
   }
   await o.unlock(c.quote);
   throw new TollError("store_unavailable");
+}
+
+/**
+ * One stored quote retried with no presentation (the sweep). Reads the mint's quote state, then runs
+ * the same tail as an expired presentation: restore an open row, or mint where the re-check schedule
+ * allows. It never grants a pass. Resolves once the proofs are stored; throws what a presentation
+ * would answer otherwise (a held lease reads as expired).
+ */
+export async function recoverMintQuote(o: MintQuoteDeps, row: { quote: string; action: string; amount: number; mint: string }): Promise<void> {
+  if (row.mint !== o.mint) throw new TollError("bad_sig");
+  const looked = await readMint(o.mint, "/v1/mint/quote/bolt11/" + encodeURIComponent(row.quote), undefined, o.fetchImpl ?? fetch, o.mode ?? "loopback", o.guard, o.allowlist);
+  const state = typeof looked.body.state === "string" ? looked.body.state : "";
+  if (looked.status !== 200 || looked.body.quote !== row.quote) throw new TollError(looked.status === 200 ? "bad_solution" : "store_unavailable");
+  await settleMintQuote(o, { quote: row.quote, cls: row.action, mint: row.mint, amount: row.amount, state, expired: true });
 }
 
 async function commitProofs(

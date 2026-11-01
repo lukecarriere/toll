@@ -10,11 +10,30 @@ test("edge store migration: a restart on an already migrated store is a no-op", 
   s.db.exec("CREATE TABLE cashu_mint_loss (quote TEXT PRIMARY KEY, action TEXT NOT NULL, amount INTEGER NOT NULL)");
   s.db.exec("INSERT INTO cashu_mint_loss (quote, action, amount) VALUES ('old', 'write', 7)");
   s.open();
-  assert.deepEqual(s.columns("cashu_mint_loss"), ["quote", "action", "amount", "reason", "recovered"]);
+  assert.deepEqual(s.columns("cashu_mint_loss"), ["quote", "action", "amount", "reason", "recovered", "mint"]);
   assert.doesNotThrow(() => s.open(), "the second start finds the columns and adds nothing");
   assert.doesNotThrow(() => s.open());
-  assert.deepEqual(s.columns("cashu_mint_loss"), ["quote", "action", "amount", "reason", "recovered"]);
+  assert.deepEqual(s.columns("cashu_mint_loss"), ["quote", "action", "amount", "reason", "recovered", "mint"]);
   assert.deepEqual(s.db.prepare("SELECT quote, amount, reason, recovered FROM cashu_mint_loss").all().map((r) => ({ ...r })), [{ quote: "old", amount: 7, reason: "", recovered: 0 }]);
+});
+
+test("edge store migration: the loss mint column is added once to a #43 table, old rows read '', new rows record the mint", () => {
+  const s = doStorage();
+  s.db.exec("CREATE TABLE cashu_mint_loss (quote TEXT PRIMARY KEY, action TEXT NOT NULL, amount INTEGER NOT NULL, reason TEXT NOT NULL DEFAULT '', recovered INTEGER NOT NULL DEFAULT 0)");
+  s.db.exec("INSERT INTO cashu_mint_loss (quote, action, amount, reason, recovered) VALUES ('old', 'write', 7, 'mint_refused', 0)");
+  s.open();
+  assert.doesNotThrow(() => s.open(), "a second start finds the mint column and adds nothing");
+  assert.deepEqual(s.columns("cashu_mint_loss"), ["quote", "action", "amount", "reason", "recovered", "mint"]);
+  const store = s.open();
+  store.noteMintQuoteLoss({ quote: "new", action: "write", amount: 10, reason: "mint_refused", mint: "https://mint.test" });
+  store.noteMintQuoteLoss({ quote: "bare", action: "write", amount: 3, reason: "unrecoverable" });
+  store.noteMintQuoteLoss({ quote: "new", action: "write", amount: 10, reason: "mint_refused", mint: "https://other.test" });
+  assert.deepEqual(s.db.prepare("SELECT quote, amount, reason, recovered, mint FROM cashu_mint_loss ORDER BY quote").all().map((r) => ({ ...r })), [
+    { quote: "bare", amount: 3, reason: "unrecoverable", recovered: 0, mint: "" },
+    { quote: "new", amount: 10, reason: "mint_refused", recovered: 0, mint: "https://mint.test" },
+    { quote: "old", amount: 7, reason: "mint_refused", recovered: 0, mint: "" },
+  ]);
+  assert.equal(store.cashuBooks().losses, 13, "each new loss is booked once");
 });
 
 test("edge store reversal: net losses never go below zero", () => {

@@ -13,7 +13,8 @@ const DO = "packages/edge-cf/src/do-store.ts";
 const HTTP = "packages/server-node/src/http.ts";
 const TOLL = "packages/server-node/src/toll.ts";
 const METRICS = "packages/server-node/src/metrics.ts";
-const TEST_FILES = ["tests/edge-do-store.test.ts", "tests/settlement-mint-quote.test.ts", "tests/l402-quote.test.ts", "tests/l402-edge.test.ts", "tests/l402-expiry.test.ts"];
+const SWEEP = "packages/settlement-ln/src/mint-quote-sweep.ts";
+const TEST_FILES = ["tests/edge-do-store.test.ts", "tests/settlement-mint-quote.test.ts", "tests/l402-quote.test.ts", "tests/l402-edge.test.ts", "tests/l402-expiry.test.ts", "tests/mint-quote-sweep.test.ts"];
 const TIMEOUT_MS = 300_000;
 
 const mutants = [
@@ -162,8 +163,8 @@ const mutants = [
   {
     name: "a freshly minted expired quote is granted a pass",
     test: "an expired macaroon on a paid quote that was never minted books the sats as stored",
-    from: "    await commitProofs(o, c.quote, c.cls, amount, first.proofs);\n    return granted();",
-    to: "    await commitProofs(o, c.quote, c.cls, amount, first.proofs);\n    return paid();",
+    from: "  await settleMintQuote(o, { quote: c.quote, cls: c.cls, mint: c.mint, amount, state, expired });\n  return granted();",
+    to: "  await settleMintQuote(o, { quote: c.quote, cls: c.cls, mint: c.mint, amount, state, expired });\n  return paid();",
   },
   {
     file: MS,
@@ -202,8 +203,8 @@ const mutants = [
   {
     name: "unexpired refusals count toward the cap",
     test: "an expired paid quote the mint keeps refusing books one loss at the cap",
-    from: "if (expired && o.refusalsLeft && (await",
-    to: "if (o.refusalsLeft && (await",
+    from: 'if (expired && (gate === "open" || (o.refusalsLeft && (await',
+    to: 'if ((gate === "open" || (o.refusalsLeft && (await',
   },
   {
     name: "a capped refusal is not booked as a loss",
@@ -256,8 +257,8 @@ const mutants = [
   {
     name: "past the cap every presentation posts",
     test: "past the refusal cap, presentations post to the mint only on the re-check schedule",
-    from: 'if (expired && o.rechecks && (await o.rechecks.gate(c.quote)) === "closed") throw new TollError("expired");',
-    to: "// mutant: no re-check gate",
+    from: 'const gate = expired && o.rechecks ? await o.rechecks.gate(c.quote) : "uncapped";\n  if (gate === "closed") throw new TollError("expired");',
+    to: 'const gate = "uncapped"; // mutant: no re-check gate',
   },
   {
     name: "the cap does not start the re-check schedule",
@@ -317,6 +318,93 @@ const mutants = [
     test: "a re-check after the cap that the mint signs stores the proofs and reverses the loss",
     from: "this.c.mint_quote_reversed_sats += f.amount;",
     to: "this.c.mint_quote_reversed_sats += 1;",
+  },
+  {
+    name: "a loss does not name its mint",
+    test: "a loss names the quote's mint in the Node store",
+    from: "noteLoss: (x) => deps.noteLoss({ ...x, mint: c.mint })",
+    to: "noteLoss: (x) => deps.noteLoss({ ...x })",
+  },
+  {
+    file: DO,
+    name: "the edge loss row drops the mint",
+    test: "edge store migration: the loss mint column is added once",
+    from: 'o.reason ?? "", o.mint ?? "");',
+    to: 'o.reason ?? "", "");',
+  },
+  {
+    file: DO,
+    name: "the edge loss mint column is added on every start",
+    test: "edge store migration: the loss mint column is added once",
+    from: 'if (!lossCols.includes("mint")) this.sql.exec("ALTER TABLE cashu_mint_loss ADD COLUMN mint',
+    to: 'if (lossCols.length > 0) this.sql.exec("ALTER TABLE cashu_mint_loss ADD COLUMN mint',
+  },
+  {
+    file: SWEEP,
+    name: "the sweep takes up one item more than its batch",
+    test: "sweep batch limit: a run takes up at most",
+    from: "const list = await o.candidates({ after, limit: batch, minAgeS: SWEEP_MIN_AGE_S });",
+    to: "const list = await o.candidates({ after, limit: batch + 1, minAgeS: SWEEP_MIN_AGE_S });",
+  },
+  {
+    file: SWEEP,
+    name: "the sweep's wrap-around ignores what the run already took",
+    test: "sweep batch limit: a run takes up at most",
+    from: "limit: batch - list.length, minAgeS: SWEEP_MIN_AGE_S",
+    to: "limit: batch, minAgeS: SWEEP_MIN_AGE_S",
+  },
+  {
+    file: SWEEP,
+    name: "the sweep ignores its time budget",
+    test: "sweep budget stop:",
+    from: "if (o.clock() - start >= budgetMs) {",
+    to: "if (false) {",
+  },
+  {
+    file: SWEEP,
+    name: "the sweep's budget allows one item past it",
+    test: "sweep budget stop: the budget is checked before each item",
+    from: "if (o.clock() - start >= budgetMs) {",
+    to: "if (o.clock() - start > budgetMs + 40) {",
+  },
+  {
+    file: MS,
+    name: "the Node sweep takes up rows a client may still present",
+    test: "sweep recovery: an open reservation is restored",
+    from: "const cutoff = this.now() - o.minAgeS;",
+    to: "const cutoff = this.now();",
+  },
+  {
+    file: MS,
+    name: "the Node sweep retries issued_no_row losses",
+    test: "sweep nothing recoverable:",
+    from: 'l.mint !== "" && l.reason !== "issued_no_row"',
+    to: 'l.mint !== ""',
+  },
+  {
+    name: "the sweep sends a quote to a mint it was not issued by",
+    test: "sweep nothing recoverable:",
+    from: 'if (row.mint !== o.mint) throw new TollError("bad_sig");',
+    to: "",
+  },
+  {
+    name: "re-check marks are kept 1 day instead of 30 (QA C13)",
+    test: "re-check marks last 30 days from the cap",
+    from: "export const RECHECK_TTL_S = 30 * 86_400;",
+    to: "export const RECHECK_TTL_S = 86_400;",
+  },
+  {
+    file: MS,
+    name: "the Node store keeps a counter's first TTL on later spends",
+    test: "re-check marks on Node last 30 days from the last re-check",
+    from: "    e.until = this.now() + ttl_s;\n",
+    to: "",
+  },
+  {
+    name: "a refused re-check counts toward a lapsed refusal count again",
+    test: "a refused re-check after the one-day refusal count lapses",
+    from: 'if (expired && (gate === "open" || (o.refusalsLeft',
+    to: 'if (expired && ((o.refusalsLeft',
   },
 ];
 

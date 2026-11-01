@@ -1,7 +1,8 @@
 // Loopback mint quote beside Cashu. No public mint, no funds.
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
-import { QUOTE_KIND, startTestMint } from "../packages/settlement-ln/src/index.ts";
+import { QUOTE_KIND, settleMintQuote, startTestMint } from "../packages/settlement-ln/src/index.ts";
+import { MemoryStore } from "../packages/server-node/src/stores.ts";
 import { fromB64url, fromUtf8 } from "../packages/protocol/src/bytes.ts";
 import { startDemo, drain } from "./helpers.ts";
 
@@ -371,4 +372,23 @@ test("concurrent retries during a failing first mint yield one pass", async () =
   const again = await post("/contact", auth(macaroon, preimage));
   assert.equal(again.status, 401);
   assert.equal((await again.json()).error, "replay");
+});
+
+test("a loss names the quote's mint in the Node store; a loss noted without one reads ''", async () => {
+  const store = new MemoryStore();
+  const deps = {
+    mint: "https://mint.test",
+    // No mint call is made: an ISSUED quote with no row is booked and refused before any post.
+    fetchImpl: (() => Promise.reject(new Error("no mint call expected"))) as typeof fetch,
+    has: (q: string) => store.hasMintQuote(q), reserve: (r: Parameters<MemoryStore["reserveMintQuote"]>[0]) => store.reserveMintQuote(r),
+    claimOpen: (q: string) => store.claimOpenMintQuote(q), release: (q: string) => store.releaseMintQuote(q), unlock: (q: string) => store.unlockMintQuote(q),
+    finish: (r: Parameters<MemoryStore["finishMintQuote"]>[0]) => store.finishMintQuote(r), noteLoss: (x: Parameters<MemoryStore["noteMintQuoteLoss"]>[0]) => store.noteMintQuoteLoss(x),
+  };
+  await assert.rejects(settleMintQuote(deps, { quote: "q-issued", cls: "write", mint: "https://mint.test", amount: 10, state: "ISSUED", expired: false }), { code: "bad_solution" });
+  await store.noteMintQuoteLoss({ quote: "q-old", action: "write", amount: 3, reason: "unrecoverable" });
+  assert.deepEqual(store.mintQuoteLossMints(), [{ quote: "q-issued", mint: "https://mint.test" }, { quote: "q-old", mint: "" }]);
+  assert.deepEqual(store.mintQuoteLossRows(), [
+    { quote: "q-issued", action: "write", amount: 10, reason: "issued_no_row", recovered: false },
+    { quote: "q-old", action: "write", amount: 3, reason: "unrecoverable", recovered: false },
+  ], "the loss rows keep their shape");
 });

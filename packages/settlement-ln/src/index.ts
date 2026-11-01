@@ -15,3 +15,4 @@ export * from "./keyset-mint.ts";
 export * from "./ledger.ts";
 export * from "./fx.ts";
 export * from "./rail.ts";
+export * from "./mint-quote-sweep.ts";
