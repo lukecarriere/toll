@@ -5,7 +5,8 @@
 #   scripts/deploy.sh --sha <commit> [--dry-run] [--allow-branch] [--base URL] [--out dir]
 #
 # Refuses a missing --sha, a dirty tree, a HEAD that is not --sha, and a commit that is not
-# origin/main (unless --allow-branch). Then: npm ci, build, composer install, npm test, print the
+# origin/main (unless --allow-branch). Then: npm ci, build, composer install, the pre-merge gate
+# (scripts/verify-toll.sh: typecheck, lint, node tests, PHP runners, with its KNOWN rules), print the
 # live Worker version as the rollback target, wrangler deploy, release-check.sh (free live checks).
 # --dry-run does all of it except the real deploy: it runs `wrangler deploy --dry-run` and the free
 # live checks, and skips release-check (nothing new is live). Any failure exits non-zero and prints
@@ -22,7 +23,7 @@ WORKER="toll-site"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --help|-h) sed -n '2,12p' "$0"; exit 0 ;;
+    --help|-h) sed -n '2,13p' "$0"; exit 0 ;;
     --sha) SHA_ARG="${2:-}"; shift 2 ;;
     --dry-run) DRY_RUN=1; shift ;;
     --allow-branch) ALLOW_BRANCH=1; shift ;;
@@ -75,7 +76,7 @@ echo "deploy $WORKER at $SHA (dry-run: $DRY_RUN)"
 run install npm ci
 run build npm run build
 run composer bash -c "cd packages/server-php && composer install --no-interaction"
-run test npm test
+run verify bash "$ROOT/scripts/verify-toll.sh" --ref "$SHA" --skip-install --only typecheck,lint,test,php --out "$OUT/verify"
 
 STEP="rollback-target"
 npx wrangler deployments status --json --name "$WORKER" --config "$ROOT/wrangler.toml" >"$OUT/deployment-before.json" 2>"$OUT/deployment-before.err" || {

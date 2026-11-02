@@ -30,10 +30,11 @@ function sandbox(opts: { failTest?: boolean } = {}) {
   mkdirSync(join(repo, "packages", "server-php"), { recursive: true });
   copyFileSync(SCRIPT, join(repo, "scripts", "deploy.sh"));
   exe(join(repo, "scripts", "live-checks.sh"), `#!/bin/bash\necho "live-checks $*" >>"$CALLS"\n`);
+  exe(join(repo, "scripts", "verify-toll.sh"), `#!/bin/bash\necho "verify-toll $*" >>"$CALLS"\n${opts.failTest ? "echo 'test FAIL'; exit 1\n" : ""}`);
   writeFileSync(join(repo, "wrangler.toml"), 'name = "toll-site"\n');
   writeFileSync(join(repo, "packages", "server-php", "composer.json"), "{}\n");
   writeFileSync(join(repo, ".gitignore"), "/.verify-toll/\n");
-  exe(join(bin, "npm"), `#!/bin/bash\necho "npm $*" >>"$CALLS"\n${opts.failTest ? 'if [[ "$1" == test ]]; then echo boom; exit 1; fi\n' : ""}exit 0\n`);
+  exe(join(bin, "npm"), `#!/bin/bash\necho "npm $*" >>"$CALLS"\n`);
   exe(join(bin, "composer"), `#!/bin/bash\necho "composer $*" >>"$CALLS"\n`);
   exe(join(bin, "npx"), `#!/bin/bash
 echo "npx $*" >>"$CALLS"
@@ -88,12 +89,12 @@ test("deploy.sh refuses a HEAD that is not the pinned SHA, and a non-main commit
   assert.equal(allowed.status, 0, allowed.stderr);
 });
 
-test("deploy.sh --dry-run runs install, build, tests, wrangler deploy --dry-run and free live checks only", () => {
+test("deploy.sh --dry-run runs install, build, the verify-toll gate, wrangler deploy --dry-run and free live checks only", () => {
   const s = sandbox();
   const r = s.run("--sha", s.sha, "--dry-run");
   assert.equal(r.status, 0, r.stderr);
   const calls = s.log();
-  for (const want of ["npm ci", "npm run build", "composer install", "npm test", "npx wrangler deployments status", "npx wrangler deploy --dry-run", "live-checks --base"]) {
+  for (const want of ["npm ci", "npm run build", "composer install", "verify-toll --ref", "--only typecheck,lint,test,php", "npx wrangler deployments status", "npx wrangler deploy --dry-run", "live-checks --base"]) {
     assert.ok(calls.includes(want), `missing ${want}\n${calls}`);
   }
   const deploys = calls.split("\n").filter((l) => /^npx wrangler deploy( |$)/.test(l));
@@ -106,7 +107,7 @@ test("deploy.sh exits non-zero on a failing step and prints the rollback command
   const s = sandbox({ failTest: true });
   const r = s.run("--sha", s.sha, "--dry-run");
   assert.notEqual(r.status, 0);
-  assert.match(r.stderr, /FAILED at step: test/);
+  assert.match(r.stderr, /FAILED at step: verify/);
   assert.match(r.stderr, /Rollback \(not run\): npx wrangler rollback/);
   assert.equal(s.log().includes("wrangler deploy"), false);
 });
