@@ -34,6 +34,20 @@ done
 
 refuse() { echo "REFUSED: $*" >&2; exit 65; }
 
+# --- guards (begin) ---
+[[ -n "$SHA_ARG" ]] || refuse "--sha <commit> is required (deploys are pinned to one commit)"
+SHA="$(git -C "$ROOT" rev-parse --verify -q "${SHA_ARG}^{commit}")" || refuse "--sha $SHA_ARG is not a commit here"
+if [[ -n "$(git -C "$ROOT" status --porcelain)" ]]; then
+  git -C "$ROOT" status --short >&2
+  refuse "the worktree is dirty; deploy from a clean checkout"
+fi
+HEAD_SHA="$(git -C "$ROOT" rev-parse HEAD)"
+[[ "$HEAD_SHA" == "$SHA" ]] || refuse "HEAD is $HEAD_SHA, not the pinned $SHA (git checkout --detach $SHA)"
+if [[ "$ALLOW_BRANCH" -eq 0 ]]; then
+  MAIN_SHA="$(git -C "$ROOT" rev-parse --verify -q refs/remotes/origin/main || true)"
+  [[ "$SHA" == "$MAIN_SHA" ]] || refuse "$SHA is not origin/main (${MAIN_SHA:-unknown}); fetch, or pass --allow-branch"
+fi
+# --- guards (end) ---
 SHA="${SHA:-$(git -C "$ROOT" rev-parse HEAD)}"
 
 STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
