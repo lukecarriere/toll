@@ -257,7 +257,7 @@ function safeHref(url) {
   return /^\/(?!\/)[A-Za-z0-9._~/-]*$/.test(url) && !url.includes("..") && !/\.html?(?:$|[?#])/i.test(url);
 }
 
-/** Guide markdown: one h1, h2/h3, paragraphs, "- " lists, and fenced code. */
+/** Guide markdown: one h1, h2/h3, paragraphs, "- " lists, fenced code, and pipe tables (header row, --- row, body rows). */
 export function parseGuide(md) {
   const lines = md.replace(/\r\n/g, "\n").replace(/\n+$/, "").split("\n");
   if (!/^# \S/.test(lines[0] ?? "")) throw new Error("website: guide must start with '# Title'");
@@ -286,9 +286,20 @@ export function parseGuide(md) {
       blocks.push({ list: items });
       continue;
     }
+    if (line.startsWith("|")) {
+      const rows = [];
+      while (i < lines.length && lines[i].startsWith("|")) rows.push(lines[i++]);
+      const cells = (r) => r.trim().replace(/^\|/, "").replace(/\|$/, "").split("|").map((c) => c.trim());
+      const head = cells(rows[0]);
+      if (rows.length < 3 || !cells(rows[1]).every((c) => /^:?-{3,}:?$/.test(c)) || cells(rows[1]).length !== head.length) throw new Error("website: table needs a header row, a --- row, and at least one row in " + title);
+      const body = rows.slice(2).map(cells);
+      if (body.some((r) => r.length !== head.length)) throw new Error("website: table row has the wrong number of cells in " + title);
+      blocks.push({ table: { head, rows: body } });
+      continue;
+    }
     if (/^(?:\* |\d+\. |>)/.test(line)) throw new Error("website: unsupported markdown in " + title + ": " + line);
     const buf = [];
-    while (i < lines.length && !blank(i) && !lines[i].startsWith("```") && !lines[i].startsWith("#") && !lines[i].startsWith("- ")) buf.push(lines[i++].trim());
+    while (i < lines.length && !blank(i) && !lines[i].startsWith("```") && !lines[i].startsWith("#") && !lines[i].startsWith("- ") && !lines[i].startsWith("|")) buf.push(lines[i++].trim());
     blocks.push({ p: buf.join(" ") });
   }
   return { title, blocks };
@@ -299,6 +310,7 @@ function guideBody(blocks) {
     if (b.h) return `<h${b.h}>${inline(b.text)}</h${b.h}>`;
     if (b.list) return `<ul>${b.list.map((li) => `<li>${inline(li)}</li>`).join("")}</ul>`;
     if (b.code != null) return `<pre><code>${esc(b.code)}</code></pre>`;
+    if (b.table) return `<table>\n<thead><tr>${b.table.head.map((c) => `<th>${inline(c)}</th>`).join("")}</tr></thead>\n<tbody>\n${b.table.rows.map((r) => `<tr>${r.map((c) => `<td>${inline(c)}</td>`).join("")}</tr>`).join("\n")}\n</tbody>\n</table>`;
     return `<p>${inline(b.p)}</p>`;
   }).join("\n");
 }

@@ -9,7 +9,7 @@ import { tmpdir } from "node:os";
 import { join, extname } from "node:path";
 import { chromium } from "playwright";
 // @ts-ignore plain JS build script
-import { build, DOC_PAGES, GUIDE_PAGES, ICON_TAGS, pagePath, pluginRelease } from "../website/build.mjs";
+import { build, DOC_PAGES, GUIDE_PAGES, ICON_TAGS, pagePath, pluginRelease, parseGuide } from "../website/build.mjs";
 // @ts-ignore plain JS helper
 import { lintText, lintVendor } from "../scripts/copy-lib.mjs";
 
@@ -21,7 +21,7 @@ const hrefs = (h: string) => [...h.matchAll(/\shref="([^"]*)"/gi)].map((m) => m[
 const decode = (s: string) => s.replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&amp;/g, "&");
 
 test("guides: one h1, the copy.md description, icons, docs.css, no script, no .html href", () => {
-  assert.equal(DOC_PAGES.length, 9);
+  assert.equal(DOC_PAGES.length, 10);
   assert.deepEqual(GUIDE_PAGES.map((p: { file: string }) => p.file), DOC_PAGES.map((p: { file: string }) => p.file).filter((f: string) => f !== "docs/index"));
   for (const p of DOC_PAGES) {
     const h = readFileSync(OUT + p.file + ".html", "utf8");
@@ -124,4 +124,15 @@ test("guides in a browser: 200, same-origin, no sideways scroll at phone width",
   } finally {
     await browser.close();
   }
+});
+
+test("guides: a pipe table renders as a table with one header row, and a broken one fails the build", () => {
+  const g = parseGuide("# T\n\n| You ask | Your agent calls |\n|---|---|\n| Is it up? | `GET /v1/health` |\n| Cost? | `GET /v1/price` |\n");
+  assert.deepEqual(g.blocks, [{ table: { head: ["You ask", "Your agent calls"], rows: [["Is it up?", "`GET /v1/health`"], ["Cost?", "`GET /v1/price`"]] } }]);
+  assert.throws(() => parseGuide("# T\n\n| a | b |\n| c | d |\n"), /table/);
+  assert.throws(() => parseGuide("# T\n\n| a | b |\n|---|---|\n| c |\n"), /table/);
+  const h = readFileSync(OUT + "docs/ask.html", "utf8");
+  assert.match(h, /<table>\s*<thead><tr><th>You ask<\/th><th>Your agent calls<\/th><\/tr><\/thead>/);
+  assert.match(h, /<td><code>GET \/\.well-known\/toll\.json<\/code><\/td>/);
+  assert.equal([...h.matchAll(/<tr>/g)].length, 23, "header plus 22 rows");
 });
