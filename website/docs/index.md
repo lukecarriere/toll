@@ -7,6 +7,7 @@ Toll is a small check for comments, forms, logins, and write APIs. Page views st
 - [Server](/docs/server) for Node and PHP
 - [Agent SDK](/docs/agent)
 - [MCP server](/docs/mcp)
+- [Agent calls](/docs/ask): what you ask, and what your agent calls
 - [WordPress plugin](/docs/wordpress)
 - [Self-hosting](/docs/self-hosting)
 - [Download](/download) the WordPress plugin
