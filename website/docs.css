@@ -5,7 +5,7 @@ main h3{font:700 22px/1.3 "Toll Sans",system-ui,sans-serif;margin:28px 0 8px}
 main a{color:var(--sign)}
 pre{margin:0 0 20px;padding:14px 16px;max-width:100%;min-width:0;overflow-x:auto;background:var(--lane);border-radius:8px}
 pre code{font:13px/1.5 ui-monospace,monospace}
-p code,li code{font:0.88em ui-monospace,monospace;background:var(--lane);padding:0 0.25em;border-radius:4px;overflow-wrap:anywhere}
+p code,li code,td code{font:0.88em ui-monospace,monospace;background:var(--lane);padding:0 0.25em;border-radius:4px;overflow-wrap:anywhere}
 @media (max-width:480px){
  main h2{font-size:24px}
  pre{padding:12px}
@@ -13,3 +13,6 @@ p code,li code{font:0.88em ui-monospace,monospace;background:var(--lane);padding
 
 .site-foot { max-width: 46rem; margin: 3rem auto 2rem; padding: 0 1.25rem; font-size: .875rem; }
 .site-foot nav { display: flex; gap: 1.25rem; flex-wrap: wrap; }
+table{width:100%;table-layout:fixed;border-collapse:collapse;margin:0 0 20px}
+th,td{text-align:left;vertical-align:top;padding:8px 10px;border-bottom:1px solid var(--lane);overflow-wrap:anywhere}
+th{font-weight:600}
