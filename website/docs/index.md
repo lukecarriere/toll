@@ -8,6 +8,7 @@ Toll is a small check for comments, forms, logins, and write APIs. Page views st
 - [Agent SDK](/docs/agent)
 - [MCP server](/docs/mcp)
 - [Agent calls](/docs/ask): what you ask, and what your agent calls
+- [Pay with NWC](/docs/pay-with-nwc): pay a lessspam.dev write through NWC
 - [WordPress plugin](/docs/wordpress)
 - [Self-hosting](/docs/self-hosting)
 - [Download](/download) the WordPress plugin

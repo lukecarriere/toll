@@ -41,7 +41,7 @@ before(async () => {
 after(() => server?.close());
 
 test("phone width: scrollWidth <= innerWidth at 360 and 390 for every built public page", async () => {
-  for (const p of ["/", "/demo", "/mission", "/vision", "/values", "/ecosystem", "/docs", "/docs/quick-start", "/docs/widget", "/docs/server", "/docs/agent", "/docs/mcp", "/docs/ask", "/docs/wordpress", "/docs/self-hosting", "/download", "/privacy", "/terms", "/support"]) {
+  for (const p of ["/", "/demo", "/mission", "/vision", "/values", "/ecosystem", "/docs", "/docs/quick-start", "/docs/widget", "/docs/server", "/docs/agent", "/docs/mcp", "/docs/ask", "/docs/pay-with-nwc", "/docs/wordpress", "/docs/self-hosting", "/download", "/privacy", "/terms", "/support"]) {
     assert.ok(PATHS.includes(p), p + " is covered");
   }
   assert.ok(PATHS.filter((p) => p.startsWith("/docs")).length >= 8, "every docs page");
