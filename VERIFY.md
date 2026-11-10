@@ -52,6 +52,14 @@ bash scripts/live-checks.sh --spend 20 --proofs "$TOLL_PROOFS" --wallet "$TOLL_W
 
 `--spend 20` is the cap for the two paid checks (10 each). The wallet module exports `wallet()`, `norm`, and `MINT`. The proofs file is the path you pass. The script never prints a token, a proof, or a secret. A spend run writes `.state.json` mode 0600 in the out dir; do not publish that directory. `scripts/tail-redact.py` and `scripts/tail-summary.py` redact a `wrangler tail --format json` capture. `scripts/check-live-state.sh` is the older free check and remains covered by its test.
 
+## Agent manifest, llms.txt, and gitleaks
+
+```sh
+bash scripts/check-open-intelligence.sh
+```
+
+Read-only against the live origin (default `https://lessspam.dev`): `GET /.well-known/toll.json` returns 200 and valid JSON, `GET /llms.txt` returns 200 with a `text/plain` content type, an unpaid `POST /demo/contact` with `toll-client: agent` returns 402 with an `X-Cashu` header, and gitleaks reports no leaks in this checkout. The script does not pay and does not print the `X-Cashu` value. `bash scripts/check-open-intelligence.sh --self-check` proves each check can fail.
+
 ## Still done by hand
 
 - A visual pass and browser screenshots. Phone width is asserted in `tests/viewport.test.ts`; a screenshot is not.
