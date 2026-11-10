@@ -5,12 +5,18 @@ useDefault = true
 
 # Full-history scan with gitleaks 8.30.1 reports 38 findings, all test fixtures:
 # JWT-shaped pass tokens and derived keys in the vector files, the vector engine
-# secret, and the two published test owner keys. Nothing else is allow-listed.
+# secret, and the two published test owner keys. The working-tree scan used by
+# scripts/check-open-intelligence.sh also flags the four test-fixture paths
+# added below.
 [allowlist]
-description = "Known test fixtures only: docs/vectors.json, docs/settlement-vectors.json, and the two published test owner keys."
+description = "Known test fixtures only: docs/vectors.json, docs/settlement-vectors.json, the two published test owner keys, docs/runs/verify-e2e/demo-contact.json, docs/runs/verify-e2e/worker-contact.json, tests/l402-edge.test.ts, and tests/settlement-cashu.test.ts."
 paths = [
   '''(^|/)docs/vectors\.json$''',
   '''(^|/)docs/settlement-vectors\.json$''',
+  '''(^|/)docs/runs/verify-e2e/demo-contact\.json$''',
+  '''(^|/)docs/runs/verify-e2e/worker-contact\.json$''',
+  '''(^|/)tests/l402-edge\.test\.ts$''',
+  '''(^|/)tests/settlement-cashu\.test\.ts$''',
 ]
 regexes = [
   '''owner-test-key-0123456789abcdef''',
