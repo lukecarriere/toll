@@ -68,6 +68,15 @@ packages/wp-toll-gate/dev/setup-local-wp.sh   # local WordPress with the plugin:
 npm run dev -w packages/edge-cf   # the edge worker under wrangler dev, local only (see packages/edge-cf/README.md)
 ```
 
+A read-only check of the live origin (agent manifest, `/llms.txt` as plain text, an unpaid 402 with an `X-Cashu` header, and a gitleaks scan of this checkout):
+
+```sh
+bash scripts/check-open-intelligence.sh
+```
+
+It does not pay. `bash scripts/check-open-intelligence.sh --self-check` proves each check can fail.
+
+
 ## Licence
 
 The repository and the Node packages are [MIT](LICENSE). The npm names are `@lessspam/widget`, `@lessspam/server`, `@lessspam/agent` and `@lessspam/mcp`. The WordPress plugin (`packages/wp-toll-gate`) and `packages/server-php` are GPL-2.0-or-later.
