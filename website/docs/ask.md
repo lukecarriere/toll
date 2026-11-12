@@ -10,7 +10,7 @@ Calls go to the site's origin, for example `https://lessspam.dev`. On WordPress 
 | Where's the agent manifest? | `GET /.well-known/agents.json` |
 | Add Toll to my agent's tools. | MCP server `npx -y @lessspam/mcp@0.1.0`, which adds `price_write_action`, `gate_form_write` and `verify_write_pass` |
 | Is Toll up on this site? | `GET /v1/health` |
-| What does one comment or form post cost here right now? | MCP `price_write_action` `{site}`, or `GET /v1/price?action=write`. On lessspam.dev a write is 10,000 msat. |
+| What does one comment or form post cost here right now? | MCP `price_write_action` `{site}`, or `GET /v1/price?action=write`. On lessspam.dev a write is 10,000 msat. Prices are in msat; USD isn't available (`usd` is `null`). |
 | And a search, a signup, an admin action? | `price_write_action` with `action` set to `search`, `account` or `admin`, or `GET /v1/price?action=…`. On lessspam.dev: 2,000, 25,000 and 100,000 msat. |
 | Do I pay to read the page? | Nothing to call. Page views are free (`reads_free: true` in `/v1/price`). |
 | Get me a pass to post this form. | MCP `gate_form_write` `{site, action, path}`, which calls `GET /v1/challenge?action=write&client=agent`. You get a work challenge plus any payment offers. |
@@ -26,7 +26,9 @@ Calls go to the site's origin, for example `https://lessspam.dev`. On WordPress 
 | How many writes has the demo accepted? | `GET /demo/stats` |
 | Why did my post get a 403? | It had no pass: `403 toll_required`, with a fresh challenge. Get a pass and send it again. |
 | Why did I get a 402? | `payment_required`: pay the offer, or fetch the `challenge_url` in the body and do the work. |
+| Why a 429 on `/v1/challenge`? | `rate_limited`. Wait for `retry-after` (60 s). |
 | Why a 400 `bad_action`? | `read` isn't a paid action. Use `write`, `search`, `account` or `admin`. |
 | Why a 400 `malformed` from `/v1/redeem`? | The body needs `challenge_id`, `challenge` and `solution` for the challenge you got. |
+| Siteverify says `timeout-or-duplicate`. | The pass expired, was used up, or was sent again. Get a new one. |
 
 To pay that 402 through NWC, see [Pay with NWC](/docs/pay-with-nwc).

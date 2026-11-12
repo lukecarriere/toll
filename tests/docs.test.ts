@@ -134,5 +134,8 @@ test("guides: a pipe table renders as a table with one header row, and a broken 
   const h = readFileSync(OUT + "docs/ask.html", "utf8");
   assert.match(h, /<table>\s*<thead><tr><th>You ask<\/th><th>Your agent calls<\/th><\/tr><\/thead>/);
   assert.match(h, /<td><code>GET \/\.well-known\/toll\.json<\/code><\/td>/);
-  assert.equal([...h.matchAll(/<tr>/g)].length, 23, "header plus 22 rows");
+  assert.match(h, /Prices are in msat; USD isn't available \(<code>usd<\/code> is <code>null<\/code>\)/);
+  assert.match(h, /<code>rate_limited<\/code>\. Wait for <code>retry-after<\/code> \(60 s\)/);
+  assert.match(h, /Siteverify says <code>timeout-or-duplicate<\/code>/);
+  assert.equal([...h.matchAll(/<tr>/g)].length, 25, "header plus 24 rows");
 });
