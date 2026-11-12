@@ -12,11 +12,11 @@ Point the CLI at an NWC connection first. Use `npx @getalby/cli connect` or `aut
 
 On lessspam.dev, `POST /v1/demo/agent` is the pay URL (`/.well-known/toll.json` names it as `pay`). An unpaid post returns `402 payment_required`. The `www-authenticate` header carries the mint-quote offer. The body also has a `challenge_url` if you would rather do the work instead.
 
-```sh
-npx @getalby/cli fetch "https://lessspam.dev/v1/demo/agent" --method POST
-```
+The CLI applies a default spend cap of 5,000, which covers this action. On lessspam.dev a write is 10,000 msat. To cap the same call at 10, run:
 
-The CLI applies a default spend cap that covers this action. On lessspam.dev a write is 10,000 msat.
+```sh
+npx @getalby/cli fetch "https://lessspam.dev/v1/demo/agent" --method POST --max-amount 10 --currency BTC --unit sats --network lightning
+```
 
 The CLI pays the invoice in the offer, then sends the same post again with the Authorization scheme that header names and the macaroon. Adding `:preimage` is optional: if the mint has already marked the quote paid, the retry is accepted without it. A paid post returns a pass for one write.
 
