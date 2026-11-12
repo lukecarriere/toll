@@ -239,7 +239,20 @@ test("replayed challenge is 401; a spent pass is rejected; price is cashu; a lig
   assert.equal(pj.basis, "current");
   const paid = curlShow("POST /v1/redeem paid", "/v1/redeem", ["-X", "POST", "-H", "content-type: application/json", "-d", JSON.stringify({ offer_id: "off_x", kind: "ln402", preimage: "00" })]);
   assert.equal(paid.status, 400);
-  assert.equal(JSON.parse(paid.body).error, "unsupported");
+  assert.equal(JSON.parse(paid.body).error, "malformed");
+});
+
+test("POST /v1/redeem with quote-kind proofs reaches validation, not unsupported", () => {
+  const preimage = "0".repeat(64);
+  const macaroon = "dummy-macaroon-not-a-real-credential";
+  for (const kind of ["l402", "ln402"] as const) {
+    const body = { offer_id: "off_dummy", kind, preimage, macaroon, action: "write" };
+    const res = curlShow("POST /v1/redeem kind " + kind, "/v1/redeem", ["-X", "POST", "-H", "content-type: application/json", "-d", JSON.stringify(body)]);
+    const err = JSON.parse(res.body).error as string;
+    assert.notEqual(err, "unsupported", kind + " " + res.body);
+    assert.ok(res.status === 400 || res.status === 401, kind + " status " + res.status + " " + res.body);
+    assert.ok(["malformed", "bad_sig", "bad_solution", "invalid"].includes(err), kind + " " + res.body);
+  }
 });
 
 test("two concurrent redeems of one challenge give exactly one pass", async () => {

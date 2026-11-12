@@ -433,7 +433,6 @@ export function createEdgeHandler<E extends EdgeEnv>(options: EdgeOptions<E>) {
       const b = await body(req);
       if (b.offer_id !== undefined) {
         if (!cashuOn) return json({ error: "unsupported", detail: "paid redeem is not enabled at the edge" }, 400);
-        if (b.kind !== "cashu") return json({ error: "unsupported" }, 400);
         try {
           const r = await toll.redeemPaid(b, { ip: ip(req) });
           return json({ pass: r.pass, exp: r.exp, cls: r.cls, rail: r.rail });
