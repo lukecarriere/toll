@@ -59,11 +59,51 @@ export function isExempt(relPath) {
   return EXEMPT.some((re) => re.test(relPath.replace(/\\/g, "/")));
 }
 
+/** Exact flag tokens allowed inside fenced code blocks only (PM call, Toll #55). */
+export const FENCED_FLAG_TOKENS = ["--unit sats", "--network lightning", "--currency BTC"];
+
+/** Content ranges of markdown ``` fences and HTML <pre><code> blocks. */
+export function fencedCodeRanges(text) {
+  const ranges = [];
+  const mdOpen = /^```[^\n]*\r?\n/gm;
+  let m;
+  while ((m = mdOpen.exec(text))) {
+    const start = m.index + m[0].length;
+    const close = /^```[^\n]*$/gm;
+    close.lastIndex = start;
+    const c = close.exec(text);
+    const end = c ? c.index : text.length;
+    ranges.push([start, end]);
+    mdOpen.lastIndex = c ? c.index + c[0].length : text.length;
+  }
+  const htmlOpen = /<pre\b[^>]*>\s*<code\b[^>]*>/gi;
+  while ((m = htmlOpen.exec(text))) {
+    const start = m.index + m[0].length;
+    const close = /<\/code>\s*<\/pre>/gi;
+    close.lastIndex = start;
+    const c = close.exec(text);
+    const end = c ? c.index : text.length;
+    ranges.push([start, end]);
+    htmlOpen.lastIndex = c ? c.index + c[0].length : text.length;
+  }
+  return ranges;
+}
+
+function maskFencedFlagTokens(text) {
+  let out = text;
+  for (const [start, end] of fencedCodeRanges(text)) {
+    let chunk = out.slice(start, end);
+    for (const tok of FENCED_FLAG_TOKENS) chunk = chunk.split(tok).join(" ".repeat(tok.length));
+    out = out.slice(0, start) + chunk + out.slice(end);
+  }
+  return out;
+}
+
 /** Returns [{ term, line, text }] hits for a public-surface file; [] for exempt paths. */
 export function lintText(relPath, text, regexes = lintRegexes()) {
   if (isExempt(relPath)) return [];
   const hits = [];
-  const lines = text.split("\n");
+  const lines = maskFencedFlagTokens(text).split("\n");
   for (let n = 0; n < lines.length; n++) {
     for (const { term, re } of regexes) {
       re.lastIndex = 0;

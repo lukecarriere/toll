@@ -44,6 +44,28 @@ test("whole words only: no false hits inside other words; phrases and risk-score
   assert.equal(lintText("README.md", "a 10% platform fee").length, 0);
 });
 
+test("fenced code allows only the three NWC flag tokens; prose and other fence uses still fail", () => {
+  const cmd = "npx @getalby/cli fetch \"https://lessspam.dev/v1/demo/agent\" --method POST --max-amount 10 --currency BTC --unit sats --network lightning";
+
+  // (1) the capped command passes inside a markdown fence, and in the built <pre><code> form.
+  const fenced = "To cap the same call at 10, run:\n\n```sh\n" + cmd + "\n```\n";
+  assert.deepEqual(lintText("website/docs/pay-with-nwc.md", fenced), []);
+  const html = "<p>To cap the same call at 10, run:</p>\n<pre><code>" + cmd.replace(/&/g, "&amp;").replace(/"/g, "&quot;") + "</code></pre>\n";
+  assert.deepEqual(lintText("website/dist/docs/pay-with-nwc.html", html), []);
+
+  // (2) the same words in prose still fail (btc is on the lint list).
+  const proseHits = lintText("website/docs/pay-with-nwc.md", "Pay in sats over lightning with BTC.").map((h: any) => h.term).sort();
+  assert.deepEqual(proseHits, ["btc", "lightning", "sats"]);
+
+  // (3) "sats" anywhere else inside a fence still fails, and the flag tokens outside a fence
+  // (inline code or prose) still fail.
+  const otherFence = lintText("website/docs/pay-with-nwc.md", "```sh\necho 100 sats\n```\n");
+  assert.equal(otherFence.length, 1);
+  assert.equal(otherFence[0].term, "sats");
+  const outside = lintText("website/docs/pay-with-nwc.md", "Run `--unit sats` and `--network lightning` and `--currency BTC`.");
+  assert.deepEqual(outside.map((h: any) => h.term).sort(), ["btc", "lightning", "sats"]);
+});
+
 test("copy lint passes on every public surface of this repo", async () => {
   const r = await runLint();
   assert.deepEqual(r.hits, []);
