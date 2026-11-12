@@ -194,6 +194,7 @@ Homepage nav label: Docs
 - `website/docs/agent` (Agent): A client for automated callers. It does the work for a write and retries once. Agents can pay the hosted demo for a write.
 - `website/docs/mcp` (MCP): A local server for three write tools. It reads the site manifest and calls that site's /v1 API only.
 - `website/docs/ask` (Agent calls): One table for agents: what you ask, and the Toll call that answers it. Prices, passes, payment, and errors.
+- `website/docs/pay-with-nwc` (Pay with NWC): Pay a lessspam.dev write with NWC. The CLI pays the 402 offer and retries with the Authorization header.
 - `website/docs/wordpress` (WordPress): Toll keeps comment forms, logins, and write APIs quiet. Visitors read for free and post without solving anything.
 - `website/docs/self-hosting` (Self-hosting): Run Toll on your own server. Checks stay there, page views stay free, and nothing about a visitor is sent out.
 - `website/download/index` (Download): Download Toll Gate for WordPress. The plugin is GPL-2.0-or-later, and the zip is built from this project.

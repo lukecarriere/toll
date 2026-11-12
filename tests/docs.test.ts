@@ -21,7 +21,7 @@ const hrefs = (h: string) => [...h.matchAll(/\shref="([^"]*)"/gi)].map((m) => m[
 const decode = (s: string) => s.replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&amp;/g, "&");
 
 test("guides: one h1, the copy.md description, icons, docs.css, no script, no .html href", () => {
-  assert.equal(DOC_PAGES.length, 10);
+  assert.equal(DOC_PAGES.length, 11);
   assert.deepEqual(GUIDE_PAGES.map((p: { file: string }) => p.file), DOC_PAGES.map((p: { file: string }) => p.file).filter((f: string) => f !== "docs/index"));
   for (const p of DOC_PAGES) {
     const h = readFileSync(OUT + p.file + ".html", "utf8");

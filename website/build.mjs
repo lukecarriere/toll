@@ -44,7 +44,7 @@ export const DEMO_FILES = ["demo.html", "demo.css", "demo.js"];
  * Visitor guides. Order, nav labels and meta descriptions come from docs/copy.md "## Docs pages".
  * The homepage links to /docs. The four mission pages do not: their HTML stays the released bytes.
  */
-const DOC_ORDER = ["docs/index", "docs/quick-start", "docs/widget", "docs/server", "docs/agent", "docs/mcp", "docs/ask", "docs/wordpress", "docs/self-hosting", "download/index"];
+const DOC_ORDER = ["docs/index", "docs/quick-start", "docs/widget", "docs/server", "docs/agent", "docs/mcp", "docs/ask", "docs/pay-with-nwc", "docs/wordpress", "docs/self-hosting", "download/index"];
 
 export function loadDocMeta(copy = readFileSync(fileURLToPath(new URL("../docs/copy.md", import.meta.url)), "utf8")) {
   const from = copy.indexOf("\n## Docs pages\n");

@@ -28,3 +28,5 @@ Calls go to the site's origin, for example `https://lessspam.dev`. On WordPress 
 | Why did I get a 402? | `payment_required`: pay the offer, or fetch the `challenge_url` in the body and do the work. |
 | Why a 400 `bad_action`? | `read` isn't a paid action. Use `write`, `search`, `account` or `admin`. |
 | Why a 400 `malformed` from `/v1/redeem`? | The body needs `challenge_id`, `challenge` and `solution` for the challenge you got. |
+
+To pay that 402 through NWC, see [Pay with NWC](/docs/pay-with-nwc).

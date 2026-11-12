@@ -26,3 +26,5 @@ const result = await agent.fetch("/contact", {
 For a WordPress site, set `issuer` to `<site>/wp-json/toll`. The [server page](/docs/server) describes the routes the client calls.
 
 The `toll-agent-pay` command runs against a local demo. It is for tests.
+
+To pay the hosted demo through NWC instead of the agent SDK, see [Pay with NWC](/docs/pay-with-nwc).
