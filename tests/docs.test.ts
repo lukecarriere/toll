@@ -139,3 +139,13 @@ test("guides: a pipe table renders as a table with one header row, and a broken 
   assert.match(h, /Siteverify says <code>timeout-or-duplicate<\/code>/);
   assert.equal([...h.matchAll(/<tr>/g)].length, 25, "header plus 24 rows");
 });
+
+test("Pay with NWC page names the default spend cap and shows the capped fetch command", () => {
+  const cmd = "npx @getalby/cli fetch \"https://lessspam.dev/v1/demo/agent\" --method POST --max-amount 10 --currency BTC --unit sats --network lightning";
+  const md = readFileSync(ROOT + "website/docs/pay-with-nwc.md", "utf8");
+  assert.ok(md.includes(cmd), "source guide must include the capped fetch command exactly");
+  assert.match(md, /default spend cap of 5,000/, "source guide must name the CLI default spend cap of 5,000");
+  const h = decode(readFileSync(OUT + "docs/pay-with-nwc.html", "utf8"));
+  assert.ok(h.includes(cmd), "built page must include the capped fetch command exactly");
+  assert.match(h, /default spend cap of 5,000/, "built page must name the CLI default spend cap of 5,000");
+});
