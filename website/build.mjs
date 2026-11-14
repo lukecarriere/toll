@@ -172,7 +172,7 @@ ${guideBody(blocks)}
 export function renderNotFound() {
   const nav = PAGES.map((p) => `<a href="${pagePath(p.file)}">${esc(p.nav)}</a>`).join("") + `<a href="/docs">${esc(DOC_META.label)}</a>`;
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Page not found · Toll</title><meta name="robots" content="noindex">${ICON_TAGS}<link rel="stylesheet" href="/site.css"><link rel="stylesheet" href="/docs.css"></head><body>
+<title>Page not found · Toll</title><meta name="description" content="This page isn't on Toll."><meta name="robots" content="noindex">${ICON_TAGS}<link rel="stylesheet" href="/site.css"><link rel="stylesheet" href="/docs.css"></head><body>
 <header><div class="bar"><a class="mark" href="/">Toll</a><nav aria-label="Pages">${nav}</nav></div></header>
 <main><h1>Page not found</h1>
 <p>This page isn't on Toll.</p>

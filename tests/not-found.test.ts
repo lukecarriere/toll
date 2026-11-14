@@ -28,6 +28,7 @@ test("the built 404 page is branded HTML with a title, lang, message, and a link
   const html = readFileSync(file, "utf8");
   assert.match(html, /<html lang="en">/);
   assert.match(html, /<title>Page not found · Toll<\/title>/);
+  assert.match(html, /<meta name="description" content="This page isn't on Toll.">/);
   assert.match(html, /<meta name="robots" content="noindex">/);
   assert.match(html, /<h1>Page not found<\/h1>/);
   assert.match(html, /This page isn't on Toll\./);
