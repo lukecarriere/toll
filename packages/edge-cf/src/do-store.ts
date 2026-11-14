@@ -402,12 +402,13 @@ export class TollStoreDO extends DurableObject {
 
   /** Proofs for a reserved quote. One transaction, so the proof rows and the used mark land together. */
   finishMintQuote(row: { quote: string; proofs: { amount: number; secret: string; id: string; C: string }[] }): boolean {
-    return this.tx(() => {
+    // Log after the transaction commits, never inside a transaction that then rolls back.
+    const result = this.tx(() => {
       const rows = this.sql.exec("SELECT mint, proofs FROM cashu_mint_quote WHERE quote = ?", row.quote).toArray();
-      if (!rows.length) return false;
+      if (!rows.length) return { ok: false, reversed: null as { quote: string; amount: number } | null };
       let existing: unknown = [];
-      try { existing = JSON.parse(String(rows[0].proofs)); } catch { return false; }
-      if (!Array.isArray(existing) || existing.length > 0) return false;
+      try { existing = JSON.parse(String(rows[0].proofs)); } catch { return { ok: false, reversed: null }; }
+      if (!Array.isArray(existing) || existing.length > 0) return { ok: false, reversed: null };
       this.sql.exec("UPDATE cashu_mint_quote SET proofs = ? WHERE quote = ?", JSON.stringify(row.proofs), row.quote);
       const mint = String(rows[0].mint);
       for (const p of row.proofs) {
@@ -423,9 +424,14 @@ export class TollStoreDO extends DurableObject {
         this.sql.exec("UPDATE cashu_meta SET n = ? WHERE k = 'losses'", Math.max(0, this.lossN() - num(lost[0].amount)));
         this.bumpMeta("reversals", 1);
         this.bumpMeta("reversed_sats", num(lost[0].amount));
+        return { ok: true, reversed: { quote: row.quote, amount: num(lost[0].amount) } };
       }
-      return true;
+      return { ok: true, reversed: null };
     });
+    if (result.reversed) {
+      console.log(JSON.stringify({ event: "mint_quote_reversed", quote: result.reversed.quote, amount: result.reversed.amount }));
+    }
+    return result.ok;
   }
 
   /** Quote row, proofs, and the single-use mark. Reserve then finish, each its own statement list. */

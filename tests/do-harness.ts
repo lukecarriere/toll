@@ -41,3 +41,13 @@ export function doStorage() {
     columns: (table: string) => (db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[]).map((c) => c.name),
   };
 }
+
+/** Capture `console.log` lines for the current test, then restore the original. */
+export function captureLogs() {
+  const lines: string[] = [];
+  const orig = console.log;
+  console.log = (...args: unknown[]) => {
+    lines.push(args.map((a) => typeof a === "string" ? a : String(a)).join(" "));
+  };
+  return { lines, parsed: () => lines.flatMap((line) => { try { const v = JSON.parse(line); return v && typeof v === "object" ? [v as Record<string, unknown>] : []; } catch { return []; } }), restore: () => { console.log = orig; } };
+}

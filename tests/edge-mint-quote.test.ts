@@ -1,5 +1,5 @@
 // Loopback quote on the site worker. The allowlisted host is proxied to the test mint. No deploy.
-import { test, before, after } from "node:test";
+import { test, before, after, describe } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync, spawn, type ChildProcess } from "node:child_process";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
@@ -10,7 +10,53 @@ import type { AddressInfo } from "node:net";
 import { fileURLToPath } from "node:url";
 import { fromB64url, fromUtf8 } from "../packages/protocol/src/bytes.ts";
 import { startTestMint } from "../packages/settlement-ln/src/index.ts";
+import { captureLogs, doStorage } from "./do-harness.ts";
 
+const PROOF = { amount: 10, secret: "s1", id: "00ad268c4d1f5826", C: "02" + "ab".repeat(32) };
+
+function reversedLines(lines: string[]) {
+  return lines.flatMap((line) => {
+    try {
+      const v = JSON.parse(line) as Record<string, unknown>;
+      return v && v.event === "mint_quote_reversed" ? [v] : [];
+    } catch {
+      return [];
+    }
+  });
+}
+
+test("edge: a recovered loss logs one mint_quote_reversed line with quote and amount only", () => {
+  const store = doStorage().open();
+  const cap = captureLogs();
+  try {
+    store.noteMintQuoteLoss({ quote: "q1", action: "write", amount: 10, reason: "mint_refused" });
+    assert.equal(store.reserveMintQuote({ quote: "q1", action: "write", amount: 10, mint: "https://mint.test" }), true);
+    assert.equal(store.finishMintQuote({ quote: "q1", proofs: [PROOF] }), true);
+    const found = reversedLines(cap.lines);
+    assert.equal(found.length, 1, JSON.stringify(cap.lines));
+    assert.deepEqual(found[0], { event: "mint_quote_reversed", quote: "q1", amount: 10 });
+    assert.deepEqual(Object.keys(found[0]).sort(), ["amount", "event", "quote"]);
+  } finally {
+    cap.restore();
+  }
+});
+
+test("edge: a second finish for the same quote logs nothing", () => {
+  const store = doStorage().open();
+  store.noteMintQuoteLoss({ quote: "q1", action: "write", amount: 10, reason: "mint_refused" });
+  assert.equal(store.reserveMintQuote({ quote: "q1", action: "write", amount: 10, mint: "https://mint.test" }), true);
+  assert.equal(store.finishMintQuote({ quote: "q1", proofs: [PROOF] }), true);
+  const cap = captureLogs();
+  try {
+    assert.equal(store.finishMintQuote({ quote: "q1", proofs: [PROOF] }), false, "a second finish stores nothing");
+    assert.deepEqual(reversedLines(cap.lines), [], JSON.stringify(cap.lines));
+  } finally {
+    cap.restore();
+  }
+});
+
+
+describe("site worker quote", () => {
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
 const MINT = "https://mint.minibits.cash/Bitcoin";
 let wr: ChildProcess;
@@ -102,4 +148,6 @@ test("the worker stores its own quote row and refuses a quote someone else minte
   assert.equal(ok.body.rail, "settle");
   const after = await read(await fetch(base + "/v1/test/cashu-books"));
   assert.equal(after.body.stored, 10);
+});
+
 });
