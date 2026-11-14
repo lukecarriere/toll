@@ -14,6 +14,11 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+# Locate Node 22 and 24 even when the first `node` on PATH is the other major,
+# or when Node 24 lives at ~/.local/node24 rather than node-v24*.
+if [[ -x "$ROOT/scripts/node-path.sh" ]]; then
+  eval "$("$ROOT/scripts/node-path.sh" --export)"
+fi
 SHA_ARG=""
 DRY_RUN=0
 ALLOW_BRANCH=0
