@@ -5,7 +5,7 @@
 *{box-sizing:border-box}html,body{margin:0}
 body{font:18px/1.5 "Toll Sans",system-ui,sans-serif}
 .sign{display:inline-block;font:700 22px/1 "Toll Slab",serif;letter-spacing:.04em;color:var(--lane);background:var(--sign);border:2px solid var(--lane);border-radius:6px;padding:7px 14px 8px;text-decoration:none}
-nav{display:flex;gap:28px;font-size:15px}nav a{text-decoration:none;color:inherit}
+nav{display:flex;gap:28px;font-size:15px}nav a{text-decoration:none;color:inherit;display:inline-flex;align-items:center;min-height:24px;min-width:24px;padding:4px 0}
 body{background:var(--paper);color:var(--ink)}
 .hero{min-height:100svh;display:grid;grid-template-columns:1fr minmax(320px,40%)}
 .left{display:flex;flex-direction:column;padding:28px 56px 40px 40px;max-width:760px;margin-left:auto;width:100%}
@@ -34,3 +34,7 @@ h1 span{display:block}
  .right img{object-position:50% 88%}
  .plate{left:20px;top:20px;bottom:auto;width:auto;max-width:calc(100% - 40px);font-size:17px;padding:8px 12px 9px;box-shadow:0 0 0 3px var(--sign),0 10px 22px rgba(0,0,0,.35)}
 }
+
+.site-foot{max-width:46rem;margin:3rem auto 2rem;padding:0 1.25rem;font-size:.875rem}
+.site-foot nav{display:flex;gap:1.25rem;flex-wrap:wrap}
+.site-foot a{display:inline-flex;align-items:center;min-height:24px;min-width:24px;padding:4px 0;color:inherit;text-decoration:none}

@@ -13,6 +13,7 @@ p code,li code,td code{font:0.88em ui-monospace,monospace;background:var(--lane)
 
 .site-foot { max-width: 46rem; margin: 3rem auto 2rem; padding: 0 1.25rem; font-size: .875rem; }
 .site-foot nav { display: flex; gap: 1.25rem; flex-wrap: wrap; }
+.site-foot a, main li a{display:inline-flex;align-items:center;min-height:24px;min-width:24px;padding:4px 0}
 table{width:100%;table-layout:fixed;border-collapse:collapse;margin:0 0 20px}
 th,td{text-align:left;vertical-align:top;padding:8px 10px;border-bottom:1px solid var(--lane);overflow-wrap:anywhere}
 th{font-weight:600}
