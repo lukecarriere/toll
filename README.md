@@ -76,6 +76,14 @@ bash scripts/check-open-intelligence.sh
 
 It does not pay. `bash scripts/check-open-intelligence.sh --self-check` proves each check can fail.
 
+After a deploy, confirm the public pages still return 200 and (when you pass `--contains`) still include the phrases you just shipped:
+
+```sh
+bash scripts/check-live-pages.sh --path /docs/ask --contains "the phrase you just shipped"
+```
+
+It does not pay. `bash scripts/check-live-pages.sh --self-check` proves each check can fail.
+
 
 ## Licence
 
