@@ -60,6 +60,15 @@ bash scripts/check-open-intelligence.sh
 
 Read-only against the live origin (default `https://lessspam.dev`): `GET /.well-known/toll.json` returns 200 and valid JSON, `GET /llms.txt` returns 200 with a `text/plain` content type, an unpaid `POST /demo/contact` with `toll-client: agent` returns 402 with an `X-Cashu` header, and gitleaks reports no leaks in this checkout. The script does not pay and does not print the `X-Cashu` value. `bash scripts/check-open-intelligence.sh --self-check` proves each check can fail.
 
+## Live pages after a deploy
+
+```sh
+bash scripts/check-live-pages.sh
+bash scripts/check-live-pages.sh --path /docs/ask --contains "the phrase you just shipped"
+```
+
+Default is every `loc` in `/sitemap.xml` (HTTP 200 with an HTML title), plus `/robots.txt`, `/sitemap.xml`, `/llms.txt`, and `/.well-known/toll.json`. `--path` adds a page; later `--contains` phrases apply to that path. It does not follow redirects, does not pay, and does not print a token or secret. `bash scripts/check-live-pages.sh --self-check` proves each check can fail.
+
 ## Still done by hand
 
 - A visual pass and browser screenshots. Phone width is asserted in `tests/viewport.test.ts`; a screenshot is not.
