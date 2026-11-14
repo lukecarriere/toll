@@ -45,7 +45,7 @@ function check(dir: string, label: string) {
   const pm = pmDescriptions();
   const pages = walk(dir).filter((f) => f.endsWith(".html"));
   const guides = DOC_PAGES.map((p: { file: string }) => p.file + ".html").concat(LEGAL_PAGES.map((p: { file: string }) => p.file + ".html"));
-  assert.deepEqual(pages, ["demo.html", "ecosystem.html", "index.html", "mission.html", "values.html", "vision.html", ...guides].sort(), label + ": the built pages");
+  assert.deepEqual(pages, ["404.html", "demo.html", "ecosystem.html", "index.html", "mission.html", "values.html", "vision.html", ...guides].sort(), label + ": the built pages");
   for (const f of pages) {
     const m = metas(readFileSync(dir + f, "utf8"));
     assert.equal(m.all.length, 1, `${label} ${f}: exactly one meta description`);

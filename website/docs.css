@@ -16,3 +16,6 @@ p code,li code,td code{font:0.88em ui-monospace,monospace;background:var(--lane)
 table{width:100%;table-layout:fixed;border-collapse:collapse;margin:0 0 20px}
 th,td{text-align:left;vertical-align:top;padding:8px 10px;border-bottom:1px solid var(--lane);overflow-wrap:anywhere}
 th{font-weight:600}
+
+.cta{display:inline-flex;align-items:center;min-height:24px;background:var(--sign);color:var(--lane);font-weight:600;padding:.55rem 1.1rem;border-radius:8px;text-decoration:none}
+.cta:hover{color:var(--lane)}

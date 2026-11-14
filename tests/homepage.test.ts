@@ -54,7 +54,7 @@ test("build: a fresh build has the homepage, ships exactly its files, and has no
   const rel = pluginRelease();
   const docs = ["docs.css", ...DOC_PAGES.map((p: any) => p.file + ".html"), ...LEGAL_PAGES.map((p: any) => p.file + ".html")];
   const zip = existsSync(OUT + "download/" + rel.zip) ? ["download/" + rel.zip, "download/" + rel.shaName] : [];
-  assert.deepEqual(walk(OUT), ["demo.css", "demo.html", "demo.js", "ecosystem.html", "index.html", "mission.html", "site.css", "values.html", "vision.html", ...HOME_ASSETS, ...ICON_FILES, ...SITE_FILES, ...docs, ...zip].sort());
+  assert.deepEqual(walk(OUT), ["404.html", "demo.css", "demo.html", "demo.js", "ecosystem.html", "index.html", "mission.html", "site.css", "values.html", "vision.html", ...HOME_ASSETS, ...ICON_FILES, ...SITE_FILES, ...docs, ...zip].sort());
   for (const f of HOME_ASSETS) assert.deepEqual(readFileSync(OUT + f), readFileSync(ROOT + "website/" + f), f + " is copied unchanged");
   // Every shipped path and text file passes the copy lint list from docs/copy.md, which bans the photo's
   // tree species ("Never name the tree species in alt text, captions, or file names that ship").

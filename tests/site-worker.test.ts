@@ -152,6 +152,17 @@ test("discovery files are served, unknown paths stay 404, and a static POST is n
   assert.doesNotMatch(llms.body, /\b(cashu|ecash|sats|bitcoin)\b/i);
   const missing = curl("/not-a-real-page");
   assert.equal(missing.status, 404);
+  assert.match(missing.headers, /^content-type:\s*text\/html\b/im, "unknown site path is HTML");
+  assert.match(missing.body, /<html lang="en">/);
+  assert.match(missing.body, /<title>Page not found · Toll<\/title>/);
+  assert.match(missing.body, /<h1>Page not found<\/h1>/);
+  assert.match(missing.body, /This page isn't on Toll\./);
+  assert.match(missing.body, /<a class="cta" href="\/">Back to home<\/a>/);
+  assert.deepEqual(Buffer.from(missing.body), readFileSync(ROOT + "website/dist/404.html"), "404 body matches the built page");
+  const api = curl("/v1/this-is-not-a-route");
+  assert.equal(api.status, 404);
+  assert.match(api.headers, /^content-type:\s*application\/json\b/im, "unknown /v1/ path stays JSON");
+  assert.equal(JSON.parse(api.body).error, "not_found");
   const post = curl("/mission", ["-X", "POST", "-H", "content-type: application/x-www-form-urlencoded", "-d", "a=b"]);
   assert.notEqual(post.status, 403, post.body.slice(0, 180));
   assert.doesNotMatch(post.body, /toll_required/);
