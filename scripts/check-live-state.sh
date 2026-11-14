@@ -33,7 +33,7 @@ if (status !== expect) {
 }
 const posted = await fetch(base + "/demo/contact", {
   method: "POST",
-  headers: { accept: "application/json", "content-type": "application/json", "toll-client": "agent" },
+  headers: { accept: "application/json", "content-type": "application/json", "toll-client": "agent", "toll-test": "1" },
   body: "{}",
 });
 const postedBody = await posted.text();

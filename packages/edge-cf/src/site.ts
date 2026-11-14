@@ -73,6 +73,26 @@ export default {
     return storeFailSlot.run(inject(req, env), async () => {
       const method = req.method.toUpperCase();
       // Counts for the demo page. A store failure here is 503; the page itself is a static asset.
+      // /demo/stats/daily is the last N UTC days; /demo/stats stays today's accepted/rejected only.
+      if (url.pathname === "/demo/stats/daily" && (method === "GET" || method === "HEAD")) {
+        const raw = url.searchParams.get("days");
+        let n = 7;
+        if (raw !== null && raw !== "") {
+          if (!/^[0-9]+$/.test(raw)) return json({ error: "invalid_days" }, 400);
+          n = Number(raw);
+          if (n < 1 || n > 30) return json({ error: "invalid_days" }, 400);
+        }
+        try {
+          const body = await storeFor(env).daily(n);
+          return new Response(method === "HEAD" ? null : JSON.stringify(body), {
+            status: 200,
+            headers: { "content-type": "application/json", "cache-control": "no-store" },
+          });
+        } catch (e) {
+          const code = e instanceof TollError ? e.code : "store_unavailable";
+          return json({ error: code }, 503);
+        }
+      }
       if (url.pathname === "/demo/stats" && (method === "GET" || method === "HEAD")) {
         try {
           const c = await storeFor(env).counts();

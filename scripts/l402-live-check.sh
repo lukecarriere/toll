@@ -35,7 +35,7 @@ dir=$(mktemp -d)
 trap 'rm -rf "$dir"' EXIT INT TERM
 
 code=$(curl -sS --max-time 20 -o "$dir/body" -D "$dir/hdr" -w '%{http_code}' -X POST \
-  -H 'accept: application/json' -H 'content-type: application/json' -H 'toll-client: agent' \
+  -H 'accept: application/json' -H 'content-type: application/json' -H 'toll-client: agent' -H 'toll-test: 1' \
   --data '{}' "$base$path" || true)
 if [ "$code" != "402" ]; then
   echo "offer status $code" >&2
@@ -85,7 +85,7 @@ else
   exit 1
 fi
 paid=$(curl -sS --max-time 20 -o "$dir/paid" -w '%{http_code}' -K "$dir/curl.cfg" -X POST \
-  -H 'accept: application/json' -H 'content-type: application/json' -H 'toll-client: agent' \
+  -H 'accept: application/json' -H 'content-type: application/json' -H 'toll-client: agent' -H 'toll-test: 1' \
   --data '{}' "$base$path" || true)
 rm -rf "$dir"
 trap - EXIT INT TERM

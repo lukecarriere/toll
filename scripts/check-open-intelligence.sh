@@ -24,7 +24,7 @@ DEFAULT_PAID_PATH="/demo/contact"
 DEFAULT_PAID_METHOD="POST"
 # Extra curl arguments for the unpaid 402 probe. JSON body only; no payment.
 paid_curl_args() {
-  CURL_PAID_ARGS=( -H "accept: application/json" -H "content-type: application/json" -H "toll-client: agent" --data '{}' )
+  CURL_PAID_ARGS=( -H "accept: application/json" -H "content-type: application/json" -H "toll-client: agent" -H "toll-test: 1" --data '{}' )
 }
 # --- end product defaults ---
 

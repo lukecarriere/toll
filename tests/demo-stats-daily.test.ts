@@ -147,13 +147,13 @@ test("daily: existing rows read 0 for the new columns after migration", () => {
   const store = s.open();
   assert.deepEqual(s.columns("day"), ["d", "accepted", "rejected", "test_accepted", "test_rejected"]);
   assert.doesNotThrow(() => s.open(), "a second start finds the columns and adds nothing");
-  const row = s.db.prepare("SELECT accepted, rejected, test_accepted, test_rejected FROM day WHERE d = '2026-11-01'").get() as Record<string, number>;
+  const row = { ...(s.db.prepare("SELECT accepted, rejected, test_accepted, test_rejected FROM day WHERE d = '2026-11-01'").get() as Record<string, number>) };
   assert.deepEqual(row, { accepted: 2, rejected: 3, test_accepted: 0, test_rejected: 0 });
   store.note("accepted");
   store.note("rejected", true);
-  const today = s.db.prepare("SELECT accepted, rejected, test_accepted, test_rejected FROM day WHERE d = ?").get(utcDay(0)) as Record<string, number>;
+  const today = { ...(s.db.prepare("SELECT accepted, rejected, test_accepted, test_rejected FROM day WHERE d = ?").get(utcDay(0)) as Record<string, number>) };
   assert.deepEqual(today, { accepted: 1, rejected: 0, test_accepted: 0, test_rejected: 1 });
-  const old = s.db.prepare("SELECT accepted, rejected, test_accepted, test_rejected FROM day WHERE d = '2026-11-01'").get() as Record<string, number>;
+  const old = { ...(s.db.prepare("SELECT accepted, rejected, test_accepted, test_rejected FROM day WHERE d = '2026-11-01'").get() as Record<string, number>) };
   assert.deepEqual(old, { accepted: 2, rejected: 3, test_accepted: 0, test_rejected: 0 }, "old rows stay at 0 for the new columns");
 });
 

@@ -137,7 +137,7 @@ async function freeChecks({ base, expect, note }) {
   const priceOk = priceRes.status === 200 && price && price.action === "write" && price.status === expect && Number.isSafeInteger(price.amount_msat) && price.amount_msat > 0;
   note("price", priceOk ? "PASS" : "FAIL", { http: priceRes.status, action: price?.action ?? null, status: price?.status ?? null, amount_msat: price?.amount_msat ?? null });
 
-  const headers = { accept: "application/json", "content-type": "application/json" };
+  const headers = { accept: "application/json", "content-type": "application/json", "toll-test": "1" };
   const human = await fetch(base + "/demo/contact", { method: "POST", headers, body: "{}", signal: AbortSignal.timeout(20000) });
   const humanText = await readBody(human);
   let humanBody;
@@ -215,7 +215,7 @@ async function spendChecks({ base, cap, out, src, proofs, walletModule, steps, n
   const states = async (ps) => (await w.checkProofsStates(ps)).map((row) => row.state);
   const decode = (token) => getDecodedToken(token, ids).proofs.map(norm);
   const encA = (ps) => "cashuA" + Buffer.from(JSON.stringify({ token: [{ mint: MINT, proofs: ps.map((p) => ({ id: p.id, amount: p.amount, secret: p.secret, C: p.C })) }], unit: "sat" })).toString("base64url");
-  const postHeaders = { "toll-client": "agent", accept: "application/json", "content-type": "application/x-www-form-urlencoded" };
+  const postHeaders = { "toll-client": "agent", accept: "application/json", "content-type": "application/x-www-form-urlencoded", "toll-test": "1" };
   const pathW = "/demo/contact";
   async function post(extra = {}) {
     const response = await fetch(base + pathW, { method: "POST", headers: { ...postHeaders, ...extra }, body: "message=toll-live-check", signal: AbortSignal.timeout(30000) });
