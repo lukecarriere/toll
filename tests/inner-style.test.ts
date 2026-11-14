@@ -1,7 +1,7 @@
 // Inner pages style pass (design/HANDOFF-INNER-PAGES.md, CD approved Oct 3, 2026, 6:11 PM CT). One production file
 // changes: website/site.css is design/inner-pages/site.css plus the [hidden] rule in scripts/hidden-attr.ts.
-// Everything else the site ships must stay exactly as released at 34e46d6 for the assets: home.css, the icons,
-// the photo and the fonts. Page HTML, robots.txt and the site CSP line have since gained discovery tags. The pins
+// Assets other than the CSS stay as released at 34e46d6: the icons, the photo and the fonts.
+// home.css and site.css gained 24px tap targets (issue #61). Page HTML, robots.txt and the site CSP line have since gained discovery tags. The pins
 // below are QA's dist.sha256 for the 34e46d6 release build (TOLL_SITE_URL set to the working domain). The domain is
 // read from docs/copy.md "## Naming" at run time, so this file never names it (tests/no-hardcoded-domains.test.ts).
 import { test } from "node:test";
@@ -20,8 +20,8 @@ const sha256 = (b: Buffer) => createHash("sha256").update(b).digest("hex");
 
 /** sha256 of design/inner-pages/site.css as approved for the inner pages (Oct 3, 2026). */
 const HANDOFF_CSS_SHA256 = "2ebe7ea9386497fed5f1a3e54ac0531e7ad104bd340a7907a2f99e306896ec1b";
-/** sha256 of website/site.css: the handoff file plus the [hidden] rule. */
-const SITE_CSS_SHA256 = "f5a38c728e038b419bb45e97ebc6d75c6e4ef8f08dc9fa64dfb19b5313da5a5d";
+/** sha256 of website/site.css: the handoff file, the [hidden] rule, and 24px tap targets. */
+const SITE_CSS_SHA256 = "82df16651fe5cba28b75a74f3eb7f8968d871798ec7086ce467431b8ab89f8e0";
 
 /** QA's dist.sha256 for the 34e46d6 release build: all 18 files. */
 const RELEASE_34E46D6: Record<string, string> = {
@@ -68,7 +68,7 @@ test("release pin: mission page bodies match a build with no site root; assets s
   const bare = build(mkdtempSync(join(tmpdir(), "toll-inner-bare-")) + "/", "");
   const main = (h: string) => /<main>[\s\S]*<\/main>/.exec(h)![0];
   for (const f of MISSION_HTML) assert.equal(main(readFileSync(OUT + f, "utf8")), main(readFileSync(bare + f, "utf8")), f);
-  for (const f of ["apple-touch-icon.png", "favicon.ico", "favicon.svg", "fonts/arvo/Arvo-Bold.woff2", "fonts/arvo/LICENSE.txt", "fonts/public-sans/LICENSE.txt", "fonts/public-sans/PublicSans-Latin.woff2", "home.css", "img/forest-road-1280.jpg", "img/forest-road-2560.jpg"]) {
+  for (const f of ["apple-touch-icon.png", "favicon.ico", "favicon.svg", "fonts/arvo/Arvo-Bold.woff2", "fonts/arvo/LICENSE.txt", "fonts/public-sans/LICENSE.txt", "fonts/public-sans/PublicSans-Latin.woff2", "img/forest-road-1280.jpg", "img/forest-road-2560.jpg"]) {
     assert.equal(sha256(readFileSync(OUT + f)), RELEASE_34E46D6[f], f);
   }
 });
@@ -80,14 +80,14 @@ test("release pin: mission pages stay byte-identical; the homepage Docs link, de
   assert.deepEqual(files, [...Object.keys(RELEASE_34E46D6), ...added].sort(), "the release files plus the demo page and the guides");
   const got = hashes(files.filter((f) => f in RELEASE_34E46D6));
   const changed = Object.keys(RELEASE_34E46D6).filter((f) => got[f] !== RELEASE_34E46D6[f]);
-  assert.deepEqual(changed.sort(), ["_headers", "ecosystem.html", "index.html", "mission.html", "robots.txt", "site.css", "values.html", "vision.html"], "discovery tags on the HTML, robots and CSP; site.css is the handoff file");
+  assert.deepEqual(changed.sort(), ["_headers", "ecosystem.html", "home.css", "index.html", "mission.html", "robots.txt", "site.css", "values.html", "vision.html"], "discovery tags on the HTML, robots and CSP; CSS also has 24px tap targets");
   assert.match(readFileSync(OUT + "index.html", "utf8"), /<a href="\/docs">Docs<\/a>/);
   assert.equal(got["site.css"], SITE_CSS_SHA256, "dist site.css is the handoff file plus the hidden rule");
   const headers = readFileSync(OUT + "_headers", "utf8");
   assert.match(headers, /default-src 'none'; script-src 'sha256-[A-Za-z0-9+/]+=*'; style-src 'self'; img-src 'self'; font-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'/, "the site CSP stays strict and allows the JSON-LD by hash");
   assert.doesNotMatch(headers, /unsafe-inline/);
   // The sources the build copies, for the files the handoff says must not move. _headers is the demo exception.
-  for (const f of ["home.css", "robots.txt", "fonts/arvo/Arvo-Bold.woff2", "fonts/public-sans/PublicSans-Latin.woff2"]) {
+  for (const f of ["robots.txt", "fonts/arvo/Arvo-Bold.woff2", "fonts/public-sans/PublicSans-Latin.woff2"]) {
     assert.equal(sha256(readFileSync(ROOT + "website/" + f)), RELEASE_34E46D6[f], "website/" + f + " is unchanged");
   }
 });
