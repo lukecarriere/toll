@@ -170,3 +170,26 @@ test("edge cron sweep: a loss booked with mint '' is minted on the configured mi
   assert.equal(after.reversals, before.reversals + 1);
   assert.equal(after.reversed_sats, before.reversed_sats + 10);
 });
+
+test("sweep: a reversal during the cron run logs one mint_quote_reversed line", async () => {
+  mint.set("real");
+  const made = await (await fetch(mint.keysetUrl + "/v1/mint/quote/bolt11", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ amount: 10, unit: "sat" }) })).json() as { quote: string; request: string };
+  const paid = await fetch(mint.keysetUrl + "/test/pay", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ request: made.request }) });
+  assert.equal(paid.status, 200);
+  await paid.arrayBuffer();
+  await seed({ quote: made.quote, amount: 10, mint: "", ageS: 300, loss: "mint_refused" });
+  const from = log.length;
+  let line: Record<string, unknown> = {};
+  for (let i = 0; i < 4 && !line.recovered; i++) {
+    mint.calls.length = 0;
+    line = await cron();
+  }
+  assert.equal(line.recovered, 1, JSON.stringify(line));
+  const found: Record<string, unknown>[] = [];
+  for (const m of log.slice(from).matchAll(/\{[^{}\n]*"event":"mint_quote_reversed"[^\n]*\}/g)) {
+    found.push(JSON.parse(m[0]) as Record<string, unknown>);
+  }
+  assert.equal(found.length, 1, log.slice(from));
+  assert.deepEqual(found[0], { event: "mint_quote_reversed", quote: made.quote, amount: 10 });
+  assert.deepEqual(Object.keys(found[0]).sort(), ["amount", "event", "quote"]);
+});
