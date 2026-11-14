@@ -11,7 +11,7 @@
 <button class="b" type="submit">Send</button><noscript><p>This form needs JavaScript.</p></noscript></form>
 <p class="res"><span class="pill ok" role="status" id="sent" hidden>✓ Accepted · 200</span></p></section>
 <section class="card" id="nopass" aria-labelledby="x-h"><h2 id="x-h">Try it without a pass</h2><p class="sub">The same contact endpoint, called the way a script would.</p>
-<pre><span class="g">$</span> curl -X POST /demo/contact -d "message=hi"
+<pre tabindex="0"><span class="g">$</span> curl -X POST /demo/contact -d "message=hi"
 <span class="r">403</span> {"error":"toll_required"}</pre>
 <div class="res"><button class="b sec" type="button" id="nopass-btn">Send without a pass</button><span class="pill bad" role="status" id="nopass-out" hidden>✕ Rejected · 403</span></div></section>
 <aside class="stats" aria-labelledby="st-h"><div class="card"><h2 id="st-h">Live stats</h2>

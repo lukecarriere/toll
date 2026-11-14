@@ -309,7 +309,7 @@ function guideBody(blocks) {
   return blocks.map((b) => {
     if (b.h) return `<h${b.h}>${inline(b.text)}</h${b.h}>`;
     if (b.list) return `<ul>${b.list.map((li) => `<li>${inline(li)}</li>`).join("")}</ul>`;
-    if (b.code != null) return `<pre><code>${esc(b.code)}</code></pre>`;
+    if (b.code != null) return `<pre tabindex="0"><code>${esc(b.code)}</code></pre>`;
     if (b.table) return `<table>\n<thead><tr>${b.table.head.map((c) => `<th>${inline(c)}</th>`).join("")}</tr></thead>\n<tbody>\n${b.table.rows.map((r) => `<tr>${r.map((c) => `<td>${inline(c)}</td>`).join("")}</tr>`).join("\n")}\n</tbody>\n</table>`;
     return `<p>${inline(b.p)}</p>`;
   }).join("\n");

@@ -74,7 +74,7 @@ test("download and WordPress pages link the GPL plugin zip", () => {
   assert.match(decode(page), new RegExp("Version " + rel.version.replace(/\./g, "\\.")));
   if (existsSync(OUT + "download/" + rel.shaName)) {
     const hex = readFileSync(OUT + "download/" + rel.shaName, "utf8").trim().split(/\s+/)[0];
-    assert.match(page, new RegExp("<pre><code>" + hex + "</code></pre>"));
+    assert.match(page, new RegExp("<pre tabindex=\"0\"><code>" + hex + "</code></pre>"));
   }
 });
 
