@@ -69,6 +69,14 @@ bash scripts/check-live-pages.sh --path /docs/ask --contains "the phrase you jus
 
 Default is every `loc` in `/sitemap.xml` (HTTP 200 with an HTML title), plus `/robots.txt`, `/sitemap.xml`, `/llms.txt`, and `/.well-known/toll.json`. `--path` adds a page; later `--contains` phrases apply to that path. It does not follow redirects, does not pay, and does not print a token or secret. `bash scripts/check-live-pages.sh --self-check` proves each check can fail.
 
+## www redirect
+
+```sh
+bash scripts/check-www-redirect.sh
+```
+
+Confirms `www.<apex>` returns 308 to the apex and keeps the path and query. Default apex is `https://lessspam.dev`; default paths are `/` and `/docs/ask?q=1`. It does not follow the redirect, does not pay, and does not print a token or secret. `bash scripts/check-www-redirect.sh --self-check` proves each check can fail.
+
 ## Still done by hand
 
 - A visual pass and browser screenshots. Phone width is asserted in `tests/viewport.test.ts`; a screenshot is not.
