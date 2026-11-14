@@ -24,6 +24,26 @@ import { pluginNameProblems } from "./plugin-name.mjs";
 
 const ALLOW_DIRTY = process.argv.includes("--allow-dirty");
 const fail = (msg) => { console.error("build-wp-zip: " + msg); process.exit(1); };
+
+/** Turn packages/wp-toll-gate/CHANGELOG.md into the readme.txt Changelog section. */
+function changelogForReadme(src, currentVersion) {
+  const sections = [];
+  let version = null, items = [];
+  const flush = () => { if (version) sections.push({ version, items }); version = null; items = []; };
+  for (const line of src.replace(/\r\n/g, "\n").split("\n")) {
+    const h = /^##\s+(\d+\.\d+\.\d+)\s*$/.exec(line);
+    if (h) { flush(); version = h[1]; continue; }
+    const item = /^\*\s+(.+?)\s*$/.exec(line);
+    if (item && version) items.push(item[1]);
+  }
+  flush();
+  if (!sections.length) fail("CHANGELOG.md has no version sections");
+  if (sections[0].version !== currentVersion) fail(`CHANGELOG.md must start with ${currentVersion}, found ${sections[0].version}`);
+  if (!sections.some((s) => s.version === "0.1.0")) fail("CHANGELOG.md is missing 0.1.0");
+  for (const s of sections) if (!s.items.length) fail(`CHANGELOG.md ${s.version} has no items`);
+  return sections.map((s) => `= ${s.version} =\n` + s.items.map((i) => `* ${i}`).join("\n")).join("\n\n");
+}
+
 const run = (cmd, args, cwd = ROOT, quiet = true) =>
   execFileSync(cmd, args, { cwd, encoding: "utf8", stdio: ["ignore", quiet ? "pipe" : "inherit", "inherit"] });
 const git = (...a) => run("git", a).trim();
@@ -80,7 +100,7 @@ const tracked = (dir) => git("ls-files", "-z", "--", dir).split("\0").filter(Boo
 const copyFile = (from, to) => { mkdirSync(dirname(to), { recursive: true }); cpSync(from, to, { dereference: true }); };
 for (const f of tracked(PLUGIN)) {
   const rel = relative(PLUGIN, f);
-  if (rel.startsWith("dev/") || rel === "README.md" || rel === "assets/widget") continue;
+  if (rel.startsWith("dev/") || rel === "README.md" || rel === "CHANGELOG.md" || rel === "assets/widget") continue;
   copyFile(join(ROOT, f), join(STAGE, rel));
 }
 const WIDGET_DIST = join(ROOT, "packages/widget/dist");
@@ -148,8 +168,7 @@ The operator of the address you enter applies their own terms of use and privacy
 
 == Changelog ==
 
-= ${version} =
-* First release.
+${changelogForReadme(readFileSync(join(ROOT, PLUGIN, "CHANGELOG.md"), "utf8"), version)}
 `;
 const lintHits = [...lintText(`${PLUGIN}/readme.txt`, readme), ...lintVendor(`${PLUGIN}/readme.txt`, readme)];
 if (lintHits.length) fail("readme.txt copy lint: " + lintHits.map((h) => `line ${h.line} "${h.text}"`).join(", "));
@@ -197,5 +216,8 @@ const zipName = `toll-gate-${version}.zip`;
 writeFileSync(join(OUT, zipName), zip);
 const sha = createHash("sha256").update(zip).digest("hex");
 writeFileSync(join(OUT, zipName + ".sha256"), `${sha}  ${zipName}\n`);
+for (const f of readdirSync(OUT)) {
+  if (/^toll-gate-.*\.zip(\.sha256)?$/.test(f) && f !== zipName && f !== zipName + ".sha256") rmSync(join(OUT, f));
+}
 console.log(`build-wp-zip: dist-release/${zipName}, ${files.length} files, ${zip.length} B, commit ${commit.slice(0, 7)}${dirty ? " (dirty, not for release)" : ""}`);
 console.log(`build-wp-zip: sha256 ${sha}`);

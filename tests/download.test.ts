@@ -51,3 +51,22 @@ print(len(names))
 `, zipPath], { encoding: "utf8" }).trim();
   assert.ok(Number(listing) > 10, listing);
 });
+
+test("download: version is 0.1.1 and readme changelog lists 0.1.1 then 0.1.0", () => {
+  const php = readFileSync(join(ROOT, "packages/wp-toll-gate/toll-gate.php"), "utf8");
+  assert.equal(/^\s*\*\s*Version:\s*(\S+)/m.exec(php)?.[1], "0.1.1");
+  assert.equal(/define\('TOLL_GATE_VERSION',\s*'([^']+)'\)/.exec(php)?.[1], "0.1.1");
+  assert.equal(rel.version, "0.1.1");
+  assert.equal(rel.zip, "toll-gate-0.1.1.zip");
+  const zipPath = join(dist, rel.zip);
+  assert.ok(existsSync(zipPath), zipPath + " is missing: run npm run build");
+  assert.equal(existsSync(join(dist, "toll-gate-0.1.0.zip")), false, "no 0.1.0 zip in dist");
+  const readme = execFileSync("unzip", ["-p", zipPath, "toll-gate/readme.txt"], { encoding: "utf8" });
+  assert.match(readme, /^Stable tag: 0\.1\.1$/m);
+  const changelog = readme.split("== Changelog ==")[1] ?? "";
+  const v111 = changelog.indexOf("= 0.1.1 =");
+  const v110 = changelog.indexOf("= 0.1.0 =");
+  assert.ok(v111 >= 0 && v110 > v111, "changelog lists 0.1.1 then 0.1.0:\n" + changelog);
+  const names = execFileSync("unzip", ["-Z1", zipPath], { encoding: "utf8" });
+  assert.ok(!names.split("\n").some((n) => n.endsWith("CHANGELOG.md")), "CHANGELOG.md stays out of the zip");
+});
