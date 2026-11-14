@@ -16,6 +16,7 @@ button.sec{background:transparent;color:var(--ink);border:1px solid var(--rule)}
 .pill.ok{background:#e5f2ea;color:var(--sign)}
 .pill.bad{background:#f8e8e4;color:#8a3b2f}
 pre{background:var(--ink);color:var(--lane);padding:14px 16px;border-radius:8px;overflow:auto;max-width:100%;min-width:0;font-size:14px;line-height:1.5}
+pre[tabindex]:focus-visible{outline:2px solid var(--amber);outline-offset:2px}
 pre .g{color:#9dcaa8}
 pre .r{color:#f0a898}
 .kv{display:grid;grid-template-columns:1fr auto;gap:8px 16px;margin:8px 0 0}
