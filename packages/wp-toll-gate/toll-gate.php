@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Toll Gate
  * Description: Toll keeps comment forms, logins, and write APIs quiet. Visitors read for free and post without solving anything. Floods take another road.
- * Version: 0.1.0
+ * Version: 0.1.1
  * Requires at least: 6.5
  * Requires PHP: 8.1
  * License: GPL-2.0-or-later
@@ -17,7 +17,7 @@ declare(strict_types=1);
 
 if (!defined('ABSPATH')) exit;
 
-define('TOLL_GATE_VERSION', '0.1.0');
+define('TOLL_GATE_VERSION', '0.1.1');
 define('TOLL_GATE_FILE', __FILE__);
 define('TOLL_GATE_DIR', __DIR__);
 

@@ -16,7 +16,7 @@
 // deployed site has absolute URLs. An explicit empty site (the tests) or an invalid value: no canonical,
 // no social tags, no sitemap, no llms.txt, and those pages stay byte-identical to a build without them.
 import { createHash } from "node:crypto";
-import { existsSync, readFileSync, writeFileSync, mkdirSync, copyFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync, mkdirSync, copyFileSync, readdirSync, rmSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { parseSiteUrl, SITE_URL_ENV } from "@toll/protocol/site-url";
 
@@ -349,6 +349,9 @@ function copyPluginZip(out, rel) {
   const sha = dir + rel.shaName;
   if (!existsSync(zip) || !existsSync(sha)) return false;
   mkdirSync(out + "download", { recursive: true });
+  for (const f of readdirSync(out + "download")) {
+    if (/^toll-gate-.*\.zip(\.sha256)?$/.test(f) && f !== rel.zip && f !== rel.shaName) rmSync(out + "download/" + f);
+  }
   copyFileSync(zip, out + "download/" + rel.zip);
   copyFileSync(sha, out + "download/" + rel.shaName);
   return true;

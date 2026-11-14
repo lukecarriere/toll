@@ -33,7 +33,7 @@ build_args=(); [[ "${WPORG_ALLOW_DIRTY:-}" == 1 ]] && build_args+=(--allow-dirty
 (cd "$ROOT" && node scripts/build-wp-zip.mjs "${build_args[@]}" | grep '^build-wp-zip:')
 ZIP="$(ls -t "$ROOT"/dist-release/toll-gate-*.zip | head -1)"
 echo "wporg-check: zip $ZIP"
-bad="$(unzip -Z1 "$ZIP" | grep -E '(^|/)(\.git|node_modules|tests?|dev)/|(^|/)\.[^/]+$|\.(map|ts|sh|phar)$|phpunit|(^|/)README\.md$' | grep -v '^toll-gate/lib/server-php/vendor/altcha-org/altcha/README.md$' || true)"
+bad="$(unzip -Z1 "$ZIP" | grep -E '(^|/)(\.git|node_modules|tests?|dev)/|(^|/)\.[^/]+$|\.(map|ts|sh|phar)$|phpunit|(^|/)(README|CHANGELOG)\.md$' | grep -v '^toll-gate/lib/server-php/vendor/altcha-org/altcha/README.md$' || true)"
 if [[ -n "$bad" ]]; then echo "wporg-check: FAIL dev files in the zip:"; echo "$bad"; fail=1; fi
 [[ "$(unzip -Z1 "$ZIP" | cut -d/ -f1 | sort -u)" == "toll-gate" ]] || { echo "wporg-check: FAIL zip root is not toll-gate/"; fail=1; }
 
