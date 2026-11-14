@@ -4,7 +4,7 @@ A verifier runs a script and reads PASS, FAIL, or KNOWN. The scripts do not depl
 
 ## Pull request
 
-Start from a clean checkout. You need Node 22, Node 24, PHP 8.1 or newer, Composer, and a full git history. `NODE_22` and `NODE_24` are optional absolute paths to those binaries. The gate uses the variable when it is set, then `node22` or `node24` on `PATH`, then `node` when its major matches, then `~/.local/node-v<major>*` and `/usr/local/node-v<major>*`, then the highest `v<major>.*` under `${NVM_DIR:-$HOME/.nvm}/versions/node`. `~/.local/bin` is appended to `PATH` so a php or node you already chose stays first. gitleaks is installed there when it is not already on `PATH`.
+Start from a clean checkout. You need Node 22, Node 24, PHP 8.1 or newer, Composer, and a full git history. `NODE_22` and `NODE_24` are optional absolute paths to those binaries. The gate uses the variable when it is set, then walks every `PATH` entry for `node22`/`node24` and for `node` of that major (so an earlier Node 22 does not hide a later Node 24), then `~/.local/node-v<major>*`, `~/.local/node/node-v<major>*`, `/usr/local/node-v<major>*`, `~/.local/node<major>` and `/usr/local/node<major>` (for example `~/.local/node24`), then the highest `v<major>.*` under `${NVM_DIR:-$HOME/.nvm}/versions/node`. `scripts/node-path.sh --export` prints those `NODE_22` and `NODE_24` assignments for `eval`; `deploy.sh` runs that before the verify gate. `~/.local/bin` is appended to `PATH` so a php or node you already chose stays first. gitleaks is installed there when it is not already on `PATH`.
 
 ```sh
 bash scripts/verify-toll.sh --ref <pr-sha> --base <base-sha>

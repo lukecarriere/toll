@@ -133,51 +133,10 @@ run_logged() {
   return "$status"
 }
 
-find_node() {
-  local major="$1"
-  local envvar="NODE_${major}"
-  if [[ -n "${!envvar:-}" && -x "${!envvar}" ]]; then
-    echo "${!envvar}"
-    return 0
-  fi
-  local candidate version
-  for candidate in "node${major}" node; do
-    if command -v "$candidate" >/dev/null 2>&1; then
-      version="$("$candidate" -p 'process.versions.node.split(".")[0]' 2>/dev/null || true)"
-      if [[ "$version" == "$major" ]]; then
-        command -v "$candidate"
-        return 0
-      fi
-    fi
-  done
-  local path
-  for path in "${HOME}/.local/node-v${major}"*/bin/node /usr/local/node-v"${major}"*/bin/node; do
-    if [[ -x "$path" ]]; then
-      echo "$path"
-      return 0
-    fi
-  done
-  # nvm keeps one directory per version. Take the highest v<major>.* that has a node binary.
-  local nvm_root="${NVM_DIR:-${HOME}/.nvm}"
-  local dir match version best_version="" best=""
-  shopt -s nullglob
-  for dir in "${nvm_root}/versions/node/v${major}."*; do
-    match="${dir}/bin/node"
-    if [[ -x "$match" ]]; then
-      version="$(basename "$dir")"
-      if [[ -z "$best_version" ]] || [[ "$(printf '%s\n%s\n' "$best_version" "$version" | sort -V | tail -n 1)" == "$version" ]]; then
-        best_version="$version"
-        best="$match"
-      fi
-    fi
-  done
-  shopt -u nullglob
-  if [[ -n "$best" ]]; then
-    echo "$best"
-    return 0
-  fi
-  return 1
-}
+# find_node is defined in scripts/node-path.sh. It walks every PATH entry
+# and well-known layouts such as ~/.local/node24, not only the first `node`.
+# shellcheck disable=SC1091
+source "$ROOT/scripts/node-path.sh"
 
 install_gitleaks() {
   if command -v gitleaks >/dev/null 2>&1; then
