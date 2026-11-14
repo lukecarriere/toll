@@ -84,6 +84,14 @@ bash scripts/check-live-pages.sh --path /docs/ask --contains "the phrase you jus
 
 It does not pay. `bash scripts/check-live-pages.sh --self-check` proves each check can fail.
 
+A read-only check that `www.lessspam.dev` returns 308 to the apex and keeps the path and query:
+
+```sh
+bash scripts/check-www-redirect.sh
+```
+
+It does not follow the redirect. `bash scripts/check-www-redirect.sh --self-check` proves each check can fail.
+
 
 ## Licence
 
