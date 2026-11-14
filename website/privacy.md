@@ -12,7 +12,7 @@ The `@lessspam/mcp` package runs on your own computer. It stores no data and has
 - The demo form is checked and then thrown away. Its name, email and message are not read, stored or logged.
 - To rate-limit the demo, the site keeps a counter keyed by your network address. The counter resets each window and is never linked to anything you type.
 - When you pass the check, the site sets one short-lived cookie, `toll_pass`. It holds the pass and nothing else, and it expires within minutes.
-- The demo keeps daily totals of accepted and rejected sends. These are plain counts with no personal data.
+- The demo keeps daily totals of accepted and rejected sends. These are plain counts with no personal data. Our own test sends are counted separately. Anyone can read the totals at `/demo/stats/daily`.
 - Our hosting provider handles the network traffic for this site and may keep its own short-term request records.
 
 ## Questions

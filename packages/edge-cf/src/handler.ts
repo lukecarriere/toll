@@ -56,7 +56,7 @@ export interface EdgeStore extends TollStore {
   /** Fixed-window increment. Returns the count in the current window. One round trip. */
   windowHit?(key: string, window_s: number): Promise<number>;
   /** Today's accepted or rejected gated writes. One round trip. */
-  note?(kind: "accepted" | "rejected"): Promise<void>;
+  note?(kind: "accepted" | "rejected", test?: boolean): Promise<void>;
 }
 
 export interface EdgeOptions<E extends EdgeEnv> {
@@ -241,9 +241,9 @@ export function createEdgeHandler<E extends EdgeEnv>(options: EdgeOptions<E>) {
     return toll.allowChallenge(limitKey(req));
   }
 
-  async function note(store: EdgeStore, kind: "accepted" | "rejected"): Promise<void> {
+  async function note(store: EdgeStore, kind: "accepted" | "rejected", req: Request): Promise<void> {
     if (!store.note) return;
-    await store.note(kind);
+    await store.note(kind, req.headers.get("toll-test") === "1");
   }
 
   function isAgent(url: URL, req: Request): boolean {
@@ -328,7 +328,7 @@ export function createEdgeHandler<E extends EdgeEnv>(options: EdgeOptions<E>) {
           return json(pr.body, pr.status, pr.headers);
         }
         toll.metrics.turnedAway();
-        await note(store, "rejected");
+        await note(store, "rejected", req);
         const challenge = await toll.issueChallenge({ action, path, client: "agent", userAgent: req.headers.get("user-agent"), ip: ip(req), source: "middleware" });
         return json({ error: "toll_required", challenge }, 403);
       }
@@ -345,7 +345,7 @@ export function createEdgeHandler<E extends EdgeEnv>(options: EdgeOptions<E>) {
       if (token) {
         try {
           await toll.verifyPass(token, { action });
-          await note(store, "accepted");
+          await note(store, "accepted", req);
           return forward(req, env, url);
         } catch (e) {
           if (e instanceof TollError && e.code === "store_unavailable") return json({ error: "unavailable" }, 503);
@@ -360,7 +360,7 @@ export function createEdgeHandler<E extends EdgeEnv>(options: EdgeOptions<E>) {
       if (quoted) return quoted;
       if ((req.headers.get("accept") ?? "").includes("text/html") && !(req.headers.get("accept") ?? "").includes("application/json")) {
         toll.metrics.turnedAway();
-        await note(store, "rejected");
+        await note(store, "rejected", req);
         return interstitial(req, url, action, preserveFields);
       }
       if (!(await allow(toll, store, req))) return json({ error: "toll_required" }, 403);
@@ -373,7 +373,7 @@ export function createEdgeHandler<E extends EdgeEnv>(options: EdgeOptions<E>) {
         }
       }
       toll.metrics.turnedAway();
-      await note(store, "rejected");
+      await note(store, "rejected", req);
       const challenge = await toll.issueChallenge({ action, path, client: agent ? "agent" : "widget", userAgent: req.headers.get("user-agent"), ip: ip(req), source: "middleware" });
       return json({ error: "toll_required", challenge }, 403);
     } catch (e) {

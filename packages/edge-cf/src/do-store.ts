@@ -31,6 +31,11 @@ export class TollStoreDO extends DurableObject {
     this.sql.exec("CREATE TABLE IF NOT EXISTS kv (k TEXT PRIMARY KEY, v TEXT NOT NULL, exp INTEGER NOT NULL)");
     this.sql.exec("CREATE TABLE IF NOT EXISTS win (k TEXT PRIMARY KEY, start INTEGER NOT NULL, n INTEGER NOT NULL)");
     this.sql.exec("CREATE TABLE IF NOT EXISTS day (d TEXT PRIMARY KEY, accepted INTEGER NOT NULL, rejected INTEGER NOT NULL)");
+    // Additive test-traffic columns. Old rows read as 0. Anyone may send `toll-test: 1` to move
+    // their own request into these columns and out of the public accepted/rejected totals.
+    const dayCols = this.sql.exec("PRAGMA table_info(day)").toArray().map((c) => String(c.name));
+    if (!dayCols.includes("test_accepted")) this.sql.exec("ALTER TABLE day ADD COLUMN test_accepted INTEGER NOT NULL DEFAULT 0");
+    if (!dayCols.includes("test_rejected")) this.sql.exec("ALTER TABLE day ADD COLUMN test_rejected INTEGER NOT NULL DEFAULT 0");
     this.sql.exec("CREATE TABLE IF NOT EXISTS cashu_proof (secret TEXT PRIMARY KEY, mint TEXT NOT NULL, unit TEXT NOT NULL, amount INTEGER NOT NULL, keyset TEXT NOT NULL, c TEXT NOT NULL)");
     this.sql.exec("CREATE TABLE IF NOT EXISTS cashu_spent (h TEXT PRIMARY KEY)");
     this.sql.exec("CREATE TABLE IF NOT EXISTS cashu_pending (id TEXT PRIMARY KEY, body TEXT NOT NULL)");
@@ -160,16 +165,43 @@ export class TollStoreDO extends DurableObject {
     return new Date(now * 1000).toISOString().slice(0, 10);
   }
 
-  note(kind: string): { accepted: number; rejected: number } {
+  note(kind: string, test = false): StoreCounts {
     if (kind !== "accepted" && kind !== "rejected") throw new Error("bad kind");
     const d = this.day();
-    const acc = kind === "accepted" ? 1 : 0;
-    const rej = kind === "rejected" ? 1 : 0;
+    const acc = !test && kind === "accepted" ? 1 : 0;
+    const rej = !test && kind === "rejected" ? 1 : 0;
+    const tacc = test && kind === "accepted" ? 1 : 0;
+    const trej = test && kind === "rejected" ? 1 : 0;
     this.sql.exec(
-      "INSERT INTO day (d, accepted, rejected) VALUES (?, ?, ?) ON CONFLICT(d) DO UPDATE SET accepted = accepted + ?, rejected = rejected + ?",
-      d, acc, rej, acc, rej,
+      "INSERT INTO day (d, accepted, rejected, test_accepted, test_rejected) VALUES (?, ?, ?, ?, ?) ON CONFLICT(d) DO UPDATE SET accepted = accepted + ?, rejected = rejected + ?, test_accepted = test_accepted + ?, test_rejected = test_rejected + ?",
+      d, acc, rej, tacc, trej, acc, rej, tacc, trej,
     );
     return this.counts();
+  }
+
+  /** Last `n` UTC days from the day table, oldest first, zeros filled. `n` is 1..30. */
+  daily(n: number): { days: { date: string; accepted: number; rejected: number; test_accepted: number; test_rejected: number }[] } {
+    const today = this.day();
+    const todayMs = Date.parse(today + "T00:00:00Z");
+    const dates: string[] = [];
+    for (let i = n - 1; i >= 0; i--) dates.push(new Date(todayMs - i * 86400000).toISOString().slice(0, 10));
+    const rows = this.sql.exec(
+      "SELECT d, accepted, rejected, test_accepted, test_rejected FROM day WHERE d >= ? AND d <= ?",
+      dates[0], dates[dates.length - 1],
+    ).toArray();
+    const map = new Map(rows.map((r) => [String(r.d), r]));
+    return {
+      days: dates.map((date) => {
+        const r = map.get(date);
+        return {
+          date,
+          accepted: r ? num(r.accepted) : 0,
+          rejected: r ? num(r.rejected) : 0,
+          test_accepted: r ? num(r.test_accepted) : 0,
+          test_rejected: r ? num(r.test_rejected) : 0,
+        };
+      }),
+    };
   }
 
   /** Today's accepted and rejected, plus all-time mint-quote loss reversals and the sats they reversed. */
@@ -599,7 +631,8 @@ export interface TollDoStub {
   consumeTagged(useKey: string, initial: number, ttl_s: number, tagKey: string): Promise<{ remaining: number; tag: string | null }>;
   windowHit(key: string, window_s: number): Promise<number>;
   windowCount(key: string, window_s: number): Promise<number>;
-  note(kind: string): Promise<{ accepted: number; rejected: number }>;
+  note(kind: string, test?: boolean): Promise<StoreCounts>;
+  daily(n: number): Promise<{ days: { date: string; accepted: number; rejected: number; test_accepted: number; test_rejected: number }[] }>;
   counts(): Promise<StoreCounts>;
   cashuRead(): Promise<ProofSnapshot>;
   cashuBooks(): Promise<CashuBooks>;
@@ -699,7 +732,8 @@ export class DurableObjectStore implements TollStore {
   }
   windowHit(key: string, window_s: number) { return this.run(() => this.stub.windowHit(key, window_s)); }
   windowCount(key: string, window_s: number) { return this.run(() => this.stub.windowCount(key, window_s)); }
-  note(kind: "accepted" | "rejected") { return this.run(async () => { await this.stub.note(kind); }); }
+  note(kind: "accepted" | "rejected", test = false) { return this.run(async () => { await this.stub.note(kind, test); }); }
+  daily(n: number) { return this.run(() => this.stub.daily(n)); }
   reserveMintQuote(row: { quote: string; action: string; amount: number; mint: string; outputs?: { amount: number; id: string; secret: string; r: string; B_: string }[] }) {
     return this.run(() => this.stub.reserveMintQuote(row));
   }
