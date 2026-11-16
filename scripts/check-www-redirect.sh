@@ -3,6 +3,9 @@
 # query. Does not follow the redirect. Does not pay. Does not print a token,
 # proof, or secret.
 #
+# Source of truth: /workspace/projects/shared/scripts/check-www-redirect.sh
+# This copy keeps product-specific default --apex and --path values.
+#
 # Usage:
 #   scripts/check-www-redirect.sh [--apex URL] [--path PATH] [--method METHOD] [--out DIR]
 #   scripts/check-www-redirect.sh --self-check
@@ -17,7 +20,7 @@ DEFAULT_APEX="https://lessspam.dev"
 USER_AGENT="toll-check-www-redirect/1.0"
 
 usage() {
-  sed -n '2,13p' "$0" | sed 's/^# \?//'
+  sed -n '2,15p' "$0" | sed 's/^# \?//'
   echo "Defaults: --apex ${DEFAULT_APEX} --path / --path /docs/ask?q=1 --method GET"
 }
 
