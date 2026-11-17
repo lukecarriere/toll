@@ -86,8 +86,9 @@ Error mapping: malformed body or preimage → 400 `malformed`; credential MAC or
 
 ## 7. USD display
 
-- FX source: one public rate (USD per BTC) cached for at most 15 minutes (spec §8.6.2). Phase 2 ships **no live source** (Q4 still needs a free, commercial-use source picked). Config `settlement.fx.source`:
-  - `none` (default): USD is always hidden.
+- FX source: one public rate (USD per BTC) cached for at most 15 minutes (spec §8.6.2). Config `settlement.fx.source`:
+  - `public` (default when settlement is on): Coinbase's keyless BTC-USD spot price (`GET https://api.coinbase.com/v2/prices/BTC-USD/spot`), with mempool.space (`GET https://mempool.space/api/v1/prices`) as a free fallback if Coinbase fails. No API key and no paid plan. `/v1/price` refreshes the cache before it answers so `usd` is a computed amount when either source is up, not silently `null`.
+  - `none`: USD is always hidden.
   - `fixed` with `usd_per_btc`: a **fixed test rate**, for the demo and tests only. It is not a market price. The demo uses **100000** so a write (10,000 msat) reads $0.01; the number was chosen to make the arithmetic obvious, not to track the market.
 - `usd = amount_msat / 1e11 * usd_per_btc`.
 - Owner totals: two decimals ("$12.40"), **rounded down** to the cent so a balance is never overstated; a non-zero amount under a cent is "less than $0.01" (docs/copy.md). `usdDisplay()` in `ledger.ts` returns nothing when the rate is missing or older than 15 minutes, so the screen hides the amount (demo: "—" / "Rate unavailable"; WordPress: "Balance will show again shortly") rather than blocking anything.
@@ -173,7 +174,7 @@ settlement:
 - `nwc`, `lnd_rest`: self-host options; not built; need approval before any real funds.
 - `hosted`: phase 4.
 
-`normalizeConfig` accepts `settlement.enabled: true` only with `backend: stub`; any other backend fails at startup with "not available in this build". Defaults: `fee_bps: 1000`, `pass_uses: 1`, `pass_ttl_s: 60` (max 60), `offer_ttl_s: 120` (max 120), `fx.source: none`.
+`normalizeConfig` accepts `settlement.enabled: true` only with `backend: stub`; any other backend fails at startup with "not available in this build". Defaults: `fee_bps: 1000`, `pass_uses: 1`, `pass_ttl_s: 60` (max 60), `offer_ttl_s: 120` (max 120), `fx.source: public`.
 
 `/v1/health` with settlement on: `{ ok, v, settlement: "stub", settlement_degraded, usd_rate }`. `"stub"` extends the spec's `off | regtest | live` enum for the test backend; reporting `regtest` would be false.
 
@@ -207,7 +208,7 @@ Decision log, 2026-09-30 (CT). Amendment 1 (in force 7:55 PM CT) changes how thi
 - **Q1. Macaroon format: DECIDED by Amendment 1.** The settlement engine supplies the macaroon (Amendment 1 §B and §F: no new macaroon format). The Toll HMAC token in `packages/settlement-ln` is retired with the from-scratch stack. The library survey the EM asked for was stopped when the amendment landed and is not needed.
 - **Q2. 402 vs 403: DECIDED (PM).** A request that identifies as an agent (`Toll-Client: agent` header or `client=agent`) gets `402` with `WWW-Authenticate: L402`. Everything else gets `403 {"error":"toll_required"}`.
 - **Q3. Sub-sat amounts: DECIDED (PM).** Offers round up to a whole sat (`amount_msat` is always a multiple of 1,000).
-- **Q4. FX source: DECIDED (PM).** Use one free public rate source whose terms allow commercial use, and hide USD when it is down (spec §8.6). Do not sign up for a paid source; if the only good source is paid, flag it for a later decision. *Built:* the hide-when-down behaviour and a fixed test rate for the demo. *Not done:* naming the live source and checking its terms; until then production configs use `fx.source: none` (USD hidden).
+- **Q4. FX source: DECIDED (PM).** Use one free public rate source whose terms allow commercial use, and hide USD when it is down (spec §8.6). Do not sign up for a paid source; if the only good source is paid, flag it for a later decision. *Built:* Coinbase's public BTC-USD spot price (no key) with mempool.space as a free fallback, a 15-minute cache, the hide-when-down behaviour when no fresh quote exists, and a fixed test rate for the demo. `/v1/price` refreshes before answering so `usd` is not left `null` when a source responds. `fx.source: none` still hides USD.
 - **Q5. Fee rounding and display: DECIDED (PM).** The fee rounds down on each payment (owner-favourable, as implemented). The MVP UI shows no held-fee amount; Advanced shows "10% · recorded on each payment".
 - **Q6. Agent pass shape: DECIDED (PM).** Keep the §8.6 default: one use or a 60-second expiry. More uses per pass is a config option only. *Reconciled for phase 3 (2026-10-01 CT):* spec §18 phase 3 says "settle pass single-use", so `pass_uses` is now fixed at 1 (the multi-use config option is withdrawn) and the pass also expires within 60 s. Both halves of §8.6.4 hold.
 - **Q7. Where the held fee goes in phase 4: OPEN (phase 4).** Options include a hosted processor, batching, or a partner for owner payouts. Not needed for phase 2.

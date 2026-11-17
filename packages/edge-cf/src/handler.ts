@@ -16,6 +16,7 @@ import { Metrics } from "../../server-node/src/metrics.ts";
 import type { TollStore } from "../../server-node/src/stores.ts";
 import { buildManifest, agentsPointer, priceBody, PAID_CLASSES } from "../../server-node/src/manifest.ts";
 import { offerAmountMsat } from "../../settlement-ln/src/stub-engine.ts";
+import { PublicBtcUsdRate } from "../../settlement-ln/src/fx.ts";
 import { CashuReceiveEngine } from "../../settlement-ln/src/cashu-receive.ts";
 import { parseCashuMints } from "../../settlement-ln/src/cashu-net.ts";
 import { parseL402Authorization, paymentHashOf, paymentRequired, presentedCashu, QUOTE_KIND, quoteMode, quoteRetryHeaders, stubEngineSecret, withQuoteOffer } from "../../settlement-ln/src/index.ts";
@@ -161,6 +162,9 @@ function hasWindow(store: EdgeStore): store is EdgeStore & { windowHit(key: stri
   return typeof store.windowHit === "function";
 }
 
+/** One public rate cache per isolate, shared across getToll rebuilds. */
+const edgeFx = new PublicBtcUsdRate();
+
 /**
  * The edge fetch handler. `store` is built once per config and kept with the cached Toll instance.
  * A store error rejects the write (503); it never forwards the write.
@@ -195,7 +199,7 @@ export function createEdgeHandler<E extends EdgeEnv>(options: EdgeOptions<E>) {
       // Standard engine only: Argon2id needs runtime WASM compilation, which Workers do not allow
       // (README "Limits"). Escalation is therefore off at the edge.
       work: { mode: "standard", escalate: { at_velocity: Number.MAX_SAFE_INTEGER, classes: [] } },
-      ...(mints.length ? { settlement: { enabled: true, backend: "stub", fee_bps: 1000, pass_uses: 1, pass_ttl_s: 60, fx: { source: "none" } } } : {}),
+      ...(mints.length ? { settlement: { enabled: true, backend: "stub", fee_bps: 1000, pass_uses: 1, pass_ttl_s: 60, fx: { source: "public" } } } : {}),
     }, {});
     if (mints.length) config.settlement.cashu = { enabled: true, mints, store: "durable-object" };
     const store = options.store(env);
@@ -223,7 +227,7 @@ export function createEdgeHandler<E extends EdgeEnv>(options: EdgeOptions<E>) {
     const toll = createToll(config, {
       store,
       metrics: new Metrics((l) => console.log(l)),
-      ...(engine ? { settlement: { engine } } : {}),
+      ...(engine ? { settlement: { engine, fx: edgeFx } } : {}),
     });
     const built = { key, toll, free: list(env.FREE_PATHS, ["/", "/blog"]), store };
     if (!options.freshStore) cached = built;
@@ -403,6 +407,7 @@ export function createEdgeHandler<E extends EdgeEnv>(options: EdgeOptions<E>) {
     if (path === "/v1/health") {
       if (!cashuOn || !toll.paid) return json({ ok: true, v: "1.0.0", settlement: "off", edge: true });
       try {
+        await toll.paid.ensureFx();
         const st = await toll.paid.status();
         return json({ ok: true, v: "1.0.0", settlement: "cashu", settlement_degraded: !st.healthy || !st.collecting, usd_rate: st.usd, edge: true });
       } catch {
@@ -413,6 +418,7 @@ export function createEdgeHandler<E extends EdgeEnv>(options: EdgeOptions<E>) {
       const action = url.searchParams.get("action") ?? "write";
       if (!(PAID_CLASSES as readonly string[]).includes(action)) return json({ error: "bad_action" }, 400);
       const cls = action as (typeof PAID_CLASSES)[number];
+      if (cashuOn && toll.paid) await toll.paid.ensureFx();
       const p = cashuOn ? toll.currentPrice({ action: cls, path: url.searchParams.get("path") ?? "/", client: "widget", ip: ip(req) }) : null;
       return json(priceBody({ action: cls, status: p ? "cashu" : "stub", p, challenge_url: toll.challengeUrl(cls, url.searchParams.get("path") ?? "/") }));
     }

@@ -26,6 +26,7 @@ import {
   type SettlementRail,
   FixedTestRate,
   NoRate,
+  PublicBtcUsdRate,
   CashuTestEngine,
   CashuReceiveEngine,
   StubEngine,
@@ -200,7 +201,7 @@ export function createToll(config: TollConfig, opts: TollOptions = {}) {
       healthy: async () => (await ready).healthy(),
     };
     const fxc = config.settlement.fx;
-    const fx = so.fx ?? (fxc.source === "fixed" ? new FixedTestRate(fxc.usd_per_btc!) : new NoRate());
+    const fx = so.fx ?? (fxc.source === "fixed" ? new FixedTestRate(fxc.usd_per_btc!) : fxc.source === "public" ? new PublicBtcUsdRate() : new NoRate());
     const rail = createSettlementRail({
       site: config.site_id,
       engine: lazy,

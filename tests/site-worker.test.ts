@@ -246,7 +246,7 @@ test("replayed challenge is 401; a spent pass is rejected; price is cashu; a lig
   const pj = JSON.parse(price.body);
   assert.equal(pj.status, "cashu");
   assert.equal(pj.amount_msat, 10000);
-  assert.equal(pj.usd, null);
+  assert.ok(pj.usd != null && Number.isFinite(Number(pj.usd)), "usd must be a finite number, got " + JSON.stringify(pj.usd));
   assert.equal(pj.basis, "current");
   const paid = curlShow("POST /v1/redeem paid", "/v1/redeem", ["-X", "POST", "-H", "content-type: application/json", "-d", JSON.stringify({ offer_id: "off_x", kind: "ln402", preimage: "00" })]);
   assert.equal(paid.status, 400);

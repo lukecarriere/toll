@@ -198,7 +198,12 @@ export function createSettlementRail(o: RailOptions) {
     return usdDisplay(msat, o.fx.quote(now), now);
   }
 
-  return { price, quote: () => o.fx.quote(o.now()), offers, bindOffer, redeemPaid, status, balance, usd, setCollecting, isCollecting: () => collecting, replayRejected: () => replayRejected, ledger, recent: () => [...recent], isDegraded: () => degraded, fee_bps: o.fee_bps };
+  /** Populate a live public rate before /v1/price or /v1/health. No-op for fixed and none. */
+  async function ensureFx(): Promise<void> {
+    if (o.fx.refresh) await o.fx.refresh(o.now());
+  }
+
+  return { price, quote: () => o.fx.quote(o.now()), offers, bindOffer, redeemPaid, status, balance, usd, ensureFx, setCollecting, isCollecting: () => collecting, replayRejected: () => replayRejected, ledger, recent: () => [...recent], isDegraded: () => degraded, fee_bps: o.fee_bps };
 }
 
 export type SettlementRail = ReturnType<typeof createSettlementRail>;

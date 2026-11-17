@@ -194,6 +194,7 @@ export function tollRouter(toll: Toll) {
 
       if (path === "/v1/health" && req.method === "GET") {
         // "stub" is this build's extension of the spec's off | regtest | live: the local test backend.
+        if (toll.paid) await toll.paid.ensureFx();
         const st = toll.paid ? await toll.paid.status() : null;
         const body: Record<string, unknown> = st ? { ok: true, v: VERSION, settlement: st.mode, settlement_degraded: !st.healthy, usd_rate: st.usd } : { ok: true, v: VERSION, settlement: "off" };
         if (String(req.headers.accept ?? "").includes("text/html")) {
@@ -212,6 +213,7 @@ export function tollRouter(toll: Toll) {
         if (!(PAID_CLASSES as readonly string[]).includes(action)) return send(res, 400, { error: "bad_action" });
         const cls = action as (typeof PAID_CLASSES)[number];
         const at = url.searchParams.get("path") ?? "/";
+        if (toll.paid) await toll.paid.ensureFx();
         const p = toll.currentPrice({ action: cls, path: at, ip: clientOf(toll, req).ip, userAgent: String(req.headers["user-agent"] ?? ""), client: "agent" });
         return send(res, 200, priceBody({ action: cls, status: toll.priceStatus(), p, challenge_url: toll.challengeUrl(cls, at) }));
       }

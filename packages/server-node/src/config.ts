@@ -67,8 +67,8 @@ export interface SettlementConfig {
   pass_ttl_s: number;
   /** Offer lifetime in seconds (at most 120). */
   offer_ttl_s: number;
-  /** USD display rate. "fixed" is a test value, not a market price; "none" hides USD. */
-  fx: { source: "fixed" | "none"; usd_per_btc?: number };
+  /** USD display rate. "public" is a live keyless market feed; "fixed" is a test value, not a market price; "none" hides USD. */
+  fx: { source: "fixed" | "none" | "public"; usd_per_btc?: number };
   /**
    * Bearer key for the owner API (GET /v1/owner/balance, POST /v1/owner/withdraw) that a
    * WordPress site with "Payment server" uses for its balance and withdrawals. Unset: owner API off.
@@ -236,8 +236,8 @@ function normalizeSettlement(s: Record<string, any>, env: NodeJS.ProcessEnv): Se
   const offer_ttl_s = Number(s.offer_ttl_s ?? 120);
   if (!(Number.isInteger(offer_ttl_s) && offer_ttl_s >= 10 && offer_ttl_s <= 120)) throw new Error("toll config: settlement.offer_ttl_s must be 10..120");
   const fxRaw = s.fx ?? {};
-  const source = String(fxRaw.source ?? "none");
-  if (source !== "fixed" && source !== "none") throw new Error(`toll config: settlement.fx.source "${source}" is not available in this build (fixed | none)`);
+  const source = String(fxRaw.source ?? "public");
+  if (source !== "fixed" && source !== "none" && source !== "public") throw new Error(`toll config: settlement.fx.source "${source}" is not available in this build (fixed | none | public)`);
   let usd_per_btc: number | undefined;
   if (source === "fixed") {
     usd_per_btc = Number(fxRaw.usd_per_btc);
