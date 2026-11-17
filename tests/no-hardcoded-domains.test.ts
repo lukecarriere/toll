@@ -45,6 +45,8 @@ export const ALLOWED_HOSTS = new Map<string, string>([
   ["workers.dev", "toll-site publishes with workers_dev; the verify guide names that hostname. The site is also served on the custom domains set in wrangler.toml"],
   ["mint.minibits.cash", "docs/adapters.md and docs/settlement.md: the Cashu receive allowlist example. The path is part of the mint URL; the bare host is not a mint."],
   ["testnut.cashu.space", "scripts/live-checks.mjs spend mode: an unlisted mint the gate must refuse"],
+  ["api.coinbase.com", "free keyless BTC-USD spot price used for /v1/price usd"],
+  ["mempool.space", "free keyless BTC-USD fallback rate used when Coinbase is down"],
 ]);
 
 /** A dotted host name (letters, digits, '-'; last label starts with a letter). Anything else in the field exempts nothing. */

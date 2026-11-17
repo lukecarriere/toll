@@ -38,5 +38,5 @@ settlement:
   pass_ttl_s: 60                 # ... within 60 seconds (max 60)
   offer_ttl_s: 120               # how long an offer can be paid (max 120)
   fx:                            # USD display only; amounts are never converted
-    source: none                 # none (USD hidden) | fixed (a test value, not a market price)
+    source: public               # public (live market rate) | none (USD hidden) | fixed (a test value, not a market price)
     # usd_per_btc: 100000        # required with source: fixed

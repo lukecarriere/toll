@@ -247,12 +247,12 @@ test("config: settlement accepts only the local test backend and Q6-bounded pass
   assert.equal(testConfig().settlement.enabled, false);
   const base = { site_id: "s", secret: "x".repeat(32) };
   const ok = normalizeConfig({ ...base, settlement: { enabled: true } });
-  assert.deepEqual(ok.settlement, { enabled: true, backend: "stub", fee_bps: 1000, pass_uses: 1, pass_ttl_s: 60, offer_ttl_s: 120, fx: { source: "none", usd_per_btc: undefined } });
+  assert.deepEqual(ok.settlement, { enabled: true, backend: "stub", fee_bps: 1000, pass_uses: 1, pass_ttl_s: 60, offer_ttl_s: 120, fx: { source: "public", usd_per_btc: undefined } });
   for (const bad of [{ backend: "regtest" }, { backend: "nwc" }, { pass_ttl_s: 61 }, { fee_bps: 10001 }, { fee_bps: 1.5 }, { offer_ttl_s: 121 }, { fx: { source: "fixed" } }, { fx: { source: "somewhere" } }]) {
     assert.throws(() => normalizeConfig({ ...base, settlement: { enabled: true, ...bad } }), /settlement/, JSON.stringify(bad));
   }
-  // No rate configured: offers carry no USD and owner amounts are hidden.
-  const toll = createToll(normalizeConfig({ ...base, settlement: { enabled: true } }), { metrics: new Metrics(() => {}) });
+  // Explicit none: offers carry no USD and owner amounts are hidden.
+  const toll = createToll(normalizeConfig({ ...base, settlement: { enabled: true, fx: { source: "none" } } }), { metrics: new Metrics(() => {}) });
   assert.equal(toll.paid!.balance().usd, null);
 });
 
