@@ -10,8 +10,8 @@ import { TollError, randomHex } from "../../protocol/src/index.ts";
 import { decodeBolt11 } from "./bolt11.ts";
 import { CASHU_UNIT } from "./cashu.ts";
 import { blindMessage, inputFee, secretY, unblind } from "./cashu-crypto.ts";
-import { isIP } from "node:net";
-import { type MintGuard, blockedAddress, isLoopbackHost, mintFetch } from "./cashu-net.ts";
+import { type MintGuard, mintFetch } from "./cashu-net.ts";
+import { publicPayHost } from "./pay-host.ts";
 import type { PendingOutput, StoredProof } from "./cashu-store.ts";
 
 /** One melt waits on a Lightning payment, so it gets a longer bound than a swap. */
@@ -280,12 +280,12 @@ export async function withdrawToInvoice(d: MeltDeps, o: { mint: string; invoice:
   return checkWithdrawal(d, quote);
 }
 
-/** The Lightning address host and its callback host: not loopback, private, link-local or a local name. */
+/**
+ * The Lightning address host and its callback host. IP literals are parsed to bytes (IPv4 carried
+ * inside IPv6 is checked as IPv4) and names are normalised; see pay-host.ts for the refused ranges.
+ */
 function publicHost(hostname: string): boolean {
-  const h = hostname.toLowerCase().replace(/^\[|\]$/g, "").replace(/\.$/, "");
-  if (!h || isLoopbackHost(h) || h.endsWith(".localhost") || h.endsWith(".local") || h.endsWith(".internal")) return false;
-  if (isIP(h) !== 0) return !blockedAddress(h);
-  return h.includes(".");
+  return publicPayHost(hostname);
 }
 
 /**
