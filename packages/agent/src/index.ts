@@ -10,7 +10,8 @@
 // (no `pay`, payment declined, offer over `maxAmountMsat`) and `work` is on, it fetches the 402's
 // `challenge_url` on demand and does the work with the engine's Node solver. On a 403 with an inline
 // work challenge (paid requests off or paused) it does the work directly.
-// The agent never parses invoices, macaroons, or payment requests: those strings stay opaque.
+// Invoices and macaroons stay opaque; Cashu request amounts are checked against the declared price.
+import { hasBoundPrice } from "./offer-price.ts";
 import { solveWork } from "../../work-adapter/src/index.ts";
 export { solveWork };
 
@@ -56,7 +57,7 @@ export interface AgentOptions {
   pay?: (offer: AgentOffer) => Promise<string>;
   /** Fall back to doing the work when it cannot pay (or no offer is available). Default true. */
   work?: boolean;
-  /** Refuse offers above this amount (msat). Default: no limit. */
+  /** Refuse offers above this non-negative safe integer amount (msat). Default: no limit. */
   maxAmountMsat?: number;
   fetch?: typeof fetch;
 }
@@ -90,6 +91,9 @@ export class AgentError extends Error {
 }
 
 export function createAgent(o: AgentOptions) {
+  if (o.maxAmountMsat !== undefined && (!Number.isSafeInteger(o.maxAmountMsat) || o.maxAmountMsat < 0)) {
+    throw new AgentError("offer", "maxAmountMsat must be a non-negative safe integer");
+  }
   const f = o.fetch ?? fetch;
   const base = o.base.replace(/\/$/, "");
   const issuer = (o.issuer ?? o.base).replace(/\/$/, "");
@@ -136,9 +140,11 @@ export function createAgent(o: AgentOptions) {
     const canWork = o.work !== false;
     if (first.status === 402 && Array.isArray(gate?.offers) && gate.offers.length > 0 && o.pay) {
       const offer: AgentOffer = gate.offers[0];
-      const overLimit = o.maxAmountMsat !== undefined && offer.amount_msat > o.maxAmountMsat;
+      const validPrice = hasBoundPrice(offer);
+      if (!validPrice && !(canWork && gate.challenge_url)) throw new AgentError("offer", "invalid or inconsistent price");
+      const overLimit = o.maxAmountMsat !== undefined && offer?.amount_msat > o.maxAmountMsat;
       if (overLimit && !(canWork && gate.challenge_url)) throw new AgentError("offer", `amount ${offer.amount_msat} msat is over the limit`);
-      if (!overLimit) {
+      if (validPrice && !overLimit) {
         const tp = performance.now();
         let proof: string | undefined;
         try {
