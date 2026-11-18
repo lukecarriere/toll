@@ -38,6 +38,8 @@ CASHU_MINTS = '["https://mint.minibits.cash/Bitcoin"]'
 # Production quote offer (docs/settlement.md section 18). Cashu stays the first offer. Only "1" turns it on.
 L402_ENABLED = "1"
 # SITE_SECRET is a Worker secret (local: .dev.vars, copied from .dev.vars.example). Never commit it.
+# OWNER_KEY (optional Worker secret, 32+ characters) turns on /v1/owner/books and /v1/owner/withdraw
+# (docs/settlement.md section 19). Unset: those paths are 404. Never commit it.
 
 # Mint-quote sweep (docs/settlement.md): every 30 minutes, at most 40 mint calls and about 24 s per run.
 [triggers]

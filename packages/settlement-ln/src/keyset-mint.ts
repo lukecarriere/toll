@@ -5,7 +5,7 @@ import type { AddressInfo } from "node:net";
 import { secp256k1 } from "@noble/curves/secp256k1.js";
 import { fromHex, randomBytes, toHex } from "../../protocol/src/bytes.ts";
 import { sha256 } from "../../protocol/src/hmac.ts";
-import { encodeBolt11 } from "./bolt11.ts";
+import { decodeBolt11, encodeBolt11 } from "./bolt11.ts";
 import { CASHU_UNIT, encodeTokenV4, stripMint, type CashuProof } from "./cashu.ts";
 import { deriveKeysetIdV2, proofMatches, pubkeyHex, secretY, shortKeysetId, signBlind, signSecret, splitAmount } from "./cashu-crypto.ts";
 
@@ -61,6 +61,21 @@ export interface KeysetMint {
   holdNextMint: () => Promise<{ release: () => void }>;
   /** Force the next quote invoice to this sat amount. Null restores the requested amount. */
   setInvoiceSats: (sats: number | null) => void;
+  /**
+   * NUT-05 melt. `reserve` is the quoted fee reserve, `fee` what a payment really costs.
+   * Faults on `/v1/melt/bolt11`: refuse (400, nothing spent), unpaid (200 UNPAID, nothing spent),
+   * pending (inputs PENDING, payment unresolved), drop-after (pays, then the socket closes),
+   * no-change (pays and signs change, but the reply lists none; restore still finds it).
+   */
+  setMeltFees: (o: { reserve: number; fee: number }) => void;
+  /** Quote this sat amount on the next melt quotes instead of the invoice amount. Null restores it. */
+  setMeltQuoteAmount: (sats: number | null) => void;
+  /** Resolve a PENDING melt: PAID pays and signs change, UNPAID frees the inputs. */
+  settleMelt: (quote: string, to: "PAID" | "UNPAID") => void;
+  /** Invoices this mint has paid, in order. */
+  meltsPaid: () => string[];
+  /** How many POST /v1/melt/bolt11 calls arrived. */
+  meltPosts: () => number;
   close: () => Promise<void>;
 }
 
@@ -92,6 +107,32 @@ export async function startKeysetMint(opts: { quotes?: boolean } = {}): Promise<
   let dropMint = false;
   let stuckMint = false;
   let hold: { promise: Promise<void>; started: () => void } | null = null;
+  let meltReserve = 2;
+  let meltFee = 1;
+  let meltPosts = 0;
+  let meltQuoteSats: number | null = null;
+  const meltsPaid: string[] = [];
+  const pendingInputs = new Set<string>();
+  const meltRows = new Map<string, { request: string; amount: number; state: "UNPAID" | "PENDING" | "PAID"; inputs: string[]; inSum: number; outputs: { id: string; B_: string }[]; change: { id: string; amount: number; C_: string }[] }>();
+
+  /** Pay a melt: spend the inputs and sign change (inputs minus amount minus fee) onto the blanks. */
+  function payMelt(id: string): void {
+    const m = meltRows.get(id)!;
+    for (const sec of m.inputs) { pendingInputs.delete(sec); spent.add(sec); }
+    let left = m.inSum - m.amount - meltFee;
+    const change: { id: string; amount: number; C_: string }[] = [];
+    for (const out of m.outputs) {
+      if (left <= 0) break;
+      const amount = [...DENOMS].reverse().find((d) => d <= left)!;
+      const sig = { id: keysetId, amount, C_: signBlind(secrets.get(amount)!, out.B_) };
+      signed.set(out.B_, sig);
+      change.push(sig);
+      left -= amount;
+    }
+    m.change = change;
+    m.state = "PAID";
+    meltsPaid.push(m.request);
+  }
 
   function faultFor(path: string): string | null {
     if (faults.has(path)) return faults.get(path) ?? null;
@@ -213,6 +254,7 @@ export async function startKeysetMint(opts: { quotes?: boolean } = {}): Promise<
         for (const secret of spent) known.set(secretY(secret), "SPENT");
         if (fault === "unknown") return json(res, 200, {});
         const forced = fault === "pending" ? "PENDING" : fault === "unspent" ? "UNSPENT" : fault === "spent" ? "SPENT" : null;
+        for (const secret of pendingInputs) known.set(secretY(secret), "PENDING");
         const states = Ys.map((Y: unknown) => ({ Y, state: forced ?? known.get(String(Y)) ?? "UNSPENT" }));
         return json(res, 200, { states });
       }
@@ -289,6 +331,52 @@ export async function startKeysetMint(opts: { quotes?: boolean } = {}): Promise<
         if (dropMint) { req.socket.destroy(); return; }
         return json(res, 200, { signatures });
       }
+      if (req.method === "POST" && path === "/v1/melt/quote/bolt11") {
+        const body = await readJson(req);
+        let amountMsat: number | null = null;
+        try { amountMsat = decodeBolt11(String(body?.request ?? "")).amountMsat; } catch { amountMsat = null; }
+        if (body?.unit !== CASHU_UNIT || amountMsat === null || amountMsat % 1000 !== 0) return json(res, 400, { detail: "bad request", code: 11000 });
+        const id = toHex(randomBytes(16));
+        meltRows.set(id, { request: body.request, amount: amountMsat / 1000, state: "UNPAID", inputs: [], inSum: 0, outputs: [], change: [] });
+        return json(res, 200, { quote: id, amount: meltQuoteSats ?? amountMsat / 1000, fee_reserve: meltReserve, state: "UNPAID", expiry: Math.floor(Date.now() / 1000) + 600 });
+      }
+      const melted = /^\/v1\/melt\/quote\/bolt11\/([0-9a-f]+)$/.exec(path);
+      if (req.method === "GET" && melted) {
+        const m = meltRows.get(melted[1]);
+        if (!m) return json(res, 404, { detail: "unknown", code: 404 });
+        return json(res, 200, { quote: melted[1], amount: m.amount, fee_reserve: meltReserve, state: m.state, ...(m.state === "PAID" ? { change: m.change, payment_preimage: "00".repeat(32) } : {}) });
+      }
+      if (req.method === "POST" && path === "/v1/melt/bolt11") {
+        meltPosts++;
+        const body = await readJson(req);
+        if (fault === "refuse") return json(res, 400, { detail: "refused", code: 20000 });
+        const m = meltRows.get(typeof body?.quote === "string" ? body.quote : "");
+        if (!m || m.state !== "UNPAID") return json(res, 400, { detail: "quote", code: 20007 });
+        if (fault === "unpaid") return json(res, 200, { quote: body.quote, state: "UNPAID", change: [] });
+        const inputs = Array.isArray(body?.inputs) ? body.inputs : [];
+        const outputs = Array.isArray(body?.outputs) ? body.outputs : [];
+        let inSum = 0;
+        for (const input of inputs) {
+          const sk = secrets.get(input?.amount);
+          const secret = typeof input?.secret === "string" ? input.secret : "";
+          if (!sk || String(input?.id ?? "").toLowerCase() !== keysetId || !proofMatches(sk, secret, String(input?.C ?? "").toLowerCase())) return json(res, 400, { detail: "unknown proof", code: 11002 });
+          if (spent.has(secret) || pendingInputs.has(secret)) return json(res, 400, { detail: "already spent", code: 11001 });
+          inSum += input.amount;
+        }
+        if (inputs.length === 0 || inSum < m.amount + meltReserve) return json(res, 400, { detail: "amount", code: 11000 });
+        m.inputs = inputs.map((i: { secret: string }) => i.secret);
+        m.inSum = inSum;
+        m.outputs = outputs.map((o: { id?: string; B_?: string }) => ({ id: String(o?.id ?? ""), B_: String(o?.B_ ?? "") }));
+        if (fault === "pending") {
+          for (const sec of m.inputs) pendingInputs.add(sec);
+          m.state = "PENDING";
+          return json(res, 200, { quote: body.quote, state: "PENDING", change: [] });
+        }
+        payMelt(body.quote);
+        if (fault === "drop-after") { req.socket.destroy(); return; }
+        if (fault === "no-change") return json(res, 200, { quote: body.quote, state: "PAID", paid: true, payment_preimage: "00".repeat(32), change: [] });
+        return json(res, 200, { quote: body.quote, state: "PAID", paid: true, payment_preimage: "00".repeat(32), change: m.change });
+      }
       return json(res, 404, { detail: "unknown", code: 404 });
     } catch {
       if (!res.headersSent) json(res, 400, { detail: "bad request", code: 11000 });
@@ -326,6 +414,16 @@ export async function startKeysetMint(opts: { quotes?: boolean } = {}): Promise<
     },
     setSignedReply: (reply) => { signedReply = reply; },
     signatureFor: (B_) => signed.get(B_)?.C_,
+    setMeltQuoteAmount: (sats) => { meltQuoteSats = sats; },
+    setMeltFees: (o) => { meltReserve = o.reserve; meltFee = o.fee; },
+    settleMelt: (quote, to) => {
+      const m = meltRows.get(quote);
+      if (!m || m.state !== "PENDING") return;
+      if (to === "PAID") payMelt(quote);
+      else { for (const sec of m.inputs) pendingInputs.delete(sec); m.state = "UNPAID"; }
+    },
+    meltsPaid: () => meltsPaid.slice(),
+    meltPosts: () => meltPosts,
     signedSats: () => [...signed.values()].reduce((n, s) => n + s.amount, 0),
     token: issue,
     quotePosts: () => quotePosts,

@@ -917,3 +917,17 @@ test("a visitor without a payment still clears the work check", async () => {
   assert.equal(ok.status, 200, ok.text);
   assert.equal(ok.body.ok, true);
 });
+
+test("without OWNER_KEY the owner paths are the same 404 as any unknown /v1 path, with or without a key", async () => {
+  const unknown = await call("/v1/no-such-route");
+  for (const [path, init] of [
+    ["/v1/owner/books", {}],
+    ["/v1/owner/books", { headers: { authorization: "Bearer " + "k".repeat(48) } }],
+    ["/v1/owner/withdraw", { method: "POST", headers: { "content-type": "application/json", authorization: "Bearer " + "k".repeat(48) }, body: "{\"invoice\":\"lnbc1\"}" }],
+    ["/v1/owner/withdraw/check", { method: "POST", headers: { "content-type": "application/json" }, body: "{\"quote\":\"q\"}" }],
+  ] as [string, RequestInit][]) {
+    const r = await call(path, init);
+    assert.equal(r.status, 404, path);
+    assert.equal(r.text, unknown.text, path);
+  }
+});

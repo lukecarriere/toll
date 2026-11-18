@@ -5,6 +5,7 @@
 import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 import path from "node:path";
+import { decodeBolt11 } from "../packages/settlement-ln/src/bolt11.ts";
 
 const SECRET_KEY = /^(secret|C|c|dleq|proofs|pass|token|macaroon|invoice|preimage|credential|sig|signature|request)$/i;
 const SECRET_TEXT = /(cashu[AB]|creqA|eyJ)[A-Za-z0-9_\-+/=.]{12,}|((?:Toll|Bearer|L402)\s+)[A-Za-z0-9_\-+/=.:]{12,}/g;
@@ -30,9 +31,12 @@ function has(name) {
   return process.argv.includes(name);
 }
 
-const HELP = `Usage: scripts/live-checks.sh [--base URL] [--out dir] [--expect cashu] [--spend <cap>] [--proofs file] [--wallet module] [--src checkout] [--steps a,b,c,d,e,f]
+const HELP = `Usage: scripts/live-checks.sh [--base URL] [--out dir] [--expect off|cashu] [--l402 on|off] [--spend <cap>] [--proofs file] [--wallet module] [--src checkout] [--steps a,b,c,d,e,f]
 
-Free read-only checks (the default): health, price, POST /demo/contact 403 without an agent header and 402 with one, and GET /demo/stats with exactly {accepted, rejected, reversals, reversed_sats}.
+Free read-only checks (the default): health, price, POST /demo/contact 403 without an agent header and 402 with one, the L402 offer, and GET /demo/stats with exactly {accepted, rejected, reversals, reversed_sats}. Nothing is paid.
+
+--expect cashu (the default, or EXPECT_PAYMENT): payments are on. The agent POST is a 402 with a creqA, and with --l402 on (the default) WWW-Authenticate is an L402 challenge whose invoice amount equals the write price.
+--expect off: payments are off. Health and price report no settlement, the agent POST is the same 403 work check, and there is no X-Cashu, no WWW-Authenticate and no offer.
 
 --spend <cap> also runs the real-ecash checks and will not spend more than <cap>. It reads proofs from --proofs or TOLL_PROOFS and the wallet module from --wallet or TOLL_WALLET. The module exports wallet(), norm, and MINT. Nothing secret is printed. A spend run's .state.json is mode 0600 and stays in the out dir.
 `;
@@ -54,6 +58,11 @@ async function main() {
   const repo = path.resolve(here, "..");
   const base = (arg("--base", process.env.TOLL_BASE || "https://lessspam.dev")).replace(/\/$/, "");
   const expect = arg("--expect", process.env.EXPECT_PAYMENT || "cashu");
+  const l402 = arg("--l402", "on");
+  if (!EXPECT_MODES.includes(expect) || !["on", "off"].includes(l402)) {
+    console.error("--expect must be off or cashu, and --l402 on or off");
+    process.exit(64);
+  }
   const stamp = new Date().toISOString().replace(/[:.]/g, "-");
   const out = path.resolve(arg("--out", path.join(repo, ".verify-toll", `live-${stamp}`)));
   const spend = arg("--spend", "");
@@ -66,7 +75,7 @@ async function main() {
     writeFileSync(path.join(out, `${check}.json`), redact({ check, status, ...detail }) + "\n");
   };
 
-  await freeChecks({ base, expect, note });
+  await freeChecks({ base, expect, l402: l402 === "on", note });
 
   if (spend !== "") {
     if (!/^[0-9]+$/.test(spend)) {
@@ -122,7 +131,24 @@ async function readBody(response) {
   return response.text();
 }
 
-async function freeChecks({ base, expect, note }) {
+export const EXPECT_MODES = ["off", "cashu"];
+
+/** Amount and scheme of an L402 challenge. The macaroon and invoice values are not returned. */
+export function l402Challenge(header) {
+  if (typeof header !== "string" || !/^L402\s/i.test(header.trim())) return { scheme: header ? header.trim().split(/\s/)[0] : null, amount_msat: null };
+  const m = /invoice="([^"]+)"/i.exec(header);
+  let amount = null;
+  try { amount = m ? decodeBolt11(m[1].trim()).amountMsat : null; } catch { amount = null; }
+  return { scheme: "L402", amount_msat: amount, macaroon: /macaroon="[^"]+"/i.test(header) };
+}
+
+/**
+ * The free checks. Read-only: GETs, and POSTs that carry no payment header. `fetchImpl` is for tests.
+ * `expect` is "cashu" (payments on) or "off".
+ */
+export async function freeChecks({ base, expect, l402 = true, note, fetchImpl = globalThis.fetch }) {
+  const fetch = fetchImpl;
+  const on = expect === "cashu";
   const healthRes = await fetch(base + "/v1/health", { signal: AbortSignal.timeout(20000) });
   const healthText = await readBody(healthRes);
   let health;
@@ -134,7 +160,9 @@ async function freeChecks({ base, expect, note }) {
   const priceText = await readBody(priceRes);
   let price;
   try { price = JSON.parse(priceText); } catch { price = null; }
-  const priceOk = priceRes.status === 200 && price && price.action === "write" && price.status === expect && Number.isSafeInteger(price.amount_msat) && price.amount_msat > 0;
+  const priceOk = priceRes.status === 200 && price && price.action === "write" && (on
+    ? price.status === "cashu" && Number.isSafeInteger(price.amount_msat) && price.amount_msat > 0
+    : price.status !== "cashu" && price.amount_msat === null);
   note("price", priceOk ? "PASS" : "FAIL", { http: priceRes.status, action: price?.action ?? null, status: price?.status ?? null, amount_msat: price?.amount_msat ?? null });
 
   const headers = { accept: "application/json", "content-type": "application/json", "toll-test": "1" };
@@ -152,8 +180,20 @@ async function freeChecks({ base, expect, note }) {
   const offers = Array.isArray(agentBody?.offers) ? agentBody.offers : [];
   const cashu = offers.find((offer) => offer && offer.kind === "cashu");
   const headerScheme = schemeOf(agent.headers.get("x-cashu") || "");
-  const agentOk = agent.status === 402 && agentBody && agentBody.error === "payment_required" && headerScheme === "creqA" && cashu && Number.isSafeInteger(cashu.amount) && typeof cashu.mint === "string" && agentBody.pass === undefined;
-  note("gate402", agentOk ? "PASS" : "FAIL", { http: agent.status, error: agentBody?.error ?? null, xCashu: headerScheme, offerKind: cashu?.kind ?? null, offerAmount: cashu?.amount ?? null, offerMint: cashu?.mint ?? null });
+  const auth = agent.headers.get("www-authenticate");
+  const agentOk = on
+    ? agent.status === 402 && agentBody && agentBody.error === "payment_required" && headerScheme === "creqA" && cashu && Number.isSafeInteger(cashu.amount) && typeof cashu.mint === "string" && agentBody.pass === undefined
+    : agent.status === 403 && agentBody && agentBody.error === "toll_required" && Boolean(agentBody.challenge) && agent.headers.get("x-cashu") === null && auth === null && offers.length === 0 && agentBody.pass === undefined;
+  note("gate402", agentOk ? "PASS" : "FAIL", { expect, http: agent.status, error: agentBody?.error ?? null, xCashu: headerScheme, offerKind: cashu?.kind ?? null, offerAmount: cashu?.amount ?? null, offerMint: cashu?.mint ?? null });
+
+  // L402: free. The challenge is read, never paid.
+  const challenge = l402Challenge(auth);
+  const quoteOffer = offers.find((offer) => offer && offer.kind === "l402");
+  const priceMsat = Number.isSafeInteger(price?.amount_msat) ? price.amount_msat : null;
+  const l402Ok = on && l402
+    ? challenge.scheme === "L402" && challenge.macaroon === true && priceMsat !== null && challenge.amount_msat === priceMsat && (!quoteOffer || quoteOffer.amount_msat === priceMsat)
+    : auth === null && !quoteOffer;
+  note("l402", l402Ok ? "PASS" : "FAIL", { expect, l402: on && l402 ? "on" : "off", scheme: challenge.scheme, invoiceMsat: challenge.amount_msat, priceMsat, offerMsat: quoteOffer?.amount_msat ?? null });
 
   const statsRes = await fetch(base + "/demo/stats", { signal: AbortSignal.timeout(20000) });
   const statsText = await readBody(statsRes);
