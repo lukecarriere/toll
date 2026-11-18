@@ -10,11 +10,27 @@ import { CashuReceiveEngine } from "../../settlement-ln/src/cashu-receive.ts";
 import { parseCashuMints } from "../../settlement-ln/src/cashu-net.ts";
 import { mintQuoteRechecks, quoteMode, REFUSAL_COUNT_TTL_S } from "../../settlement-ln/src/mint-quote.ts";
 import { emptySweepSummary, SWEEP_CURSOR_KEY, SWEEP_CURSOR_TTL_S, SWEEP_DEFAULT_BATCH, SWEEP_DEFAULT_BUDGET_MS, sweepMintQuotes, type SweepCandidate, type SweepSummary } from "../../settlement-ln/src/mint-quote-sweep.ts";
-import { claimPending, type CashuBooks, type PendingSwap, type ProofSnapshot, type ProofStore, type StoredProof } from "../../settlement-ln/src/cashu-store.ts";
+import { claimPending, type CashuBooks, type PendingOutput, type PendingSwap, type ProofSnapshot, type ProofStore, type StoredProof } from "../../settlement-ln/src/cashu-store.ts";
 import { cashuFaultSlot, cashuFetch, type CashuEnv } from "./cashu-edge.ts";
+import { inputFee } from "../../settlement-ln/src/cashu-crypto.ts";
+import type { ReserveResult, WithdrawRow, WithdrawState } from "../../settlement-ln/src/cashu-melt.ts";
 
 /** The edge `/demo/stats` body. `reversals` and `reversed_sats` live in cashu_meta rows (no new column). */
 export interface StoreCounts { accepted: number; rejected: number; reversals: number; reversed_sats: number }
+
+/** GET /v1/owner/books. Amounts and counts only: no proof, secret, or blinded value. */
+export interface OwnerBooks {
+  mints: { mint: string; stored_sat: number; proofs: number; withdrawing_sat: number; withdrawals_pending: number }[];
+  stored_sat: number;
+  proofs: number;
+  pending_swap_sat: number;
+  losses_sat: number;
+  withdrawing_sat: number;
+  withdrawn_sat: number;
+  withdraw_fee_sat: number;
+  /** Oldest first, at most 50. A quote id is not a credential. */
+  withdrawals_pending: { quote: string; mint: string; amount_sat: number }[];
+}
 
 /** Set true for the current request to make every store call fail closed. Unset: the store works. */
 export const storeFailSlot = new AsyncLocalStorage<boolean>();
@@ -56,6 +72,8 @@ export class TollStoreDO extends DurableObject {
     // Additive and idempotent. Old rows read as 0, which counts as old enough.
     if (!cols.some((c) => String(c.name) === "at")) this.sql.exec("ALTER TABLE cashu_mint_quote ADD COLUMN at INTEGER NOT NULL DEFAULT 0");
     if (!lossCols.includes("at")) this.sql.exec("ALTER TABLE cashu_mint_loss ADD COLUMN at INTEGER NOT NULL DEFAULT 0");
+    // Owner withdrawals. Additive: an empty table until the owner key is set and a melt is made.
+    this.sql.exec("CREATE TABLE IF NOT EXISTS cashu_withdraw (quote TEXT PRIMARY KEY, mint TEXT NOT NULL, amount INTEGER NOT NULL, fee_reserve INTEGER NOT NULL, state TEXT NOT NULL, inputs TEXT NOT NULL, outputs TEXT NOT NULL, fee INTEGER NOT NULL DEFAULT 0, change INTEGER NOT NULL DEFAULT 0, at INTEGER NOT NULL)");
   }
 
   /** Several statements, one commit. A throw rolls them back. */
@@ -269,6 +287,113 @@ export class TollStoreDO extends DurableObject {
     const stored = snap.proofs.reduce((n, p) => n + p.amount, 0);
     const pending = snap.pending.reduce((n, p) => n + p.outSats, 0);
     return { stored, pending, losses: snap.losses, spent: snap.spent.length, inSats: stored + pending + snap.losses };
+  }
+
+  ownerBooks(): OwnerBooks {
+    const mints = new Map<string, OwnerBooks["mints"][number]>();
+    const row = (mint: string) => {
+      let m = mints.get(mint);
+      if (!m) { m = { mint, stored_sat: 0, proofs: 0, withdrawing_sat: 0, withdrawals_pending: 0 }; mints.set(mint, m); }
+      return m;
+    };
+    for (const r of this.sql.exec("SELECT mint, COUNT(*) AS n, COALESCE(SUM(amount), 0) AS s FROM cashu_proof GROUP BY mint").toArray()) {
+      const m = row(String(r.mint));
+      m.proofs = num(r.n);
+      m.stored_sat = num(r.s);
+    }
+    const pendingRows = this.sql.exec("SELECT quote, mint, amount, inputs FROM cashu_withdraw WHERE state = 'pending' ORDER BY at, quote").toArray();
+    for (const r of pendingRows) {
+      const m = row(String(r.mint));
+      m.withdrawals_pending++;
+      m.withdrawing_sat += (JSON.parse(String(r.inputs)) as StoredProof[]).reduce((n, p) => n + p.amount, 0);
+    }
+    const list = [...mints.values()].sort((a, b) => a.mint.localeCompare(b.mint));
+    const books = this.cashuBooks();
+    return {
+      mints: list,
+      stored_sat: list.reduce((n, m) => n + m.stored_sat, 0),
+      proofs: list.reduce((n, m) => n + m.proofs, 0),
+      pending_swap_sat: books.pending,
+      losses_sat: books.losses,
+      withdrawing_sat: list.reduce((n, m) => n + m.withdrawing_sat, 0),
+      withdrawn_sat: this.metaN("withdrawn_sats"),
+      withdraw_fee_sat: this.metaN("withdraw_fee_sats"),
+      withdrawals_pending: pendingRows.slice(0, 50).map((r) => ({ quote: String(r.quote), mint: String(r.mint), amount_sat: num(r.amount) })),
+    };
+  }
+
+  withdrawStoredAt(mint: string): number {
+    const rows = this.sql.exec("SELECT COALESCE(SUM(amount), 0) AS s FROM cashu_proof WHERE mint = ?", mint).toArray();
+    return num(rows[0]?.s ?? 0);
+  }
+
+  /**
+   * One transaction: pick stored proofs at `mint` that cover amount + fee reserve + input fees,
+   * delete them from cashu_proof, and write them with the blank outputs into one pending row.
+   * A proof is never in both tables, so two withdrawals cannot spend the same proof.
+   */
+  withdrawReserve(o: { quote: string; mint: string; amount: number; feeReserve: number; ppk: Record<string, number>; outputs: PendingOutput[]; maxInputs: number }): ReserveResult {
+    return this.tx((): ReserveResult => {
+      if (this.sql.exec("SELECT quote FROM cashu_withdraw WHERE quote = ?", o.quote).toArray().length) return { ok: false, error: "exists" };
+      const rows = this.sql.exec("SELECT secret, amount, keyset, c FROM cashu_proof WHERE mint = ? ORDER BY amount DESC, secret", o.mint).toArray();
+      const picked: StoredProof[] = [];
+      let sum = 0;
+      const need = () => o.amount + o.feeReserve + inputFee(picked.map((p) => o.ppk[p.id.toLowerCase()] ?? 0));
+      for (const r of rows) {
+        if (sum >= need()) break;
+        picked.push({ mint: o.mint, unit: "sat", amount: num(r.amount), id: String(r.keyset), secret: String(r.secret), C: String(r.c) });
+        sum += num(r.amount);
+      }
+      if (sum < need()) return { ok: false, error: "insufficient" };
+      if (picked.length > o.maxInputs) return { ok: false, error: "too_many_inputs" };
+      for (const p of picked) this.sql.exec("DELETE FROM cashu_proof WHERE secret = ?", p.secret);
+      this.sql.exec(
+        "INSERT INTO cashu_withdraw (quote, mint, amount, fee_reserve, state, inputs, outputs, at) VALUES (?, ?, ?, ?, 'pending', ?, ?, ?)",
+        o.quote, o.mint, o.amount, o.feeReserve, JSON.stringify(picked), JSON.stringify(o.outputs), this.now(),
+      );
+      return { ok: true, inputs: picked };
+    });
+  }
+
+  withdrawGet(quote: string): WithdrawRow | null {
+    const r = this.sql.exec("SELECT quote, mint, amount, fee_reserve, state, inputs, outputs, fee, change FROM cashu_withdraw WHERE quote = ?", quote).toArray()[0];
+    if (!r) return null;
+    return {
+      quote: String(r.quote), mint: String(r.mint), amount: num(r.amount), feeReserve: num(r.fee_reserve), state: String(r.state) as WithdrawState,
+      inputs: JSON.parse(String(r.inputs)) as StoredProof[], outputs: JSON.parse(String(r.outputs)) as PendingOutput[], fee: num(r.fee), change: num(r.change),
+    };
+  }
+
+  /** One transaction: store the change, close the row, and book the amount and the fee. Null unless the row is pending. */
+  withdrawFinish(o: { quote: string; change: StoredProof[] }): { amount: number; fee: number; change: number } | null {
+    return this.tx(() => {
+      const row = this.withdrawGet(o.quote);
+      if (!row || row.state !== "pending") return null;
+      const inSum = row.inputs.reduce((n, p) => n + p.amount, 0);
+      const change = o.change.reduce((n, p) => n + p.amount, 0);
+      const fee = inSum - row.amount - change;
+      if (fee < 0) throw new TollError("store_unavailable");
+      for (const p of o.change) {
+        this.sql.exec("INSERT INTO cashu_proof (secret, mint, unit, amount, keyset, c) VALUES (?, ?, 'sat', ?, ?, ?) ON CONFLICT(secret) DO NOTHING", p.secret, row.mint, p.amount, p.id, p.C);
+      }
+      this.sql.exec("UPDATE cashu_withdraw SET state = 'paid', inputs = '[]', outputs = '[]', fee = ?, change = ? WHERE quote = ?", fee, change, o.quote);
+      this.bumpMeta("withdrawn_sats", row.amount);
+      if (fee) this.bumpMeta("withdraw_fee_sats", fee);
+      return { amount: row.amount, fee, change };
+    });
+  }
+
+  /** One transaction: the mint never took the inputs, so they go back to cashu_proof. */
+  withdrawRelease(quote: string): boolean {
+    return this.tx(() => {
+      const row = this.withdrawGet(quote);
+      if (!row || row.state !== "pending") return false;
+      for (const p of row.inputs) {
+        this.sql.exec("INSERT INTO cashu_proof (secret, mint, unit, amount, keyset, c) VALUES (?, ?, 'sat', ?, ?, ?) ON CONFLICT(secret) DO NOTHING", p.secret, row.mint, p.amount, p.id, p.C);
+      }
+      this.sql.exec("UPDATE cashu_withdraw SET state = 'released', inputs = '[]', outputs = '[]' WHERE quote = ?", quote);
+      return true;
+    });
   }
 
   /** Persist a pending swap. Throws replay when an input is already spent. Returns the row that owns those inputs. */
@@ -643,6 +768,12 @@ export interface TollDoStub {
   cashuLose(o: { id: string; marks: string[] }): Promise<{ ok: true }>;
   cashuNoteSigned(amount: number, marks: string[]): Promise<{ ok: true }>;
   cashuRecover(): Promise<{ ok: true }>;
+  ownerBooks(): Promise<OwnerBooks>;
+  withdrawStoredAt(mint: string): Promise<number>;
+  withdrawReserve(o: { quote: string; mint: string; amount: number; feeReserve: number; ppk: Record<string, number>; outputs: PendingOutput[]; maxInputs: number }): Promise<ReserveResult>;
+  withdrawGet(quote: string): Promise<WithdrawRow | null>;
+  withdrawFinish(o: { quote: string; change: StoredProof[] }): Promise<{ amount: number; fee: number; change: number } | null>;
+  withdrawRelease(quote: string): Promise<boolean>;
   mintQuoteSweep(o?: { batch?: number; budgetMs?: number }): Promise<SweepSummary>;
   mintQuoteSeed(o: { quote: string; action: string; amount: number; mint: string; ageS: number; open?: boolean; loss?: string }): Promise<{ ok: boolean }>;
   reserveMintQuote(row: { quote: string; action: string; amount: number; mint: string; outputs?: { amount: number; id: string; secret: string; r: string; B_: string }[] }): Promise<boolean>;

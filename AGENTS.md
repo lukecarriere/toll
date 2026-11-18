@@ -53,6 +53,8 @@ Cannot catch, in `scripts/cashu-guards.ts`:
 - `mint allowlist`: `settlement.cashu.mints` on Node, `CASHU_MINTS` on the worker. `guardMintUrl` refuses anything else. Empty means receive is off.
 - `change`: leftover when the source is larger than the `creqA` amount. `cashuPayer` passes it to `onChange` as a `cashuB` string.
 - `conservation`: sats the mint signed equal stored proofs plus pending outputs plus recorded losses. `abort()` runs only when restore is empty and every input is `UNSPENT`.
+- `melt`: NUT-05 payout of stored proofs to a bolt11 invoice at the mint that signed them. `withdrawToInvoice` in `cashu-melt.ts`. The proofs move to one `cashu_withdraw` row before the mint call. `PAID` stores the NUT-08 change and closes the row. The row is released only when the quote is unpaid and every input is `UNSPENT`.
+- `owner key`: the `OWNER_KEY` Worker secret, 32+ characters. Unset, every `/v1/owner/` path on the site worker is the unknown-path 404.
 - `l402`: the mint-quote offer beside Cashu. `kind` is `l402`. The header is `WWW-Authenticate`. The test invoice is the loopback stand-in. A real invoice is read only when `L402_ENABLED` is `1`. A retry may omit the preimage when the mint reports the quote `PAID`. Payment is the store's mint-quote row, not mint state `ISSUED`. Blinded outputs are stored on that row before the mint signs. A mint error that leaves the quote `PAID` releases the row. A lost response is recovered from those outputs. An `ISSUED` quote whose signatures cannot be fetched stays a loss.
 
 ## Team rules

@@ -283,3 +283,19 @@ To publish it, after a verifier has passed and someone who may deploy chooses to
 4. Optional one-shot check, at most 10 sat: `L402_BASE` is the issuer origin, `L402_WALLET` reads one invoice on stdin and writes a 64-hex preimage, or nothing, on stdout. An empty stdout sends the macaroon alone. Neither value is printed. `scripts/l402-live-check.sh 10` pays once and prints `ok` and the sat amount. A cap above 10 is refused before any payment. Each run pays again.
 
 Not done: the agent package does not pay this offer by itself. Invoice signatures are not recovered. Spending the stored proofs onward is still not built.
+
+## 19. Owner books and withdraw on the site worker (off unless OWNER_KEY is set)
+
+Paid proofs (Cashu receive and minted L402 quotes) are stored in the `TOLL_STORE` Durable Object, `cashu_proof`. These routes let the owner read the totals and pay stored proofs out over Lightning. They are off by default.
+
+- **Switch.** `OWNER_KEY` Worker secret, 32+ characters. Unset or shorter: every `/v1/owner/` path on the site worker is the same `404 {"error":"not_found"}` as any unknown `/v1` path. `wrangler.toml` does not set it. Calls send `Authorization: Bearer <OWNER_KEY>`. The key is compared as SHA-256 digests in constant time. A wrong or missing key is `401`. Ten failures from one address in a minute are `429` for the rest of that minute.
+- **`GET /v1/owner/books`** → `{mints: [{mint, stored_sat, proofs, withdrawing_sat, withdrawals_pending}], stored_sat, proofs, pending_swap_sat, losses_sat, withdrawing_sat, withdrawn_sat, withdraw_fee_sat, withdrawals_pending: [{quote, mint, amount_sat}]}`. Amounts and counts only, never a proof, secret or blinded value.
+- **`POST /v1/owner/withdraw {invoice | lightning_address + amount_sat, mint?, max_fee_sat?}`** melts stored proofs at the mint that signed them (NUT-05) to a bolt11 invoice with an amount, or to a Lightning address (LUD-16, https, the returned invoice must be for exactly `amount_sat`). `mint` defaults to the mint holding the most. `max_fee_sat` defaults to 2% of the amount, at least 10 sat; a larger mint fee reserve is `400 fee_too_high` before anything is reserved.
+  1. Melt quote, then one store write (`withdrawReserve`): proofs covering amount + fee reserve + input fees move out of `cashu_proof` into one `cashu_withdraw` row, with NUT-08 blank outputs for the change. A proof is never in both tables, so two withdrawals cannot spend one proof.
+  2. `POST /v1/melt/bolt11` (25 s bound). `PAID`: the change is unblinded and stored, the row is closed, and the amount and fee are booked, in one write (`withdrawFinish`) → `200 {state: "paid", quote, amount_sat, fee_sat, change_sat}`.
+  3. A timeout, a lost response, a 5xx or `PENDING` keeps the row and its proofs → `202 {state: "pending", quote}`.
+  4. A refusal is settled from the mint: the quote is `UNPAID` (or unknown) **and** NUT-07 reports every input `UNSPENT` → the proofs go back in one write (`withdrawRelease`) → `502 {state: "released"}`. Anything less certain stays pending.
+- **`POST /v1/owner/withdraw/check {quote}`** settles a pending row from the mint's quote state the same way (change from the quote, else NUT-09 restore of the blank outputs). A paid or released row is final; a second check changes nothing.
+- Errors before a reserve move nothing: `insufficient`, `too_many_inputs` (more than 100 inputs; withdraw less), `bad_invoice`, `amount_required`, `bad_address`, `mint_unavailable`, `mint_refused`.
+- Logs: `owner_withdraw {kind, state, amount_sat, fee_sat}` and the usual `mint` path/status lines. No key, invoice, proof or secret is logged.
+- Enable: set the secret (`wrangler secret put OWNER_KEY`, a random value of 32+ characters, never printed), then deploy. Remove it (`wrangler secret delete OWNER_KEY`) to turn the routes off again.

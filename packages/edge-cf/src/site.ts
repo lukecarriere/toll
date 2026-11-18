@@ -5,6 +5,7 @@ import { TollError } from "../../protocol/src/index.ts";
 import { createEdgeHandler, type EdgeEnv } from "./handler.ts";
 import { DurableObjectStore, DurableProofStore, storeFailSlot, TollStoreDO, type TollDoStub } from "./do-store.ts";
 import { workerHandles, wwwRedirect } from "./host-redirect.ts";
+import { ownerEnabled, ownerRoute, type OwnerEnv } from "./owner.ts";
 
 export { TollStoreDO };
 
@@ -14,7 +15,7 @@ interface DoNs {
   get(id: unknown): TollDoStub;
 }
 
-export interface SiteEnv extends EdgeEnv {
+export interface SiteEnv extends EdgeEnv, OwnerEnv {
   ASSETS: Assets;
   TOLL_STORE: DoNs;
   /** Whole-process fail-closed switch. Unset in wrangler.toml. */
@@ -110,6 +111,17 @@ export default {
         const b = await req.json().catch(() => null) as Parameters<TollDoStub["mintQuoteSeed"]>[0] | null;
         if (!b || typeof b.quote !== "string") return json({ error: "malformed" }, 400);
         return json(await stub(env).mintQuoteSeed(b));
+      }
+      // Owner books and withdraw. Null (the default, OWNER_KEY unset): the path is handled as before.
+      if (url.pathname.startsWith("/v1/owner/")) {
+        if (ownerEnabled(env) && storeFailSlot.getStore() === true) return json({ error: "store_unavailable" }, 503);
+        try {
+          const owner = await ownerRoute(req, env, stub(env), req.headers.get("cf-connecting-ip"));
+          if (owner) return owner;
+        } catch (e) {
+          const malformed = e instanceof TollError && e.code === "malformed";
+          return json({ error: malformed ? "malformed" : "store_unavailable" }, malformed ? 400 : 503);
+        }
       }
       return handler.fetch(req, env);
     });

@@ -16,6 +16,8 @@ export interface MintGuard {
   fetch?: typeof fetch;
   /** Bounds DNS together with the HTTP call. */
   signal?: AbortSignal;
+  /** Longer bound for one call that waits on a Lightning payment (melt). Default MINT_CALL_TIMEOUT_MS. */
+  timeoutMs?: number;
 }
 
 function bareHost(hostname: string): string {
@@ -161,7 +163,7 @@ function lookupWithin(look: (host: string) => Promise<string[]>, host: string, s
 export async function mintFetch(base: string, path: string, init: RequestInit, opts: MintGuard, allowlist: string[]): Promise<{ status: number; text: string }> {
   if (!path.startsWith("/v1/") || path.includes("..") || path.includes("\\") || path.includes("?")) throw new Error("mint path");
   // DNS and the HTTP call share one timer, so a mint call cannot outlast MINT_CALL_TIMEOUT_MS.
-  const signal = AbortSignal.timeout(TIMEOUT_MS);
+  const signal = AbortSignal.timeout(opts.timeoutMs ?? TIMEOUT_MS);
   const key = await guardMintUrl(base, allowlist, { ...opts, signal });
   const f = opts.fetch ?? fetch;
   const method = init.method ?? "GET";
