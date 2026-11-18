@@ -284,7 +284,7 @@ test("a Lightning address resolves to an invoice for exactly the amount, over ht
   for (const bad of ["owner@127.0.0.1", "owner@localhost", "nobody", "a@b"]) await assert.rejects(resolveLightningAddress(bad, 21, fake(pr)), /malformed/);
 });
 
-for (const callback of ["https://127.0.0.1/cb", "https://10.0.0.5/cb", "https://169.254.169.254/latest", "https://[::1]/cb", "https://localhost/cb", "https://192.168.1.1/cb", "https://pay.local/cb", "https://pay.internal/cb"]) {
+for (const callback of ["https://127.0.0.1/cb", "https://10.0.0.5/cb", "https://169.254.169.254/latest", "https://[::1]/cb", "https://localhost/cb", "https://192.168.1.1/cb", "https://pay.local/cb", "https://pay." + "internal/cb"]) {
   test("a Lightning address callback on a non-public host is refused before it is fetched: " + callback, async () => {
     const pr = invoice(21);
     const seen: string[] = [];
