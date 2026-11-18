@@ -163,6 +163,22 @@ test("withdraw refuses before any melt: no amount, too much, fee over the cap, b
   assert.equal((await books()).withdrawing_sat, 0);
 });
 
+test("a melt quote for another amount than the invoice is refused before anything is reserved or melted", async () => {
+  seed(32);
+  const posts = mint.meltPosts();
+  mint.setMeltQuoteAmount(11);
+  try {
+    const r = await owner("/v1/owner/withdraw", { invoice: invoice(10) });
+    assert.equal(r?.status, 400, r?.text);
+    assert.equal(r!.body.error, "mint_bad_quote");
+  } finally {
+    mint.setMeltQuoteAmount(null);
+  }
+  assert.equal(mint.meltPosts(), posts, "no melt was sent");
+  assert.equal(storedSum(), 32);
+  assert.equal(Number((s.db.prepare("SELECT COUNT(*) AS n FROM cashu_withdraw").get() as { n: number }).n), 0, "nothing reserved");
+});
+
 test("a melt the mint refuses returns every proof in one write", async () => {
   seed(32);
   mint.setFault("/v1/melt/bolt11", "refuse");
@@ -267,3 +283,17 @@ test("a Lightning address resolves to an invoice for exactly the amount, over ht
   await assert.rejects(resolveLightningAddress("owner@pay.example.com", 21, fake(pr, "http://pay.example.com/cb")), /malformed/);
   for (const bad of ["owner@127.0.0.1", "owner@localhost", "nobody", "a@b"]) await assert.rejects(resolveLightningAddress(bad, 21, fake(pr)), /malformed/);
 });
+
+for (const callback of ["https://127.0.0.1/cb", "https://10.0.0.5/cb", "https://169.254.169.254/latest", "https://[::1]/cb", "https://localhost/cb", "https://192.168.1.1/cb", "https://pay.local/cb", "https://pay.internal/cb"]) {
+  test("a Lightning address callback on a non-public host is refused before it is fetched: " + callback, async () => {
+    const pr = invoice(21);
+    const seen: string[] = [];
+    const fake = (async (url: string | URL | Request) => {
+      seen.push(String(url));
+      if (String(url).includes("/.well-known/lnurlp/")) return new Response(JSON.stringify({ tag: "payRequest", callback, minSendable: 1000, maxSendable: 1_000_000_000, metadata: "[]" }));
+      return new Response(JSON.stringify({ pr }));
+    }) as typeof fetch;
+    await assert.rejects(resolveLightningAddress("owner@pay.example.com", 21, fake), /malformed/);
+    assert.equal(seen.length, 1, "the callback was not fetched");
+  });
+}

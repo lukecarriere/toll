@@ -68,6 +68,8 @@ export interface KeysetMint {
    * no-change (pays and signs change, but the reply lists none; restore still finds it).
    */
   setMeltFees: (o: { reserve: number; fee: number }) => void;
+  /** Quote this sat amount on the next melt quotes instead of the invoice amount. Null restores it. */
+  setMeltQuoteAmount: (sats: number | null) => void;
   /** Resolve a PENDING melt: PAID pays and signs change, UNPAID frees the inputs. */
   settleMelt: (quote: string, to: "PAID" | "UNPAID") => void;
   /** Invoices this mint has paid, in order. */
@@ -108,6 +110,7 @@ export async function startKeysetMint(opts: { quotes?: boolean } = {}): Promise<
   let meltReserve = 2;
   let meltFee = 1;
   let meltPosts = 0;
+  let meltQuoteSats: number | null = null;
   const meltsPaid: string[] = [];
   const pendingInputs = new Set<string>();
   const meltRows = new Map<string, { request: string; amount: number; state: "UNPAID" | "PENDING" | "PAID"; inputs: string[]; inSum: number; outputs: { id: string; B_: string }[]; change: { id: string; amount: number; C_: string }[] }>();
@@ -335,7 +338,7 @@ export async function startKeysetMint(opts: { quotes?: boolean } = {}): Promise<
         if (body?.unit !== CASHU_UNIT || amountMsat === null || amountMsat % 1000 !== 0) return json(res, 400, { detail: "bad request", code: 11000 });
         const id = toHex(randomBytes(16));
         meltRows.set(id, { request: body.request, amount: amountMsat / 1000, state: "UNPAID", inputs: [], inSum: 0, outputs: [], change: [] });
-        return json(res, 200, { quote: id, amount: amountMsat / 1000, fee_reserve: meltReserve, state: "UNPAID", expiry: Math.floor(Date.now() / 1000) + 600 });
+        return json(res, 200, { quote: id, amount: meltQuoteSats ?? amountMsat / 1000, fee_reserve: meltReserve, state: "UNPAID", expiry: Math.floor(Date.now() / 1000) + 600 });
       }
       const melted = /^\/v1\/melt\/quote\/bolt11\/([0-9a-f]+)$/.exec(path);
       if (req.method === "GET" && melted) {
@@ -411,6 +414,7 @@ export async function startKeysetMint(opts: { quotes?: boolean } = {}): Promise<
     },
     setSignedReply: (reply) => { signedReply = reply; },
     signatureFor: (B_) => signed.get(B_)?.C_,
+    setMeltQuoteAmount: (sats) => { meltQuoteSats = sats; },
     setMeltFees: (o) => { meltReserve = o.reserve; meltFee = o.fee; },
     settleMelt: (quote, to) => {
       const m = meltRows.get(quote);

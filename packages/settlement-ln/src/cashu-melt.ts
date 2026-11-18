@@ -10,7 +10,8 @@ import { TollError, randomHex } from "../../protocol/src/index.ts";
 import { decodeBolt11 } from "./bolt11.ts";
 import { CASHU_UNIT } from "./cashu.ts";
 import { blindMessage, inputFee, secretY, unblind } from "./cashu-crypto.ts";
-import { type MintGuard, mintFetch } from "./cashu-net.ts";
+import { isIP } from "node:net";
+import { type MintGuard, blockedAddress, isLoopbackHost, mintFetch } from "./cashu-net.ts";
 import type { PendingOutput, StoredProof } from "./cashu-store.ts";
 
 /** One melt waits on a Lightning payment, so it gets a longer bound than a swap. */
@@ -279,6 +280,14 @@ export async function withdrawToInvoice(d: MeltDeps, o: { mint: string; invoice:
   return checkWithdrawal(d, quote);
 }
 
+/** The Lightning address host and its callback host: not loopback, private, link-local or a local name. */
+function publicHost(hostname: string): boolean {
+  const h = hostname.toLowerCase().replace(/^\[|\]$/g, "").replace(/\.$/, "");
+  if (!h || isLoopbackHost(h) || h.endsWith(".localhost") || h.endsWith(".local") || h.endsWith(".internal")) return false;
+  if (isIP(h) !== 0) return !blockedAddress(h);
+  return h.includes(".");
+}
+
 /**
  * LUD-16 Lightning address to a bolt11 for `amountSat`. https only, no redirects, small bodies.
  * The invoice amount must equal the request; a different amount is refused before any melt.
@@ -287,7 +296,7 @@ export async function resolveLightningAddress(address: string, amountSat: number
   const m = /^([a-z0-9._+-]{1,64})@([a-z0-9-]{1,63}(?:\.[a-z0-9-]{1,63})+)$/.exec(address.trim().toLowerCase());
   if (!m || !Number.isSafeInteger(amountSat) || amountSat <= 0) throw new TollError("malformed");
   const [, user, host] = m;
-  if (/^[0-9.]+$/.test(host) || host === "localhost" || host.endsWith(".localhost") || host.endsWith(".local") || host.endsWith(".internal")) throw new TollError("malformed");
+  if (/^[0-9.]+$/.test(host) || !publicHost(host)) throw new TollError("malformed");
   const get = async (url: string) => {
     const r = await fetchImpl(url, { redirect: "manual", signal: AbortSignal.timeout(8000), headers: { accept: "application/json" } });
     const text = await r.text();
@@ -301,7 +310,7 @@ export async function resolveLightningAddress(address: string, amountSat: number
   if (info.tag !== "payRequest" || typeof info.callback !== "string") throw new TollError("malformed");
   let cb: URL;
   try { cb = new URL(info.callback); } catch { throw new TollError("malformed"); }
-  if (cb.protocol !== "https:" || cb.username || cb.password) throw new TollError("malformed");
+  if (cb.protocol !== "https:" || cb.username || cb.password || !publicHost(cb.hostname)) throw new TollError("malformed");
   if (!(Number(info.minSendable) <= msat && msat <= Number(info.maxSendable))) throw new TollError("malformed");
   cb.searchParams.set("amount", String(msat));
   const pay = await get(cb.href);
