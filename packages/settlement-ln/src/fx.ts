@@ -4,9 +4,9 @@
 //
 // Sources:
 //   - fixed test rate: demo and tests only. It is not a market price and is labelled as such.
-//   - public: Coinbase's keyless BTC-USD spot price, with mempool.space as a free fallback. No
+//   - public: mempool.space's keyless BTC-USD price (GET /api/v1/prices, the USD field). No
 //     API key. Cached at most 15 minutes. /v1/price refreshes before it answers so usd is not
-//     left null when a source is up.
+//     left null when the source is up.
 //   - none: USD is always hidden.
 
 export interface FxQuote {
@@ -26,9 +26,8 @@ export interface FxSource {
 
 export const FX_MAX_AGE_S = 15 * 60;
 
-/** Free, keyless BTC/USD endpoints tried in order. */
+/** Free, keyless BTC/USD endpoint. */
 export const PUBLIC_FX_URLS = [
-  "https://api.coinbase.com/v2/prices/BTC-USD/spot",
   "https://mempool.space/api/v1/prices",
 ] as const;
 
@@ -112,14 +111,11 @@ export class PublicBtcUsdRate implements FxSource {
   }
 }
 
-/** Coinbase `{ data: { amount } }` or mempool.space `{ USD }`. */
+/** mempool.space `{ USD }`. */
 export function parsePublicUsdPerBtc(body: unknown): number | null {
   if (!body || typeof body !== "object") return null;
   const rec = body as Record<string, unknown>;
-  const data = rec.data;
-  const coinbase = data && typeof data === "object" ? Number((data as { amount?: unknown }).amount) : Number.NaN;
-  const mempool = Number(rec.USD);
-  const rate = Number.isFinite(coinbase) && coinbase > 0 ? coinbase : mempool;
+  const rate = Number(rec.USD);
   if (!(rate >= FX_MIN_USD_PER_BTC && rate <= FX_MAX_USD_PER_BTC) || !Number.isFinite(rate)) return null;
   return rate;
 }

@@ -6,7 +6,7 @@ import { startDemo } from "./helpers.ts";
 import { PublicBtcUsdRate, parsePublicUsdPerBtc } from "../packages/settlement-ln/src/fx.ts";
 
 const realFetch = globalThis.fetch;
-const FX_HOSTS = ["api.coinbase.com", "mempool.space"];
+const FX_HOST = "mempool.space";
 const RATE = 100000; // same arithmetic as the documented fixed test rate: 10,000 msat -> $0.0100
 
 function isFiniteUsd(usd: unknown): boolean {
@@ -19,10 +19,7 @@ function isFiniteUsd(usd: unknown): boolean {
 before(() => {
   globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(typeof input === "object" && input !== null && "url" in input ? (input as Request).url : input);
-    if (FX_HOSTS.some((h) => url.includes(h))) {
-      if (url.includes("api.coinbase.com")) {
-        return new Response(JSON.stringify({ data: { amount: String(RATE), base: "BTC", currency: "USD" } }), { status: 200, headers: { "content-type": "application/json" } });
-      }
+    if (url.includes(FX_HOST)) {
       return new Response(JSON.stringify({ time: 0, USD: RATE }), { status: 200, headers: { "content-type": "application/json" } });
     }
     return realFetch(input as any, init);
@@ -49,44 +46,41 @@ test("GET /v1/price returns a finite usd for a normal paid write", async () => {
   }
 });
 
-test("parsePublicUsdPerBtc reads Coinbase and mempool shapes and rejects junk", () => {
-  assert.equal(parsePublicUsdPerBtc({ data: { amount: "64516.3", base: "BTC", currency: "USD" } }), 64516.3);
+test("parsePublicUsdPerBtc reads the mempool.space USD field and rejects junk", () => {
   assert.equal(parsePublicUsdPerBtc({ time: 1, USD: 64654 }), 64654);
-  assert.equal(parsePublicUsdPerBtc({ data: { amount: "0" } }), null);
+  assert.equal(parsePublicUsdPerBtc({ USD: "81234.5" }), 81234.5);
+  assert.equal(parsePublicUsdPerBtc({ data: { amount: "64516.3" } }), null, "a non-mempool body is not a rate");
   assert.equal(parsePublicUsdPerBtc({ USD: "nope" }), null);
   assert.equal(parsePublicUsdPerBtc(null), null);
 });
 
-test("PublicBtcUsdRate falls back to the second source when the first fails", async () => {
+test("PublicBtcUsdRate uses the mempool.space USD field", async () => {
   const calls: string[] = [];
   const fx = new PublicBtcUsdRate(async (input) => {
     const url = String(input);
     calls.push(url);
-    if (url.includes("api.coinbase.com")) return new Response("down", { status: 503 });
     return new Response(JSON.stringify({ USD: 80000 }), { status: 200, headers: { "content-type": "application/json" } });
   });
   const now = 1_700_000_000;
   const q = await fx.refresh(now);
   assert.equal(q?.usd_per_btc, 80000);
   assert.equal(fx.quote(now)?.usd_per_btc, 80000);
-  assert.ok(calls[0]?.includes("api.coinbase.com"));
-  assert.ok(calls[1]?.includes("mempool.space"));
+  assert.equal(calls.length, 1);
+  assert.ok(calls[0]?.includes("mempool.space"));
 });
 
-test("PublicBtcUsdRate does not silently keep a null quote when a source later responds, and uses the cache within 15 minutes", async () => {
-  let coinbaseOk = false;
+test("PublicBtcUsdRate does not silently keep a null quote when the source later responds, and uses the cache within 15 minutes", async () => {
+  let sourceOk = false;
   const fx = new PublicBtcUsdRate(async (input) => {
     const url = String(input);
-    if (url.includes("api.coinbase.com")) {
-      if (!coinbaseOk) return new Response("down", { status: 503 });
-      return new Response(JSON.stringify({ data: { amount: "90000" } }), { status: 200 });
-    }
-    return new Response("down", { status: 503 });
+    if (!url.includes("mempool.space")) return new Response("unexpected host", { status: 500 });
+    if (!sourceOk) return new Response("down", { status: 503 });
+    return new Response(JSON.stringify({ USD: 90000 }), { status: 200 });
   });
   const now = 1_700_000_000;
   assert.equal(await fx.refresh(now), null);
   assert.equal(fx.quote(now), null);
-  coinbaseOk = true;
+  sourceOk = true;
   const q = await fx.refresh(now);
   assert.equal(q?.usd_per_btc, 90000);
   const again = await fx.refresh(now + 60);
