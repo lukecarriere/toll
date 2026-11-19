@@ -1,6 +1,7 @@
 // Pay a Toll creqA from a cashuA or cashuB token, or from proofs you already hold.
 // An exact amount is sent as it arrived. A larger amount is swapped at the mint first; that
 // payment and any change are cashuB strings.
+import { hasBoundPrice } from "./offer-price.ts";
 import { AgentError, type AgentOffer } from "./index.ts";
 import { CASHU_UNIT, decodePaymentRequest, decodeToken, encodeTokenV4, type CashuProof } from "../../settlement-ln/src/cashu.ts";
 import { blindMessage, deriveKeysetIdV2, inputFee, resolveKeysetId, shortKeysetId, splitAmount, unblind } from "../../settlement-ln/src/cashu-crypto.ts";
@@ -32,6 +33,7 @@ interface Held {
 export function cashuPayer(source: CashuPaySource, opts: CashuPayerOptions = {}) {
   const guard: MintGuard = { loopbackHttp: true, fetch: opts.fetch };
   return async (offer: AgentOffer): Promise<string> => {
+    if (!hasBoundPrice(offer)) throw new AgentError("pay", "invalid or inconsistent price");
     if (offer.kind !== "cashu") throw new AgentError("pay", "not a cashu offer");
     let req: ReturnType<typeof decodePaymentRequest>;
     try { req = decodePaymentRequest(offer.request); } catch { throw new AgentError("pay", "payment request"); }
